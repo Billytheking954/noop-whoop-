@@ -790,6 +790,18 @@ def validate_device(
 
     nights = []
     for c in cycles:
+        # Count observations in the reference interval before applying value/state gates.
+        # No overlapping records is different from recorded zeros or missing fields.
+        window_records = [r for r in records if c["t0"] <= r["unix"] < c["t1"]]
+        raw_values = [r.get("aux_byte_82") for r in window_records]
+        observations = {
+            "records": len(window_records),
+            "recorded_seconds": len({r["unix"] for r in window_records}),
+            "missing": sum(v is None for v in raw_values),
+            "zero": sum(v == 0 for v in raw_values),
+            "inband": sum(v in INBAND for v in raw_values),
+            "out_of_range": sum(v is not None and v != 0 and v not in INBAND for v in raw_values),
+        }
         covered, expected = night_window_coverage(records, c["t0"], c["t1"], duty)
         coverage = (covered / expected) if expected else None
         night = {
@@ -798,6 +810,8 @@ def validate_device(
             "candidate_mean": None,
             "n_samples": 0,
             "matched": False,
+            "observations": observations,
+            "no_overlap": not window_records,
             "windows_sampled": covered,
             "windows_expected": expected,
             "coverage": coverage,
@@ -873,13 +887,15 @@ def validate_device(
         # about the input format, not the data, and "@82 did not win" is exactly the wrong thing to
         # record about a strap whose byte was never ranked. n/a is the honest value; `specificity_scan`
         # below says which of the two happened so a reader cannot mistake one for the other.
-        "offset_82_wins": True if from_app_db else best_off == OFF_SPO2_CANDIDATE,
+        "offset_82_wins": None if from_app_db else best_off == OFF_SPO2_CANDIDATE,
         # A byte with a handful of distinct values cannot be a nightly SpO₂ however well it correlates.
         "value_variance": distinct_82 >= min_distinct and stdev_82 >= MIN_INBAND_STDEV,
-        # n/a (True) unless a duty cycle was detected and coverage could actually be measured.
-        "window_coverage": median_coverage is None or median_coverage >= min_window_coverage,
+        # Unknown coverage is not a measured pass.
+        "window_coverage": None if median_coverage is None else median_coverage >= min_window_coverage,
     }
-    checklist["pass"] = all(checklist.values())
+    # Preserve the existing applicable-check policy; unsupported checks remain explicit
+    # nulls instead of fabricated successes. This is not a clinical promotion gate.
+    checklist["pass"] = all(v for v in checklist.values() if v is not None)
 
     # A strap that never emits @82 has not failed a correlation — it has no data to correlate. Say so
     # explicitly, but only once the capture actually WATCHED the strap long enough, and finely enough,
@@ -923,6 +939,8 @@ def validate_device(
     classification = (
         "feature_absent" if feature_absent else ("pass" if checklist["pass"] else "fail")
     )
+    if nights and all(n["no_overlap"] for n in nights):
+        classification = "no_overlap"
 
     return {
         "device": device,
@@ -1003,7 +1021,7 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
             + ", ".join(f"@{s['offset']}({s['distinct']}v)" for s in rejected)
         )
     flags = " ".join(
-        f"{k}={'PASS' if v else 'FAIL'}"
+        f"{k}={'N/A' if v is None else 'PASS' if v else 'FAIL'}"
         for k, v in cl.items()
         if k != "pass"
     )
@@ -1020,9 +1038,10 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
             )
             warn = "  !! LOW COVERAGE" if n["low_coverage"] else ""
             if not n["matched"]:
+                reason = "no overlapping records" if n.get("no_overlap") else "no eligible in-band samples"
                 lines.append(
                     f"    {n['cycle_start_time']}: export={n['export']:.2f}  candidate=—  "
-                    f"(no in-band samples){cov_s}{warn}"
+                    f"({reason}){cov_s}{warn}"
                 )
             else:
                 lines.append(
@@ -1034,6 +1053,7 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
 
 
 OVERALL_TEXT = {
+    "no_overlap": "NO OVERLAP (agreement unassessable; keep instrumentation-only)",
     "pass": "PASS (candidate strengthens)",
     "fail": "FAIL (keep instrumentation-only)",
     "feature_absent": (
@@ -1088,6 +1108,9 @@ def format_duty_line(result: dict) -> str:
 def coverage_warnings(result: dict) -> List[str]:
     """Loud, quotable reasons a device's numbers should not be read at face value."""
     out = []
+    if result.get("classification") == "no_overlap":
+        out.append(f"{result['device']}: no sensor records overlap the exported sleep windows; "
+                   "agreement cannot be assessed, and this does not prove feature absence")
     d = result.get("duty") or {}
     if d.get("n_missing", 0):
         out.append(

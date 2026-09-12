@@ -998,7 +998,7 @@ class AppDbReaderTests(unittest.TestCase):
         self.assertIsNotNone(res["r"])
         self.assertGreater(res["r"], 0.9)
         # The scan could not run, so it must not be recorded as "@82 lost".
-        self.assertTrue(res["checklist"]["offset_82_wins"])
+        self.assertIsNone(res["checklist"]["offset_82_wins"])
         self.assertIsNone(res["best_specificity_offset"])
 
     def test_a_capture_still_runs_the_specificity_scan(self):
