@@ -74,11 +74,12 @@ import io
 import json
 import math
 import os
+import re
 import sqlite3
 import statistics
 import sys
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from capture_io import configure_utf8_stdio
@@ -158,6 +159,7 @@ HEADER_ALIASES = {
     # English (official export; lowercase after norm)
     "cycle start time": "cycle_start_time",
     "cycle end time": "cycle_end_time",
+    "cycle timezone": "cycle_timezone",
     "sleep onset": "sleep_onset",
     "wake onset": "wake_onset",
     "blood oxygen %": "blood_oxygen_pct",
@@ -199,24 +201,34 @@ def _parse_float(raw: str) -> Optional[float]:
         return None
 
 
-def _parse_export_ts(raw: str) -> Optional[int]:
-    """Parse WHOOP export timestamps to unix seconds (naive wall clock → UTC for windowing).
+def _parse_export_ts(raw: str, cycle_timezone: str = "") -> Optional[int]:
+    """Convert an export timestamp to UTC, preserving its explicit offset.
 
-    Export stamps are wall-clock; for night bucketing we only need a consistent second scale
-    that lines up with the strap's unix field. Absolute TZ offset cancels out when both sides
-    use the same convention for a given local night.
+    Legacy fixtures without timezone metadata retain the prior UTC assumption.
+    An explicit but unrecognised cycle timezone is rejected, not silently ignored.
     """
     raw = (raw or "").strip()
     if not raw:
         return None
-    cleaned = raw.replace("T", " ").rstrip("Z")
-    for n, fmt in ((19, "%Y-%m-%d %H:%M:%S"), (16, "%Y-%m-%d %H:%M")):
-        try:
-            dt = datetime.strptime(cleaned[:n], fmt)
-            return int(dt.replace(tzinfo=timezone.utc).timestamp())
-        except ValueError:
-            continue
-    return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        tz = (cycle_timezone or "").strip()
+        if tz in ("", "UTC", "GMT", "Z"):
+            zone = timezone.utc
+        else:
+            match = re.fullmatch(r"(?:UTC|GMT)?\s*([+-])(\d{2}):?(\d{2})", tz)
+            if not match:
+                return None
+            sign, hours, minutes = match.groups()
+            if int(hours) > 23 or int(minutes) > 59:
+                return None
+            offset = (int(hours) * 60 + int(minutes)) * (1 if sign == "+" else -1)
+            zone = timezone(timedelta(minutes=offset))
+        dt = dt.replace(tzinfo=zone)
+    return int(dt.timestamp())
 
 
 def load_cycles(export_path: str) -> List[dict]:
@@ -263,10 +275,10 @@ def load_cycles(export_path: str) -> List[dict]:
         spo2 = _parse_float(row.get("blood_oxygen_pct", ""))
         if spo2 is None:
             continue  # incomplete night / nap without SpO₂ — not a validation target
-        sleep0 = _parse_export_ts(row.get("sleep_onset", ""))
-        sleep1 = _parse_export_ts(row.get("wake_onset", ""))
-        cyc0 = _parse_export_ts(row.get("cycle_start_time", ""))
-        cyc1 = _parse_export_ts(row.get("cycle_end_time", ""))
+        sleep0 = _parse_export_ts(row.get("sleep_onset", ""), row.get("cycle_timezone", ""))
+        sleep1 = _parse_export_ts(row.get("wake_onset", ""), row.get("cycle_timezone", ""))
+        cyc0 = _parse_export_ts(row.get("cycle_start_time", ""), row.get("cycle_timezone", ""))
+        cyc1 = _parse_export_ts(row.get("cycle_end_time", ""), row.get("cycle_timezone", ""))
         # Prefer sleep window; fall back to cycle span.
         t0 = sleep0 if sleep0 is not None else cyc0
         t1 = sleep1 if sleep1 is not None else cyc1
@@ -415,7 +427,7 @@ def load_app_db_records(path: str, *, device_id: Optional[str] = None) -> List[d
         rec = dict(fields)
         rec["unix"] = ts
         rec["sleep_state"] = state
-        rec["aux_byte_82"] = raw82 if raw82 is not None else 0
+        rec["aux_byte_82"] = raw82  # missing/undecodable is not an observed zero
         rec["spo2_candidate_82"] = raw82 if raw82 in INBAND else None
         out.append(rec)
     if not out:
@@ -497,7 +509,7 @@ def iter_v18_records(capture_records: Sequence[dict]) -> Iterable[dict]:
         if d is None:
             continue
         d = dict(d)
-        raw82 = frame[OFF_SPO2_CANDIDATE] if len(frame) > OFF_SPO2_CANDIDATE else d.get("aux_byte_82", 0)
+        raw82 = frame[OFF_SPO2_CANDIDATE] if len(frame) > OFF_SPO2_CANDIDATE else d.get("aux_byte_82")
         d["aux_byte_82"] = raw82
         d["spo2_candidate_82"] = raw82 if raw82 in INBAND else None
         # Neighbor bytes for specificity scan (absolute offsets).
@@ -544,7 +556,8 @@ def detect_duty_cycle(records: Sequence[dict], *, gap_tolerance_s: Optional[floa
     """Measure @82's on/off schedule from the capture itself. Nothing about it is hard-coded.
 
     Returns a dict whose `mode` is one of:
-      absent       — @82 is 0x00 on every record (the feature never fired, or is not present)
+      unknown      — no record contains an observed @82 value
+      absent       — every observed @82 value is 0x00 (does not itself prove feature absence)
       continuous   — @82 is nonzero on most records (no duty cycle to correct for)
       duty_cycled  — nonzero only in a repeating, phase-locked window; period/phase/length measured
       irregular    — nonzero sometimes, but with no period the harness is willing to claim
@@ -552,14 +565,18 @@ def detect_duty_cycle(records: Sequence[dict], *, gap_tolerance_s: Optional[floa
     Only `duty_cycled` changes how nights are aggregated; the other modes fall through to the
     per-sample behaviour, so a capture this cannot characterise is never silently reweighted.
     """
+    total_records = len(records)
+    records = [r for r in records if r.get("aux_byte_82") is not None]
     n = len(records)
     nonzero = [r for r in records if r.get("aux_byte_82")]
     interval = _median_record_interval(records)
     tol = gap_tolerance_s if gap_tolerance_s is not None else max(2.0 * interval, 2.0)
 
     info = {
-        "mode": "absent",
+        "mode": "absent" if n else "unknown",
         "n_records": n,
+        "n_records_total": total_records,
+        "n_missing": total_records - n,
         "n_nonzero": len(nonzero),
         "nonzero_fraction": (len(nonzero) / n) if n else 0.0,
         "distinct_values": len({r["aux_byte_82"] for r in nonzero}),
@@ -652,6 +669,7 @@ def night_window_coverage(
         window_index(r["unix"], duty)
         for r in records
         if t0 <= r["unix"] < t1 and in_duty_window(r["unix"], duty)
+        and r.get("aux_byte_82") is not None
     }
     return (len(sampled & expected), len(expected))
 
@@ -887,7 +905,8 @@ def validate_device(
     #   • Counting records rather than distinct seconds over-counts a capture that re-delivers the
     #     same historical rows — a resume/reconnect in whoop_sync.py does exactly that — so 200 s of
     #     sleep repeated twenty times scores as 4000 s of observation.
-    asleep_records = [r for r in records if r.get("sleep_state") == SLEEP_ASLEEP]
+    asleep_records = [r for r in records if r.get("sleep_state") == SLEEP_ASLEEP
+                      and r.get("aux_byte_82") is not None]
     asleep_stamps = sorted({r["unix"] for r in asleep_records})
     asleep_span = (asleep_stamps[-1] - asleep_stamps[0]) if len(asleep_stamps) >= 2 else 0
     asleep_interval = _median_record_interval(asleep_records) if len(asleep_stamps) >= 2 else None
@@ -897,7 +916,7 @@ def validate_device(
     )
     feature_absent = (
         duty["mode"] == "absent"
-        and len(records) >= ABSENT_MIN_RECORDS
+        and duty["n_records"] >= ABSENT_MIN_RECORDS
         and observed_asleep_s >= ABSENT_MIN_ASLEEP_SPAN_S
         and cadence_could_see_window
     )
@@ -1032,6 +1051,8 @@ def format_duty_line(result: dict) -> str:
         f"  @82 duty cycle: mode={mode}  nonzero={d.get('n_nonzero', 0)}/{d.get('n_records', 0)} "
         f"({d.get('nonzero_fraction', 0.0):.2%})  distinct_values={d.get('distinct_values', 0)}"
     )
+    if d.get("n_missing", 0):
+        head += f"  missing_field_records={d['n_missing']} (excluded from observation coverage)"
     if mode == "absent":
         # Say WHY an all-zero capture was not allowed to claim absence, rather than letting it read as
         # a plain FAIL for no stated reason. Same principle as reporting rejected offsets.
@@ -1068,6 +1089,11 @@ def coverage_warnings(result: dict) -> List[str]:
     """Loud, quotable reasons a device's numbers should not be read at face value."""
     out = []
     d = result.get("duty") or {}
+    if d.get("n_missing", 0):
+        out.append(
+            f"{result['device']}: @82 is missing or undecodable in {d['n_missing']} record(s); "
+            "those records do not establish zero values or feature absence"
+        )
     cov = result.get("median_window_coverage")
     if cov is not None and cov < DEFAULT_MIN_WINDOW_COVERAGE:
         out.append(
