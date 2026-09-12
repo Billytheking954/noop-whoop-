@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("whoop_trial", Path(__file__).with_name("whoop_trial.py"))
 trial = importlib.util.module_from_spec(spec)
@@ -13,6 +14,19 @@ spec.loader.exec_module(trial)
 
 
 class TrialTests(unittest.TestCase):
+    def test_cli_accepts_backup_and_preserves_missing_matches(self):
+        path = self.fixture()
+        archive = self.root/'snapshot.noopbak'
+        with zipfile.ZipFile(archive, 'w') as z:z.write(path, 'noop-backup.sqlite')
+        whoop = self.root/'sleeps.csv'
+        whoop.write_text('Sleep onset,Wake onset,Cycle timezone,Nap\n'
+                         '2025-01-01 00:00:00,2025-01-01 08:00:00,UTC+00:00,false\n')
+        out = self.root/'comparison.json'
+        with patch('sys.argv', ['whoop_trial', '--db', str(archive), '--whoop', str(whoop),
+                               '--device', 'computed', '--stream-device', 'raw', '--out', str(out)]):
+            trial.main()
+        self.assertEqual(json.loads(out.read_text())['matched'], 0)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

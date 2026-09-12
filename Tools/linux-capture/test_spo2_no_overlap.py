@@ -2,12 +2,33 @@
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
+from pathlib import Path
+import zipfile
 
 import validate_spo2_candidate as vs
 from test_validate_spo2_candidate import _write_app_db, _write_export, _utc
 
 
 class NoOverlapTests(unittest.TestCase):
+    def test_backup_archive_matches_standalone_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            start = _utc(2025, 1, 1)
+            db = _write_app_db(td, [(start+i, 97, 2) for i in range(30)])
+            export = _write_export(td, [('2025-01-01 00:00:00', 97, start, start+30)])
+            archive = Path(td)/'test.noopbak'
+            with zipfile.ZipFile(archive, 'w') as z:z.write(db, 'noop-backup.sqlite')
+            self.assertEqual(vs.validate_device(str(archive), export), vs.validate_device(db, export))
+
+    def test_corrupt_database_refuses_comparison(self):
+        with tempfile.TemporaryDirectory() as td:
+            db = _write_app_db(td, [(100, 97, 2)])
+            body = bytearray(Path(db).read_bytes());body[100] = 0
+            Path(db).write_bytes(body)
+            with patch.object(vs, '_validate_device') as comparison:
+                with self.assertRaises(ValueError):vs.validate_device(db, td)
+                comparison.assert_not_called()
+
     def test_other_night_values_are_not_a_failed_measurement(self):
         with tempfile.TemporaryDirectory() as td:
             start = _utc(2025, 1, 1)

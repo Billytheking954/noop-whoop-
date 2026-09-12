@@ -79,12 +79,16 @@ import sqlite3
 import statistics
 import sys
 import zipfile
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from capture_io import configure_utf8_stdio
 import whoop_activity as wa
 import whoop_frame as wf
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backup_validation import open_verified_database, snapshot_path
 
 # Absolute frame offsets (Interpreter.decodeWhoop5Historical / whoop_activity.decode_v18).
 OFF_HIST_VERSION = 9
@@ -763,7 +767,16 @@ def mae(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
 
 # --- Per-device validation -------------------------------------------------------------------------
 
-def validate_device(
+def validate_device(capture_path: str, export_path: str, **kwargs) -> dict:
+    """Validate database/backup integrity before any physiological comparison."""
+    with snapshot_path(capture_path) as path:
+        if looks_like_sqlite(str(path)) or path.suffix.lower() in ('.sqlite', '.db', '.noopdb'):
+            db = open_verified_database(path)
+            db.close()
+        return _validate_device(str(path), export_path, **kwargs)
+
+
+def _validate_device(
     capture_path: str,
     export_path: str,
     *,

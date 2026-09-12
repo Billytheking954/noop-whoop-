@@ -16,7 +16,11 @@ from pathlib import Path
 import re
 import sqlite3
 import statistics
+import sys
 import zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backup_validation import open_verified_database, snapshot_path
 
 BASELINE = "ad05ec686103e483eea3627d8ab0e4a7e65cf2f5"
 FIELDS = {
@@ -101,10 +105,7 @@ def read_whoop(path):
 
 
 def open_snapshot(path):
-    path = Path(path).resolve(strict=True)
-    if any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
-        raise ValueError("Use a consistent standalone exported database snapshot, without sidecars")
-    db = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
+    db = open_verified_database(path)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA query_only=ON")
     return db
@@ -277,11 +278,12 @@ def main():
     parser.add_argument("--out", required=True, help="New private output JSON path")
     args = parser.parse_args()
     ws, csv_hash = read_whoop(args.whoop)
-    db = open_snapshot(args.db)
-    try:
-        report = compare(db, args.device, args.stream_device, ws)
-    finally:
-        db.close()
+    with snapshot_path(args.db) as path:
+        db = open_snapshot(path)
+        try:
+            report = compare(db, args.device, args.stream_device, ws)
+        finally:
+            db.close()
     report["whoop_csv_sha256"] = csv_hash
     report["limitations"] = [
         "Agreement with WHOOP is not PSG accuracy; no epoch reference is supplied.",
