@@ -6,7 +6,10 @@ import WhoopProtocol
 /// This is the handoff object for replay algorithms. Callers do not know file names, JSON layout, or
 /// archive directories; they receive the same protocol-level row types the production stager consumes.
 /// Reference labels are deliberately absent from this type.
-public struct NightLabArchivedStreams: Sendable, Equatable {
+///
+/// Intentionally not declared `Sendable`: the existing WhoopProtocol row structs are not Sendable contracts.
+/// Night Lab does not strengthen another package's concurrency promises by wishful thinking.
+public struct NightLabArchivedStreams: Equatable {
     public let manifest: NightRecordManifest
     public let hr: [HRSample]
     public let rr: [RRInterval]
