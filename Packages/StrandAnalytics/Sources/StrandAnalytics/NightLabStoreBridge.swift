@@ -118,6 +118,8 @@ public enum NightLabStoreBridge {
             throw NightLabStoreBridgeError.invalidSnapshotAttempts
         }
 
+        // Read and validate the entire source snapshot BEFORE creating archive state. Row-limit failures and
+        // a moving offload therefore leave no partial night behind.
         let snapshot = try await stableSnapshot(store: store, request: request)
         let sourceModel = request.sourceDeviceModelOverride ?? snapshot.sourceDeviceModel
 
@@ -137,60 +139,68 @@ public enum NightLabStoreBridge {
         )
         try await archive.createNight(recording)
 
-        // Store the EXACT rows returned by NOOP's normal read policy. Sorted-key JSON makes repeated
-        // captures byte-stable for the same rows and therefore gives useful SHA-256 evidence.
-        try await appendIfPresent(snapshot.hr,
-                                  timestamps: snapshot.hr.map(\.ts),
-                                  nightID: request.nightID,
-                                  assetID: "hr",
-                                  kind: .heartRate,
-                                  fileName: "hr.json",
-                                  expectedCadenceHz: 1.0,
-                                  archive: archive)
-        try await appendIfPresent(snapshot.rr,
-                                  timestamps: snapshot.rr.map(\.ts),
-                                  nightID: request.nightID,
-                                  assetID: "rr",
-                                  kind: .rrIntervals,
-                                  fileName: "rr.json",
-                                  expectedCadenceHz: nil,
-                                  archive: archive)
-        try await appendIfPresent(snapshot.gravity,
-                                  timestamps: snapshot.gravity.map(\.ts),
-                                  nightID: request.nightID,
-                                  assetID: "gravity",
-                                  kind: .accelerometer,
-                                  fileName: "gravity.json",
-                                  expectedCadenceHz: 1.0,
-                                  archive: archive)
-        try await appendIfPresent(snapshot.respiration,
-                                  timestamps: snapshot.respiration.map(\.ts),
-                                  nightID: request.nightID,
-                                  assetID: "respiration",
-                                  kind: .respiration,
-                                  fileName: "respiration.json",
-                                  expectedCadenceHz: 1.0,
-                                  archive: archive)
+        do {
+            // Store the EXACT rows returned by NOOP's normal read policy. Sorted-key JSON makes repeated
+            // captures byte-stable for the same rows and therefore gives useful SHA-256 evidence.
+            try await appendIfPresent(snapshot.hr,
+                                      timestamps: snapshot.hr.map(\.ts),
+                                      nightID: request.nightID,
+                                      assetID: "hr",
+                                      kind: .heartRate,
+                                      fileName: "hr.json",
+                                      expectedCadenceHz: 1.0,
+                                      archive: archive)
+            try await appendIfPresent(snapshot.rr,
+                                      timestamps: snapshot.rr.map(\.ts),
+                                      nightID: request.nightID,
+                                      assetID: "rr",
+                                      kind: .rrIntervals,
+                                      fileName: "rr.json",
+                                      expectedCadenceHz: nil,
+                                      archive: archive)
+            try await appendIfPresent(snapshot.gravity,
+                                      timestamps: snapshot.gravity.map(\.ts),
+                                      nightID: request.nightID,
+                                      assetID: "gravity",
+                                      kind: .accelerometer,
+                                      fileName: "gravity.json",
+                                      expectedCadenceHz: 1.0,
+                                      archive: archive)
+            try await appendIfPresent(snapshot.respiration,
+                                      timestamps: snapshot.respiration.map(\.ts),
+                                      nightID: request.nightID,
+                                      assetID: "respiration",
+                                      kind: .respiration,
+                                      fileName: "respiration.json",
+                                      expectedCadenceHz: 1.0,
+                                      archive: archive)
 
-        let wristRows = snapshot.wristStatus.map {
-            NightLabWristStatusRow(ts: $0.ts, state: $0.contact.rawValue)
+            let wristRows = snapshot.wristStatus.map {
+                NightLabWristStatusRow(ts: $0.ts, state: $0.contact.rawValue)
+            }
+            try await appendIfPresent(wristRows,
+                                      timestamps: wristRows.map(\.ts),
+                                      nightID: request.nightID,
+                                      assetID: "wrist-status",
+                                      kind: .wristStatus,
+                                      fileName: "wrist-status.json",
+                                      expectedCadenceHz: nil,
+                                      archive: archive)
+
+            let coverage = coverageReports(snapshot: snapshot,
+                                           windowStartUnix: request.windowStartUnix,
+                                           windowEndUnix: request.windowEndUnix)
+            let sealed = try await archive.sealNight(nightID: request.nightID)
+            return NightLabStoreBridgeResult(manifest: sealed,
+                                             coverage: coverage,
+                                             sourceFingerprint: snapshot.fingerprint)
+        } catch {
+            // The bridge owns this recording because createNight above succeeded. Roll it back so a transient
+            // filesystem/encoding error can be retried with the same night ID. discardRecordingNight refuses
+            // sealed evidence, so this cleanup path can never delete a successful archive.
+            try? await archive.discardRecordingNight(nightID: request.nightID)
+            throw error
         }
-        try await appendIfPresent(wristRows,
-                                  timestamps: wristRows.map(\.ts),
-                                  nightID: request.nightID,
-                                  assetID: "wrist-status",
-                                  kind: .wristStatus,
-                                  fileName: "wrist-status.json",
-                                  expectedCadenceHz: nil,
-                                  archive: archive)
-
-        let coverage = coverageReports(snapshot: snapshot,
-                                       windowStartUnix: request.windowStartUnix,
-                                       windowEndUnix: request.windowEndUnix)
-        let sealed = try await archive.sealNight(nightID: request.nightID)
-        return NightLabStoreBridgeResult(manifest: sealed,
-                                         coverage: coverage,
-                                         sourceFingerprint: snapshot.fingerprint)
     }
 
     // MARK: - Stable source snapshot
