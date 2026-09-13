@@ -99,16 +99,9 @@ public actor NightLabFileStore {
                                   digestAlgorithm: "sha256",
                                   digest: digest)
 
-        let updated = NightRecordManifest(schemaVersion: manifest.schemaVersion,
-                                          nightID: manifest.nightID,
-                                          state: .recording,
-                                          windowStartUnix: manifest.windowStartUnix,
-                                          windowEndUnix: manifest.windowEndUnix,
-                                          timezoneOffsetSeconds: manifest.timezoneOffsetSeconds,
-                                          sourceDeviceModel: manifest.sourceDeviceModel,
-                                          sourceFirmware: manifest.sourceFirmware,
-                                          noopVersion: manifest.noopVersion,
-                                          rawAssets: manifest.rawAssets + [asset])
+        let updated = copyManifest(manifest,
+                                   state: .recording,
+                                   rawAssets: manifest.rawAssets + [asset])
         try NightManifestValidator.validate(updated)
 
         do {
@@ -142,16 +135,7 @@ public actor NightLabFileStore {
             }
         }
 
-        let sealed = NightRecordManifest(schemaVersion: manifest.schemaVersion,
-                                         nightID: manifest.nightID,
-                                         state: .sealed,
-                                         windowStartUnix: manifest.windowStartUnix,
-                                         windowEndUnix: manifest.windowEndUnix,
-                                         timezoneOffsetSeconds: manifest.timezoneOffsetSeconds,
-                                         sourceDeviceModel: manifest.sourceDeviceModel,
-                                         sourceFirmware: manifest.sourceFirmware,
-                                         noopVersion: manifest.noopVersion,
-                                         rawAssets: manifest.rawAssets)
+        let sealed = copyManifest(manifest, state: .sealed, rawAssets: manifest.rawAssets)
         try NightManifestValidator.validate(sealed)
         try writeManifest(sealed)
         return sealed
@@ -222,6 +206,26 @@ public actor NightLabFileStore {
     }
 
     // MARK: - Paths / writes
+
+    /// Rebuild a manifest without dropping provenance as its state/assets change. Keeping this construction
+    /// in one place prevents a future schema field from being silently erased by append/seal lifecycle code.
+    private func copyManifest(_ manifest: NightRecordManifest,
+                              state: NightRecordState,
+                              rawAssets: [NightRawAsset]) -> NightRecordManifest {
+        NightRecordManifest(schemaVersion: manifest.schemaVersion,
+                            nightID: manifest.nightID,
+                            state: state,
+                            windowStartUnix: manifest.windowStartUnix,
+                            windowEndUnix: manifest.windowEndUnix,
+                            timezoneOffsetSeconds: manifest.timezoneOffsetSeconds,
+                            sourceDeviceID: manifest.sourceDeviceID,
+                            sourceDeviceModel: manifest.sourceDeviceModel,
+                            sourceFirmware: manifest.sourceFirmware,
+                            sourceStoreSchemaVersion: manifest.sourceStoreSchemaVersion,
+                            sourceStreamFingerprint: manifest.sourceStreamFingerprint,
+                            noopVersion: manifest.noopVersion,
+                            rawAssets: rawAssets)
+    }
 
     private func nightURL(_ nightID: String) -> URL {
         rootDirectory.appendingPathComponent(NightLabArchiveLayout.nightDirectory(nightID), isDirectory: true)
