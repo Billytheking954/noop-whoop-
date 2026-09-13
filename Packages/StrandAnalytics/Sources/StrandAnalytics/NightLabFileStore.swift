@@ -57,6 +57,18 @@ public actor NightLabFileStore {
         return try NightLabJSON.decode(NightRecordManifest.self, from: Data(contentsOf: url))
     }
 
+    /// Remove an incomplete recording so a failed multi-file capture can be retried cleanly.
+    ///
+    /// This is deliberately NOT a general delete API. A sealed night is immutable evidence and can never be
+    /// removed through this rollback path. The actor serializes this against append/seal operations.
+    public func discardRecordingNight(nightID: String) throws {
+        let manifest = try loadManifest(nightID: nightID)
+        guard manifest.state == .recording else {
+            throw NightLabFileStoreError.nightNotRecording(nightID)
+        }
+        try fileManager.removeItem(at: nightURL(nightID))
+    }
+
     /// Append one raw asset while a night is recording. Existing raw files are never replaced.
     ///
     /// `fileName` is a basename only. The stored manifest receives the canonical `raw/<fileName>` path and
