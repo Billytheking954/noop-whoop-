@@ -96,6 +96,7 @@ public enum NightLabStoreBridge {
         let gravity: [GravitySample]
         let respiration: [RespSample]
         let wristStatus: [StandardHRContactSample]
+        let sourceDeviceModel: String?
         let fingerprint: String
     }
 
@@ -118,8 +119,7 @@ public enum NightLabStoreBridge {
         }
 
         let snapshot = try await stableSnapshot(store: store, request: request)
-        let sourceModel = request.sourceDeviceModelOverride
-            ?? modelFromRegistry(store: store, deviceID: request.deviceID)
+        let sourceModel = request.sourceDeviceModelOverride ?? snapshot.sourceDeviceModel
 
         let recording = NightRecordManifest(
             nightID: request.nightID,
@@ -203,9 +203,10 @@ public enum NightLabStoreBridge {
         let fetchLimit = request.maxRowsPerStream + 1
 
         for _ in 0..<request.maxSnapshotAttempts {
-            let before = try await store.dayStreamFingerprint(deviceId: request.deviceID,
-                                                              from: request.windowStartUnix,
-                                                              to: inclusiveEnd)
+            let before = try await sourceFingerprint(store: store,
+                                                     deviceID: request.deviceID,
+                                                     from: request.windowStartUnix,
+                                                     to: inclusiveEnd)
 
             let hr = try await store.hrSamples(deviceId: request.deviceID,
                                                from: request.windowStartUnix,
@@ -238,20 +239,39 @@ public enum NightLabStoreBridge {
                                                                  limit: fetchLimit)
             try enforceLimit(wristStatus.count, kind: .wristStatus, limit: request.maxRowsPerStream)
 
-            let after = try await store.dayStreamFingerprint(deviceId: request.deviceID,
-                                                             from: request.windowStartUnix,
-                                                             to: inclusiveEnd)
+            // Registry model lookup belongs INSIDE the witness bracket. dayStreamFingerprint contains the
+            // registry brand/model text, so a concurrent model reconciliation causes this attempt to retry.
+            let sourceDeviceModel = modelFromRegistry(store: store, deviceID: request.deviceID)
+            let after = try await sourceFingerprint(store: store,
+                                                    deviceID: request.deviceID,
+                                                    from: request.windowStartUnix,
+                                                    to: inclusiveEnd)
             if before == after {
                 return Snapshot(hr: hr,
                                 rr: rr,
                                 gravity: gravity,
                                 respiration: respiration,
                                 wristStatus: wristStatus,
+                                sourceDeviceModel: sourceDeviceModel,
                                 fingerprint: after)
             }
         }
 
         throw NightLabStoreBridgeError.sourceChangedDuringSnapshot(attempts: request.maxSnapshotAttempts)
+    }
+
+    /// Composite witness for EVERY source the bridge currently snapshots.
+    ///
+    /// `dayStreamFingerprint` intentionally omits measured `hrSample` because its original cache job did not
+    /// need that row family. Night Lab does. Pairing it with `hrFingerprint` closes that hole while retaining
+    /// dayStreamFingerprint's PPG fallback, R-R, respiration, gravity, event and registry witnesses.
+    private static func sourceFingerprint(store: WhoopStore,
+                                          deviceID: String,
+                                          from: Int,
+                                          to: Int) async throws -> String {
+        let day = try await store.dayStreamFingerprint(deviceId: deviceID, from: from, to: to)
+        let measuredHR = try await store.hrFingerprint(deviceId: deviceID, from: from, to: to)
+        return day + "|measuredHr\(measuredHR.count):\(measuredHR.maxTs)"
     }
 
     private static func enforceLimit(_ count: Int,
