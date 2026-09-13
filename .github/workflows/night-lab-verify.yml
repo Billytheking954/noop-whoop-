@@ -1,0 +1,17 @@
+name: Night Lab Replay Verification
+
+on:
+  push:
+    branches:
+      - phase1/night-lab-foundation
+
+jobs:
+  strand-analytics:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Test StrandAnalytics
+        run: swift test
+        working-directory: Packages/StrandAnalytics
