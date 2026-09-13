@@ -1,6 +1,18 @@
 import Foundation
 import CryptoKit
 
+public struct NightDerivedArtifactIdentity: Codable, Sendable, Equatable {
+    public let relativePath: String
+    public let sha256: String
+    public let byteCount: Int
+
+    public init(relativePath: String, sha256: String, byteCount: Int) {
+        self.relativePath = relativePath
+        self.sha256 = sha256
+        self.byteCount = byteCount
+    }
+}
+
 public enum NightLabFileStoreError: Error, Sendable, Equatable {
     case nightAlreadyExists(String)
     case nightNotFound(String)
@@ -11,6 +23,9 @@ public enum NightLabFileStoreError: Error, Sendable, Equatable {
     case unsafeFileName(String)
     case referenceNightMismatch(expected: String, actual: String)
     case corruptRawAsset(String)
+    case derivedRequiresSealedNight(String)
+    case derivedArtifactConflict(String)
+    case derivedArtifactNotFound(String)
 }
 
 /// Local write-once archive for Night Lab research nights.
@@ -171,6 +186,60 @@ public actor NightLabFileStore {
         try writeNew(try NightLabJSON.encode(run), to: url)
     }
 
+    /// Save one canonical derived artifact. Replaying identical evidence is idempotent: byte-identical
+    /// content returns the same identity. Different bytes at the same canonical path are evidence conflict,
+    /// never an overwrite.
+    @discardableResult
+    public func saveDeterministicDerivedArtifact(nightID: String,
+                                                 fileName: String,
+                                                 data: Data) throws -> NightDerivedArtifactIdentity {
+        try requireSealedNight(nightID)
+        guard isSafeFileName(fileName) else { throw NightLabFileStoreError.unsafeFileName(fileName) }
+
+        let relativePath = "derived/\(fileName)"
+        let url = derivedURL(nightID).appendingPathComponent(fileName, isDirectory: false)
+        return try saveDeterministic(data,
+                                     to: url,
+                                     relativePath: relativePath,
+                                     conflictName: fileName)
+    }
+
+    /// Read an already-persisted canonical derived artifact. This is primarily an audit/test seam; replay
+    /// algorithms never use previous derived results as inputs.
+    public func derivedArtifactData(nightID: String, fileName: String) throws -> Data {
+        _ = try loadManifest(nightID: nightID)
+        guard isSafeFileName(fileName) else { throw NightLabFileStoreError.unsafeFileName(fileName) }
+        let url = derivedURL(nightID).appendingPathComponent(fileName, isDirectory: false)
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw NightLabFileStoreError.derivedArtifactNotFound(fileName)
+        }
+        return try Data(contentsOf: url)
+    }
+
+    /// Append one non-deterministic execution artifact below derived/executions. Timing receipts belong here,
+    /// not in the canonical baseline. Existing receipt paths are never replaced.
+    @discardableResult
+    public func saveExecutionDerivedArtifact(nightID: String,
+                                             fileName: String,
+                                             data: Data) throws -> NightDerivedArtifactIdentity {
+        try requireSealedNight(nightID)
+        guard isSafeFileName(fileName) else { throw NightLabFileStoreError.unsafeFileName(fileName) }
+        let directory = executionsURL(nightID)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(fileName, isDirectory: false)
+        guard !fileManager.fileExists(atPath: url.path) else {
+            throw NightLabFileStoreError.derivedArtifactConflict("executions/\(fileName)")
+        }
+        do {
+            try data.write(to: url, options: [.atomic, .withoutOverwriting])
+        } catch CocoaError.fileWriteFileExists {
+            throw NightLabFileStoreError.derivedArtifactConflict("executions/\(fileName)")
+        }
+        return NightDerivedArtifactIdentity(relativePath: "derived/executions/\(fileName)",
+                                             sha256: Self.sha256Hex(data),
+                                             byteCount: data.count)
+    }
+
     /// Persist reference labels in their own namespace. These bytes are never loaded by the replay runner.
     public func saveReference(_ reference: NightReferenceLabels, for nightID: String) throws {
         _ = try loadManifest(nightID: nightID)
@@ -190,6 +259,14 @@ public actor NightLabFileStore {
     }
 
     // MARK: - Integrity
+
+    private func requireSealedNight(_ nightID: String) throws {
+        let manifest = try loadManifest(nightID: nightID)
+        guard manifest.state == .sealed else {
+            throw NightLabFileStoreError.derivedRequiresSealedNight(nightID)
+        }
+        try NightManifestValidator.validate(manifest)
+    }
 
     private func verifiedRawData(nightID: String, asset: NightRawAsset) throws -> Data {
         let prefix = "raw/"
@@ -255,6 +332,10 @@ public actor NightLabFileStore {
         nightURL(nightID).appendingPathComponent("derived", isDirectory: true)
     }
 
+    private func executionsURL(_ nightID: String) -> URL {
+        derivedURL(nightID).appendingPathComponent("executions", isDirectory: true)
+    }
+
     private func referencesURL(_ nightID: String) -> URL {
         nightURL(nightID).appendingPathComponent("references", isDirectory: true)
     }
@@ -262,6 +343,35 @@ public actor NightLabFileStore {
     private func writeManifest(_ manifest: NightRecordManifest) throws {
         let data = try NightLabJSON.encode(manifest)
         try data.write(to: manifestURL(manifest.nightID), options: [.atomic])
+    }
+
+    private func saveDeterministic(_ data: Data,
+                                   to url: URL,
+                                   relativePath: String,
+                                   conflictName: String) throws -> NightDerivedArtifactIdentity {
+        if fileManager.fileExists(atPath: url.path) {
+            let existing = try Data(contentsOf: url)
+            guard existing == data else {
+                throw NightLabFileStoreError.derivedArtifactConflict(conflictName)
+            }
+            return NightDerivedArtifactIdentity(relativePath: relativePath,
+                                                 sha256: Self.sha256Hex(existing),
+                                                 byteCount: existing.count)
+        }
+
+        do {
+            try data.write(to: url, options: [.atomic, .withoutOverwriting])
+        } catch CocoaError.fileWriteFileExists {
+            // Defend against an external writer racing this actor: identical remains idempotent, different
+            // remains a conflict. The actor already serializes all NightLabFileStore callers.
+            let existing = try Data(contentsOf: url)
+            guard existing == data else {
+                throw NightLabFileStoreError.derivedArtifactConflict(conflictName)
+            }
+        }
+        return NightDerivedArtifactIdentity(relativePath: relativePath,
+                                             sha256: Self.sha256Hex(data),
+                                             byteCount: data.count)
     }
 
     private func writeNew(_ data: Data, to url: URL) throws {
