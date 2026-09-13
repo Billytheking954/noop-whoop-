@@ -174,4 +174,98 @@ final class NightLabFileStoreTests: XCTestCase {
         let after = try await store.loadManifest(nightID: "night-1")
         XCTAssertEqual(after, before)
     }
+
+    /// Regression for the macOS Foundation crash:
+    /// `Data.write(options: [.atomic, .withoutOverwriting])` is unsupported. Every Night Lab write-once
+    /// namespace must use the safe create-if-absent publisher instead.
+    func testWriteOncePublishingWorksAcrossRawDerivedExecutionAndReferenceNamespaces() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NightLabFileStore(rootDirectory: root)
+        try await store.createNight(recordingManifest(id: "write-once-night"))
+
+        let raw = Data("raw-evidence".utf8)
+        _ = try await store.appendRawAsset(
+            nightID: "write-once-night",
+            assetID: "hr",
+            kind: .heartRate,
+            fileName: "hr.bin",
+            data: raw,
+            startUnix: 1_000,
+            endUnix: 2_000,
+            sampleCount: 1
+        )
+        let readRaw = try await store.rawData(nightID: "write-once-night", assetID: "hr")
+        XCTAssertEqual(readRaw, raw)
+
+        _ = try await store.sealNight(nightID: "write-once-night")
+
+        let canonical = Data("canonical-baseline".utf8)
+        let baseline = try await store.saveDeterministicDerivedArtifact(
+            nightID: "write-once-night",
+            fileName: "baseline.json",
+            data: canonical
+        )
+        XCTAssertEqual(baseline.sha256, NightLabFileStore.sha256Hex(canonical))
+
+        let receipt = Data("execution-receipt".utf8)
+        let execution = try await store.saveExecutionDerivedArtifact(
+            nightID: "write-once-night",
+            fileName: "receipt.json",
+            data: receipt
+        )
+        XCTAssertEqual(execution.sha256, NightLabFileStore.sha256Hex(receipt))
+
+        let reference = NightReferenceLabels(
+            nightID: "write-once-night",
+            provider: "whoop",
+            importedAtUnix: 6_000,
+            summary: ["sleepMinutes": 420]
+        )
+        try await store.saveReference(reference, for: "write-once-night")
+
+        let derived = try await store.derivedArtifactData(
+            nightID: "write-once-night",
+            fileName: "baseline.json"
+        )
+        XCTAssertEqual(derived, canonical)
+    }
+
+    func testConcurrentIdenticalDeterministicPublishIsIdempotent() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let firstStore = NightLabFileStore(rootDirectory: root)
+        try await firstStore.createNight(recordingManifest(id: "race-night"))
+        _ = try await firstStore.sealNight(nightID: "race-night")
+
+        // A second actor represents another writer that is not serialized by the first actor's boundary.
+        let secondStore = NightLabFileStore(rootDirectory: root)
+        let bytes = Data("same-race-baseline".utf8)
+
+        async let first = firstStore.saveDeterministicDerivedArtifact(
+            nightID: "race-night",
+            fileName: "baseline.json",
+            data: bytes
+        )
+        async let second = secondStore.saveDeterministicDerivedArtifact(
+            nightID: "race-night",
+            fileName: "baseline.json",
+            data: bytes
+        )
+
+        let (firstIdentity, secondIdentity) = try await (first, second)
+        XCTAssertEqual(firstIdentity, secondIdentity)
+        XCTAssertEqual(firstIdentity.sha256, NightLabFileStore.sha256Hex(bytes))
+
+        let stored = try await firstStore.derivedArtifactData(
+            nightID: "race-night",
+            fileName: "baseline.json"
+        )
+        XCTAssertEqual(stored, bytes)
+
+        let derivedDirectory = root.appendingPathComponent("NightLab/race-night/derived", isDirectory: true)
+        let names = try FileManager.default.contentsOfDirectory(atPath: derivedDirectory.path)
+        XCTAssertFalse(names.contains(where: { $0.hasSuffix(".nightlab-tmp") }))
+    }
 }
