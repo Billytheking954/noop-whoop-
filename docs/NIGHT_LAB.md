@@ -26,7 +26,10 @@ NightLab/<night-id>/
   raw/
     ... immutable capture assets ...
   derived/
-    ... versioned algorithm runs ...
+    sleep_stager_v2_baseline.json
+    executions/
+      ... non-deterministic timing receipts ...
+    ... other versioned algorithm runs ...
   references/
     ... WHOOP, PSG, or manual comparison labels ...
 ```
@@ -119,7 +122,7 @@ protocol-level row types the sleep engine accepts:
 The loader never reads `references/`. Before returning rows it:
 
 1. requires the night to be sealed;
-2. reads every asset through `NightLabFileStore.rawData`, which verifies SHA-256;
+2. reads each typed replay asset through `NightLabFileStore.rawData`, which verifies SHA-256;
 3. checks the stored signal kind;
 4. checks decoded row count against the manifest;
 5. rejects any decoded timestamp outside the manifest's half-open night window.
@@ -143,6 +146,129 @@ If expected cadence is unknown or the signal is event-driven, coverage percentag
 The system must not manufacture precision it does not have. Wrist/contact state is sparse state-change data,
 so it also gets no fabricated per-second coverage percentage or gap count.
 
+## SleepStagerV2 production baseline replay
+
+`SleepStagerV2ReplayAdapter` establishes a reproducible baseline for the current production session stager.
+It does not run session detection, and it does not change or copy the private V2 classifier.
+
+The path is:
+
+```text
+sealed archive
+  -> NightLabArchiveLoader
+  -> NightLabArchivedStreams
+  -> SleepStagerV2ReplayAdapter
+  -> SleepStagerV2.stageSession(...)
+  -> untouched [StageSegment]
+  -> deterministic 30-second canonicalisation
+  -> derived/sleep_stager_v2_baseline.json
+```
+
+The production call receives the archived gravity, HR, R-R, and respiration arrays exactly. Wrist/contact
+state remains archive provenance but is not passed into V2 because the production API has no wrist/contact
+argument.
+
+### Baseline window and epoch grid
+
+This baseline stages exactly:
+
+```text
+[manifest.windowStartUnix, manifest.windowEndUnix)
+```
+
+It deliberately does not invoke V1/session detection. Detection remains a separate later layer.
+
+V2's internal evaluation epochs are anchored to absolute Unix multiples of 30 seconds, so the baseline
+records:
+
+```text
+epochSeconds = 30
+epochAnchorUnix = 0
+```
+
+If a session begins between grid boundaries, Night Lab stores that first fragment separately as
+`leadingBoundary` rather than pretending it is a full 30-second epoch. Aligned epochs are expanded from the
+public production `StageSegment` output, and the final epoch is clipped to the real half-open session end.
+Nothing is generated beyond the Night Lab window.
+
+The untouched production segments are stored alongside the expanded epochs so an audit can distinguish a
+staging change from a canonicalisation defect.
+
+Canonicalisation accepts only `wake`, `light`, `deep`, and `rem`. Unknown labels, invalid segments, gaps,
+overlaps, incomplete window coverage, or non-grid interior V2 transitions fail loudly rather than being
+silently mapped to a convenient answer.
+
+### Implementation identity
+
+Every baseline records two supplied identities:
+
+- the NOOP repository commit SHA;
+- the exact `SleepStagerV2.swift` source/blob SHA.
+
+`SleepStagerV2ImplementationIdentity` receives these from the caller/build layer. Night Lab does not invent
+or hard-code a commit SHA. Keeping both values lets us tell an unrelated repository change from an actual
+stager-source change.
+
+### Input provenance
+
+The baseline stores the sealed archive's raw asset identities in stable asset-ID order, including asset ID,
+signal kind, SHA-256, sample count, and whether production V2 consumes that asset. Manifest source
+fingerprint, device/model, firmware, store schema, NOOP version, timezone, and manifest schema are preserved
+when available. Legacy schema-v1 fields remain `nil` instead of being reconstructed after the fact.
+
+### Deterministic baseline versus execution receipt
+
+The canonical baseline contains no wall-clock execution time and no measured run duration. Therefore the
+same sealed archive plus the same implementation identity produces the same JSON bytes and SHA-256.
+
+`NightLabFileStore.saveDeterministicDerivedArtifact` uses this contract:
+
+- absent file -> atomic create;
+- existing byte-identical file -> success with the same SHA-256;
+- existing different bytes -> `derivedArtifactConflict`;
+- never overwrite the canonical baseline.
+
+Execution timing is saved separately as `SleepStagerV2ExecutionReceipt` under `derived/executions/`. Its
+wall-clock timestamp and monotonic duration may change from run to run without contaminating the baseline.
+
+### Blind-reference isolation
+
+Neither `SleepStagerV2ReplayAdapter` nor `NightLabSleepStagerV2BaselineRunner` has an API for loading
+`references/`. The adapter receives only `NightLabArchivedStreams` and implementation identity.
+
+A regression test writes a WHOOP reference, runs the baseline, adds a contradictory WHOOP reference, reruns,
+and requires identical baseline bytes and SHA-256. Reference labels remain evaluation evidence only.
+
+### Scope note: surrounding context
+
+Production V2 can use supplied HR/R-R/motion rows outside the staged session in centred feature windows near
+the edges. The current Night Lab stored-data bridge intentionally seals only its chosen `[start,end)` evidence.
+This baseline therefore means exactly:
+
+> current production SleepStagerV2 executed on the sealed Night Lab inputs.
+
+It does not claim to reconstruct an earlier live staging call that may have received additional pre/post
+session rows. If exact runtime-call parity becomes necessary, that surrounding context must be captured as
+explicit evidence rather than invented during replay.
+
+### Running a baseline
+
+```swift
+let implementation = SleepStagerV2ImplementationIdentity(
+    noopCommitSHA: suppliedCommitSHA,
+    stagerSourceBlobSHA: suppliedSleepStagerV2BlobSHA
+)
+
+let result = try await NightLabSleepStagerV2BaselineRunner.run(
+    archive: archive,
+    nightID: nightID,
+    implementation: implementation
+)
+```
+
+`result.baselineFile.sha256` is the deterministic baseline identity. `result.receipt` describes that one
+execution's timing.
+
 ## Replay and algorithm versioning
 
 Every replay run records `NightAlgorithmIdentity`:
@@ -158,7 +284,7 @@ For example:
 Night 2026-09-13
   raw evidence
   derived/
-    sleep-v2 2.0.0
+    sleep_stager_v2_baseline.json
     sleep-v2 2.1.0
     experimental-rem 0.1.0
 ```
@@ -195,7 +321,8 @@ should remain distinguishable from consumer-wearable labels.
 - [x] write-once on-device archive implementation
 - [x] bridge existing NOOP decoded sleep streams into a Night Lab night
 - [x] typed sealed-archive loader for deterministic replay
-- [ ] replay adapter for the current sleep stager
+- [x] replay adapter for the current SleepStagerV2 session stager
+- [x] deterministic canonical V2 baseline artifact + separate execution receipts
 - [ ] developer UI for viewing a night's signal coverage
 - [ ] export/import of a complete Night Lab bundle
 
