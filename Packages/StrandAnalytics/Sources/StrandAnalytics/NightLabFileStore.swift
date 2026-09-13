@@ -131,16 +131,14 @@ public actor NightLabFileStore {
                                    rawAssets: manifest.rawAssets + [asset])
         try NightManifestValidator.validate(updated)
 
-        do {
-            try data.write(to: destination, options: [.atomic, .withoutOverwriting])
-            do {
-                try writeManifest(updated)
-            } catch {
-                try? fileManager.removeItem(at: destination)
-                throw error
-            }
-        } catch CocoaError.fileWriteFileExists {
+        guard try createWriteOnce(data, at: destination) else {
             throw NightLabFileStoreError.rawAssetAlreadyExists(assetID)
+        }
+        do {
+            try writeManifest(updated)
+        } catch {
+            try? fileManager.removeItem(at: destination)
+            throw error
         }
 
         return asset
@@ -227,12 +225,7 @@ public actor NightLabFileStore {
         let directory = executionsURL(nightID)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(fileName, isDirectory: false)
-        guard !fileManager.fileExists(atPath: url.path) else {
-            throw NightLabFileStoreError.derivedArtifactConflict("executions/\(fileName)")
-        }
-        do {
-            try data.write(to: url, options: [.atomic, .withoutOverwriting])
-        } catch CocoaError.fileWriteFileExists {
+        guard try createWriteOnce(data, at: url) else {
             throw NightLabFileStoreError.derivedArtifactConflict("executions/\(fileName)")
         }
         return NightDerivedArtifactIdentity(relativePath: "derived/executions/\(fileName)",
@@ -345,6 +338,32 @@ public actor NightLabFileStore {
         try data.write(to: manifestURL(manifest.nightID), options: [.atomic])
     }
 
+    /// Publish a complete write-once file without ever replacing an existing destination.
+    ///
+    /// Foundation does not support combining `.atomic` and `.withoutOverwriting`. Instead, bytes are first
+    /// written atomically to a private sibling staging file, then hard-linked into the final path. Creating
+    /// the hard link is an atomic create-if-absent operation on the same filesystem: if another writer won
+    /// the race, the existing destination is preserved and this method returns `false`.
+    private func createWriteOnce(_ data: Data, at destination: URL) throws -> Bool {
+        let directory = destination.deletingLastPathComponent()
+        let staging = directory.appendingPathComponent(
+            ".\(destination.lastPathComponent).\(UUID().uuidString).nightlab-tmp",
+            isDirectory: false
+        )
+        defer { try? fileManager.removeItem(at: staging) }
+
+        try data.write(to: staging, options: [.atomic])
+        do {
+            try fileManager.linkItem(at: staging, to: destination)
+            return true
+        } catch {
+            if fileManager.fileExists(atPath: destination.path) {
+                return false
+            }
+            throw error
+        }
+    }
+
     private func saveDeterministic(_ data: Data,
                                    to url: URL,
                                    relativePath: String,
@@ -359,11 +378,9 @@ public actor NightLabFileStore {
                                                  byteCount: existing.count)
         }
 
-        do {
-            try data.write(to: url, options: [.atomic, .withoutOverwriting])
-        } catch CocoaError.fileWriteFileExists {
-            // Defend against an external writer racing this actor: identical remains idempotent, different
-            // remains a conflict. The actor already serializes all NightLabFileStore callers.
+        if try !createWriteOnce(data, at: url) {
+            // An external writer won the publish race. Identical bytes remain idempotent; different bytes
+            // are a hard evidence conflict and are never replaced.
             let existing = try Data(contentsOf: url)
             guard existing == data else {
                 throw NightLabFileStoreError.derivedArtifactConflict(conflictName)
@@ -375,12 +392,7 @@ public actor NightLabFileStore {
     }
 
     private func writeNew(_ data: Data, to url: URL) throws {
-        guard !fileManager.fileExists(atPath: url.path) else {
-            throw NightLabFileStoreError.rawAssetAlreadyExists(url.lastPathComponent)
-        }
-        do {
-            try data.write(to: url, options: [.atomic, .withoutOverwriting])
-        } catch CocoaError.fileWriteFileExists {
+        guard try createWriteOnce(data, at: url) else {
             throw NightLabFileStoreError.rawAssetAlreadyExists(url.lastPathComponent)
         }
     }
