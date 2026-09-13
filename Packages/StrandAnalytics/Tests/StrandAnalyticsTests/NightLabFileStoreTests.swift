@@ -48,7 +48,8 @@ final class NightLabFileStoreTests: XCTestCase {
 
         let sealed = try await store.sealNight(nightID: "night-1")
         XCTAssertEqual(sealed.state, .sealed)
-        XCTAssertEqual(try await store.rawData(nightID: "night-1", assetID: "hr"), bytes)
+        let readBack = try await store.rawData(nightID: "night-1", assetID: "hr")
+        XCTAssertEqual(readBack, bytes)
     }
 
     func testRawAssetCannotBeReplaced() async throws {
