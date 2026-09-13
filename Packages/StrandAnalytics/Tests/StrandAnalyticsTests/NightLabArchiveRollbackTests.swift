@@ -37,7 +37,8 @@ final class NightLabArchiveRollbackTests: XCTestCase {
         // The same logical night can now be captured again instead of being permanently blocked by a
         // half-written directory left from a transient filesystem failure.
         try await archive.createNight(manifest("retry-night"))
-        XCTAssertEqual(try await archive.loadManifest(nightID: "retry-night").state, .recording)
+        let retried = try await archive.loadManifest(nightID: "retry-night")
+        XCTAssertEqual(retried.state, .recording)
     }
 
     func testSealedNightCannotBeDiscardedByRollbackPath() async throws {
@@ -55,6 +56,7 @@ final class NightLabArchiveRollbackTests: XCTestCase {
             XCTAssertEqual(error, .nightNotRecording("sealed-night"))
         }
 
-        XCTAssertEqual(try await archive.loadManifest(nightID: "sealed-night").state, .sealed)
+        let sealed = try await archive.loadManifest(nightID: "sealed-night")
+        XCTAssertEqual(sealed.state, .sealed)
     }
 }
