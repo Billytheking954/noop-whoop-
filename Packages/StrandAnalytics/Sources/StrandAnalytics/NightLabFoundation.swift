@@ -69,8 +69,12 @@ public struct NightRawAsset: Codable, Sendable, Equatable {
 ///
 /// `schemaVersion` versions the archive contract, not the sleep algorithm. Algorithm versions are recorded
 /// separately in `NightAlgorithmIdentity`, which lets the same sealed night be replayed forever.
+///
+/// v2 adds the exact source-device id, WhoopStore schema version, and the source-stream fingerprint that
+/// bracketed the snapshot. They are OPTIONAL so a v1 archive can still decode honestly instead of being
+/// retroactively assigned provenance it never recorded.
 public struct NightRecordManifest: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public let schemaVersion: Int
     public let nightID: String
@@ -78,8 +82,11 @@ public struct NightRecordManifest: Codable, Sendable, Equatable {
     public let windowStartUnix: Int
     public let windowEndUnix: Int
     public let timezoneOffsetSeconds: Int
+    public let sourceDeviceID: String?
     public let sourceDeviceModel: String?
     public let sourceFirmware: String?
+    public let sourceStoreSchemaVersion: Int?
+    public let sourceStreamFingerprint: String?
     public let noopVersion: String?
     public let rawAssets: [NightRawAsset]
 
@@ -89,8 +96,11 @@ public struct NightRecordManifest: Codable, Sendable, Equatable {
                 windowStartUnix: Int,
                 windowEndUnix: Int,
                 timezoneOffsetSeconds: Int,
+                sourceDeviceID: String? = nil,
                 sourceDeviceModel: String? = nil,
                 sourceFirmware: String? = nil,
+                sourceStoreSchemaVersion: Int? = nil,
+                sourceStreamFingerprint: String? = nil,
                 noopVersion: String? = nil,
                 rawAssets: [NightRawAsset]) {
         self.schemaVersion = schemaVersion
@@ -99,8 +109,11 @@ public struct NightRecordManifest: Codable, Sendable, Equatable {
         self.windowStartUnix = windowStartUnix
         self.windowEndUnix = windowEndUnix
         self.timezoneOffsetSeconds = timezoneOffsetSeconds
+        self.sourceDeviceID = sourceDeviceID
         self.sourceDeviceModel = sourceDeviceModel
         self.sourceFirmware = sourceFirmware
+        self.sourceStoreSchemaVersion = sourceStoreSchemaVersion
+        self.sourceStreamFingerprint = sourceStreamFingerprint
         self.noopVersion = noopVersion
         self.rawAssets = rawAssets
     }
@@ -199,18 +212,23 @@ public struct NightSignalCoverageReport: Codable, Sendable, Equatable {
 }
 
 public enum NightSignalCoverage {
-    /// Analyze timestamps inside `[windowStartUnix, windowEndUnix)`. Duplicate timestamps are counted once
-    /// for coverage because many decoded streams can legitimately emit duplicate rows at the same second.
-    /// The archive itself still retains every raw row; this function only describes time coverage.
+    /// Analyze timestamps inside `[windowStartUnix, windowEndUnix)`.
+    ///
+    /// `sampleCount` is the TRUE number of rows in the window. Temporal coverage and gaps use unique
+    /// timestamp seconds, because streams such as R-R can legitimately contain several beats with the same
+    /// `ts`. Conflating those two meanings used to under-report R-R row counts, while counting all repeated
+    /// timestamps toward a 1 Hz coverage percentage would over-report coverage. Keep the two facts separate.
     public static func analyze(kind: NightSignalKind,
                                timestamps: [Int],
                                windowStartUnix: Int,
                                windowEndUnix: Int,
                                expectedCadenceHz: Double? = nil) -> NightSignalCoverageReport {
         let duration = max(0, windowEndUnix - windowStartUnix)
-        let ordered = Array(Set(timestamps.filter {
+        let filtered = timestamps.filter {
             $0 >= windowStartUnix && $0 < windowEndUnix
-        })).sorted()
+        }
+        let sampleCount = filtered.count
+        let ordered = Array(Set(filtered)).sorted()
 
         let largestGap: Int? = {
             guard duration > 0 else { return nil }
@@ -230,7 +248,7 @@ public enum NightSignalCoverage {
               cadence > 0,
               duration > 0 else {
             return NightSignalCoverageReport(kind: kind,
-                                             sampleCount: ordered.count,
+                                             sampleCount: sampleCount,
                                              windowSeconds: duration,
                                              expectedSamples: nil,
                                              coverageFraction: nil,
@@ -257,7 +275,7 @@ public enum NightSignalCoverage {
         }
 
         return NightSignalCoverageReport(kind: kind,
-                                         sampleCount: ordered.count,
+                                         sampleCount: sampleCount,
                                          windowSeconds: duration,
                                          expectedSamples: expected,
                                          coverageFraction: coverage,
