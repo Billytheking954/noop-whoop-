@@ -6,20 +6,19 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
     /// CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) and stored little-endian as A0 D5.
     private let knownFrame: [UInt8] = [
         0xAA, 0x52, 0x34, 0x12,
-        0x00, 0xF1, 0x53, 0x65, // 1_700_000_000 LE
-        0xFD, 0x25,             // 9725 -> 97.25%
-        0x34, 0x12,             // optical ratio register 1
-        0xCD, 0xAB,             // optical ratio register 2
-        0x55,                   // quality = 85
-        0xEF, 0xBE,             // unnamed auxiliary word
-        0x20, 0x00,             // motion raw = 32 -> 0.032 g
+        0x00, 0xF1, 0x53, 0x65,
+        0xFD, 0x25,
+        0x34, 0x12,
+        0xCD, 0xAB,
+        0x55,
+        0xEF, 0xBE,
+        0x20, 0x00,
         0x01, 0x02, 0x03, 0x04, 0x05,
-        0xA0, 0xD5              // CRC LE
+        0xA0, 0xD5
     ]
 
     func testKnownFrameParsesCanonicalFields() throws {
         let sample = try WHOOPSpO2Decoder.decode(knownFrame)
-
         XCTAssertEqual(sample.timestampUnix, 1_700_000_000)
         XCTAssertEqual(sample.rawSpO2, 9_725)
         XCTAssertEqual(sample.spo2Percent, 97.25, accuracy: 0.000_001)
@@ -35,9 +34,6 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
     func testCandidate82IsOpcodeNotSpO2() throws {
         XCTAssertEqual(knownFrame[1], 82)
         let sample = try WHOOPSpO2Decoder.decode(knownFrame)
-
-        // Regression for the old research ambiguity: decimal 82 belongs to byte 1's command ID.
-        // The saturation comes only from bytes 8...9, so this frame MUST decode to 97.25, never 82.
         XCTAssertEqual(sample.spo2Percent, 97.25, accuracy: 0.000_001)
         XCTAssertNotEqual(sample.spo2Percent, Double(knownFrame[1]))
     }
@@ -45,7 +41,6 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
     func testCRCMismatchThrows() {
         var corrupted = knownFrame
         corrupted[10] ^= 0x01
-
         XCTAssertThrowsError(try WHOOPSpO2Decoder.decode(corrupted)) { error in
             guard case WHOOPSpO2DecoderError.crcMismatch = error else {
                 return XCTFail("Expected crcMismatch, got \(error)")
@@ -53,7 +48,7 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
         }
     }
 
-    func testRejectsTruncationSyncOpcodeAndOutOfBoundsSpO2() throws {
+    func testRejectsTruncationSyncOpcodeAndOutOfBoundsSpO2() {
         XCTAssertThrowsError(try WHOOPSpO2Decoder.decode(Array(knownFrame.prefix(25)))) { error in
             XCTAssertEqual(error as? WHOOPSpO2DecoderError,
                            .payloadTruncated(expected: 26, actual: 25))
@@ -92,9 +87,7 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
         let lowQuality = sample(from: base, quality: 69, motion: 0.01)
         let highMotion = sample(from: base, quality: 100, motion: 0.051)
         let both = sample(from: base, quality: 10, motion: 0.5)
-
         let result = SpO2QualityFilter.filter([acceptedAtBoundary, lowQuality, highMotion, both])
-
         XCTAssertEqual(result.acceptedCount, 1)
         XCTAssertEqual(result.rejectedCount, 3)
         XCTAssertEqual(result.rejectionCount(for: .lowQuality), 2)
@@ -112,11 +105,8 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
                 isSlowWaveSleep: true
             )
         }
-
         let first = try SpO2Aggregator.aggregate(epochs)
-        let second = try SpO2Aggregator.aggregate(epochs.reversed())
-
-        // N=12 -> floor(1.2) = one value removed from each tail. Mean of 90...99 = 94.5.
+        let second = try SpO2Aggregator.aggregate(Array(epochs.reversed()))
         XCTAssertEqual(first.spo2Percent, 94.5, accuracy: 0.000_001)
         XCTAssertEqual(first.trimCountPerTail, 1)
         XCTAssertEqual(first.validEpochCount, 12)
@@ -133,7 +123,6 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
                 isSlowWaveSleep: true
             )
         }
-
         XCTAssertThrowsError(try SpO2Aggregator.aggregate(epochs)) { error in
             XCTAssertEqual(error as? SpO2AggregatorError,
                            .insufficientValidEpochs(required: 10, actual: 9))
@@ -144,35 +133,31 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
                             percent: Double,
                             quality: UInt8,
                             motion: Double) -> WHOOPSpO2Sample {
-        WHOOPSpO2Sample(
-            timestampUnix: timestamp,
-            rawSpO2: UInt16((percent * 100).rounded()),
-            spo2Percent: percent,
-            opticalRatio1Raw: 0,
-            opticalRatio2Raw: 0,
-            qualityScore: quality,
-            motionVarianceG: motion,
-            headerWordRaw: 0,
-            auxiliaryWordRaw: 0,
-            trailingMetadata: []
-        )
+        WHOOPSpO2Sample(timestampUnix: timestamp,
+                        rawSpO2: UInt16((percent * 100).rounded()),
+                        spo2Percent: percent,
+                        opticalRatio1Raw: 0,
+                        opticalRatio2Raw: 0,
+                        qualityScore: quality,
+                        motionVarianceG: motion,
+                        headerWordRaw: 0,
+                        auxiliaryWordRaw: 0,
+                        trailingMetadata: [])
     }
 
     private func sample(from sample: WHOOPSpO2Sample,
                         quality: UInt8,
                         motion: Double) -> WHOOPSpO2Sample {
-        WHOOPSpO2Sample(
-            timestampUnix: sample.timestampUnix,
-            rawSpO2: sample.rawSpO2,
-            spo2Percent: sample.spo2Percent,
-            opticalRatio1Raw: sample.opticalRatio1Raw,
-            opticalRatio2Raw: sample.opticalRatio2Raw,
-            qualityScore: quality,
-            motionVarianceG: motion,
-            headerWordRaw: sample.headerWordRaw,
-            auxiliaryWordRaw: sample.auxiliaryWordRaw,
-            trailingMetadata: sample.trailingMetadata
-        )
+        WHOOPSpO2Sample(timestampUnix: sample.timestampUnix,
+                        rawSpO2: sample.rawSpO2,
+                        spo2Percent: sample.spo2Percent,
+                        opticalRatio1Raw: sample.opticalRatio1Raw,
+                        opticalRatio2Raw: sample.opticalRatio2Raw,
+                        qualityScore: quality,
+                        motionVarianceG: motion,
+                        headerWordRaw: sample.headerWordRaw,
+                        auxiliaryWordRaw: sample.auxiliaryWordRaw,
+                        trailingMetadata: sample.trailingMetadata)
     }
 
     private func rewriteCRC(_ frame: inout [UInt8]) {
