@@ -116,6 +116,7 @@ struct NightLabView: View {
         }
         if m.state == .sealed {
             coverage(value)
+            NightLabSpO2DiagnosticsCard(inspection: value)
             NoopCard {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Derived baseline").font(.headline)
