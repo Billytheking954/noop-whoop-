@@ -635,11 +635,10 @@ public actor NightLabFileStore {
         guard !path.hasPrefix("/"), !path.contains("\\"), !path.contains("\0") else { return false }
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.allSatisfy(isSafeBundleComponent) else { return false }
-        switch parts {
-        case ["raw", _], ["derived", _], ["references", _]: return true
-        case ["derived", "executions", _]: return true
-        default: return false
+        if parts.count == 2 {
+            return parts[0] == "raw" || parts[0] == "derived" || parts[0] == "references"
         }
+        return parts.count == 3 && parts[0] == "derived" && parts[1] == "executions"
     }
 
     private func bundleRelativePath(for item: URL, under directory: URL) throws -> String {
