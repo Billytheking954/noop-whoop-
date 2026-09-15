@@ -12,7 +12,7 @@ import WhoopProtocol
 // the daytime-specific `Baselines.daytimeHRCfg` / `daytimeRMSSDCfg` configs.
 //
 // The per-day aggregate is defined in terms of EXACTLY the hourly means the scorer references: it reuses
-// `DaytimeStress`'s own `floorDiv` / `bucketSeconds` / `isWakingHour` / `minHourHRSamples` /
+// `DaytimeStress`'s own `floorDiv` / `bucketSeconds` / `isWakingHour` / temporal-quality gate /
 // `HRVAnalyzer` so "the value we fold into the baseline" and "the value we later z-score against that
 // baseline" are the same quantity, never two drifting definitions.
 
@@ -58,7 +58,7 @@ public extension DaytimeStress {
     /// One day's daytime aggregates, computed with the SCORER's own hourly bucketing so the folded value
     /// matches what `.baselineRelative` later references:
     ///   - `hr`: the `daytimeHRAggregatePercentile` (P10) of the day's WAKING-hour mean HRs, where each
-    ///     hour's mean HR is gated at `minHourHRSamples` exactly like the scorer (a sparse/imported day
+    ///     hour's mean HR is gated by `StressTemporalQuality` exactly like the scorer (a sparse/imported day
     ///     whose hours never clear the gate yields `nil` — it contributes no daytime-HR floor, honestly).
     ///   - `rmssd`: the `daytimeRMSSDAggregatePercentile` (P50) of the day's WAKING-hour RMSSDs, each run
     ///     through the same `HRVAnalyzer.analyze(rawRR:)` cleaner the scorer uses (so ectopic beats can't
@@ -70,11 +70,14 @@ public extension DaytimeStress {
         guard !hr.isEmpty else { return (nil, nil) }
 
         // Bucket HR + R-R into LOCAL hour-of-day buckets, byte-for-byte the scorer's step 1.
-        var hrByBucket: [Int: [Double]] = [:]
+        var hrByBucket: [Int: [StressSignalSample]] = [:]
         for s in hr {
             let local = s.ts + tzOffsetSeconds
             let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
-            hrByBucket[bucket, default: []].append(Double(s.bpm))
+            hrByBucket[bucket, default: []].append(
+                StressSignalSample(timestamp: s.ts, value: Double(s.bpm), source: "repository",
+                                   quality: (30...220).contains(s.bpm) ? .valid : .rejected)
+            )
         }
         var rrByBucket: [Int: [Double]] = [:]
         for s in rr {
@@ -88,7 +91,14 @@ public extension DaytimeStress {
         var wakingMeanHRs: [Double] = []
         var wakingRMSSDs: [Double] = []
         for (bucket, hrs) in hrByBucket where isWakingHour(bucket) {
-            if hrs.count >= minHourHRSamples, let m = mean(hrs) { wakingMeanHRs.append(m) }
+            let wallStart = bucket - tzOffsetSeconds
+            let quality = StressTemporalQuality.evaluate(
+                samples: hrs, windowStart: wallStart, windowEnd: wallStart + bucketSeconds,
+                baselineReady: true
+            )
+            if quality.accepted, let m = StressTemporalQuality.canonicalMean(
+                samples: hrs, windowStart: wallStart, windowEnd: wallStart + bucketSeconds
+            ) { wakingMeanHRs.append(m) }
             if let rmssd = HRVAnalyzer.analyze(rawRR: rrByBucket[bucket] ?? []).rmssd {
                 wakingRMSSDs.append(rmssd)
             }
@@ -151,8 +161,7 @@ public extension DaytimeStress {
     /// The scoring mode to hand `analyze` for TODAY, decided from the trailing daytime `history`:
     /// `.baselineRelative` once the personal HR baseline is `.usable` (≥ `Baselines.minNightsSeed` days
     /// of real daytime HR aggregates — the Oura-style, validated-r≈0.6 path), else `.dayRelative` (the
-    /// unchanged default). This is the single graceful-degradation gate: a cold start, or a trailing
-    /// window that is all sparse/imported days, keeps EXACTLY today's pre-existing day-relative behaviour.
+    /// causal cold-start fallback). This is the single graceful-degradation gate.
     static func scoringMode(history days: [DaytimeDayStreams]) -> ScoringMode {
         scoringModeFromAggregates(days.map {
             dayDaytimeAggregate(hr: $0.hr, rr: $0.rr, tzOffsetSeconds: $0.tzOffsetSeconds)

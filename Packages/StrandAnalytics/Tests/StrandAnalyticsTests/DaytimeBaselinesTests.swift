@@ -9,15 +9,15 @@ final class DaytimeBaselinesTests: XCTestCase {
 
     // MARK: - Fixtures (multi-day: day `d` is offset by d·86 400 s; local hour-of-day is preserved)
 
-    /// One local day of HR: every hour in `hours` filled with `n` 1 Hz samples at a per-hour bpm.
+    /// One local day of HR: every hour in `hours` receives evenly distributed samples.
     /// `bpms` maps to `hours` in order. tz offset 0, so local hour-of-day == wall-clock hour.
     private func dayHR(_ dayIndex: Int, hours: [Int], bpms: [Int],
-                       n: Int = DaytimeStress.minHourHRSamples) -> [HRSample] {
+                       n: Int = 3_600, spacing: Int = 1) -> [HRSample] {
         let dayBase = dayIndex * 86_400
         var out: [HRSample] = []
         for (h, bpm) in zip(hours, bpms) {
             let base = dayBase + h * 3_600
-            out += (0..<n).map { HRSample(ts: base + $0, bpm: bpm) }
+            out += (0..<n).map { HRSample(ts: base + $0 * spacing, bpm: bpm) }
         }
         return out
     }
@@ -51,11 +51,11 @@ final class DaytimeBaselinesTests: XCTestCase {
         XCTAssertNil(agg.rmssd, "no R-R → no daytime RMSSD aggregate")
     }
 
-    func testDayHRAggregateAppliesTheSameMinSamplesGateAsTheScorer() {
-        // An under-gate sparse hour at a very low bpm must NOT drag the P10 floor down — the scorer would
+    func testDayHRAggregateAppliesTheSameTemporalGateAsTheScorer() {
+        // A clustered high-count hour at a very low bpm must NOT drag the P10 floor down — the scorer would
         // never score it, so the aggregate must not reference it either.
         let dense = dayHR(0, hours: Array(8...17), bpms: [60, 62, 64, 66, 68, 70, 72, 74, 76, 78])
-        let sparse = dayHR(0, hours: [7], bpms: [40], n: DaytimeStress.minHourHRSamples - 1)
+        let sparse = dayHR(0, hours: [7], bpms: [40], n: 300, spacing: 1)
         let withSparse = DaytimeStress.dayDaytimeAggregate(hr: dense + sparse, rr: [], tzOffsetSeconds: 0)
         let denseOnly = DaytimeStress.dayDaytimeAggregate(hr: dense, rr: [], tzOffsetSeconds: 0)
         XCTAssertEqual(withSparse.hr!, denseOnly.hr!, accuracy: 1e-9,

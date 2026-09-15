@@ -15,8 +15,8 @@ import WhoopStore
 //      30-day baseline containing only preceding days.
 //   2. If physiology cannot be derived, use a persisted `stress` metric series
 //      ("my-whoop") as a vendor-summary fallback.
-// Stress shows up as HIGHER resting HR and LOWER
-//      HRV, so we sum two z-scores and squash onto 0–3 with a logistic curve:
+// Stress shows up as HIGHER resting HR and LOWER HRV, so we sum two z-scores and
+// squash onto 0–3 with a logistic curve:
 //
 //        zRHR = (todayRHR − meanRHR) / sdRHR        // positive when RHR is UP
 //        zHRV = (meanHRV − todayHRV) / sdHRV        // positive when HRV is DOWN
@@ -105,10 +105,10 @@ struct StressView: View {
         let tz = TimeZone.current.secondsFromGMT(for: Date())
 
         let hr = await repo.hrSamples(from: from, to: to, limit: 200_000)
-        // Too few HR samples: empty the timeline AND clear the advanced readouts in lockstep. Without this
-        // reset a later refresh that hits this path would leave the Advanced HRV card showing stale values
-        // next to an empty timeline (the readouts are only recomputed past this guard).
-        guard hr.count >= DaytimeStress.minHourHRSamples else {
+        // No HR at all: empty the timeline AND clear advanced readouts in lockstep. Non-empty streams go
+        // through the canonical temporal-coverage/max-gap decision inside DaytimeStress; a raw row count
+        // cannot establish whether the samples actually span a usable interval.
+        guard !hr.isEmpty else {
             daytime = .empty
             stressIndex = nil
             freqHRV = nil
@@ -124,15 +124,16 @@ struct StressView: View {
         // opted in (Settings → Experimental) AND enough worn history exists (Oura-style
         // `.baselineRelative`), else the day's own calm hours (`.dayRelative`, the default). The opt-in
         // gate is deliberate: the validated r≈0.6 margin is single-subject so far (#463), so this stays a
-        // chooseable lens, not a silent default. The mode is resolved only AFTER the HR-count guard above,
+        // chooseable lens, not a silent default. The mode is resolved only AFTER the HR-presence guard above,
         // so the trailing-history reads are never paid on a day with no scorable timeline — and are never
-        // paid at all while the toggle is OFF (the default), keeping the read byte-identical to before.
+        // paid at all while the toggle is OFF.
         let mode = PuffinExperiment.stressPersonalBaselineEnabled
             ? await daytimeScoringMode(startOfToday: startOfDay)
             : .dayRelative
         if case .baselineRelative = mode { daytimeUsesPersonalBaseline = true }
         else { daytimeUsesPersonalBaseline = false }
-        daytime = DaytimeStress.analyze(hr: hr, rr: rr, gravity: gravity, tzOffsetSeconds: tz, mode: mode)
+        daytime = DaytimeStress.analyze(hr: hr, rr: rr, gravity: gravity, tzOffsetSeconds: tz,
+                                        mode: mode, asOfTimestamp: to)
 
         // ADDITIVE advanced readouts, computed on-demand from the SAME `rr` (no extra fetch, no
         // DB / schema change, and no effect on the 0..3 score above). Each engine returns nil when
@@ -150,10 +151,8 @@ struct StressView: View {
     /// Build the personal daytime baselines from the trailing `baselineHistoryDays` local days (TODAY
     /// EXCLUDED — it's the day being scored, not part of its own baseline) and return the scoring mode
     /// for today's intraday read: `.baselineRelative` once there's enough real worn daytime-HR history
-    /// for a usable baseline, else `.dayRelative` (the unchanged default). The only behavioural change
-    /// vs. before is that a user with a few worn days now scores today's hours against their own
-    /// cross-day floor instead of the day's own calm hours; a cold-start / sparse-history user is
-    /// byte-identical to before (`DaytimeStress.scoringMode` is the single degradation gate).
+    /// for a usable baseline, else causal `.dayRelative`. `DaytimeStress.scoringMode` is the single
+    /// degradation gate.
     ///
     /// PERF: reads each past day's raw HR (and, only when that day was worn, R-R) once, bounded per day,
     /// off the main actor via `repo` — riding the same async `load()` the today-timeline already runs on.
@@ -175,7 +174,10 @@ struct StressView: View {
                   let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else { continue }
             let from = Int(dayStart.timeIntervalSince1970)
             let to = Int(dayEnd.timeIntervalSince1970) - 1
-            let dayTz = TimeZone.current.secondsFromGMT(for: dayStart)
+            // DST transitions occur overnight. Resolve the offset at local noon so every scored
+            // waking bucket (06:00–22:00) uses that day's post-transition civil-time offset.
+            let daytimeAnchor = cal.date(bySettingHour: 12, minute: 0, second: 0, of: dayStart) ?? dayStart
+            let dayTz = TimeZone.current.secondsFromGMT(for: daytimeAnchor)
             let dayHR = await repo.hrSamples(from: from, to: to, limit: 200_000)
             guard !dayHR.isEmpty else { continue }   // unworn day — no floor to learn, skip the R-R read
             let dayRR = await repo.rrIntervals(from: from, to: to, limit: 200_000)
@@ -766,6 +768,10 @@ private struct StressInputs: Equatable {
 // MARK: - Stress model (transparent: stored value OR z-score derivation)
 
 struct StressModel {
+    static let scoringAlgorithmVersion = "stress-daily-v2"
+    static let baselineDefinitionVersion = "trailing-mean-sd-30d-causal-v1"
+    static let baselineWindowDays = 30
+
     let score: Double            // 0–3 (today)
     let band: StressBand
     let explanation: String
@@ -777,6 +783,8 @@ struct StressModel {
     let calmTimeValue: String    // e.g. "58%"
     let calmTimeCaption: String  // e.g. "of last 30 days"
     let usingStored: Bool        // true when today's value came from the stored series
+    let algorithmVersion: String
+    let baselineVersion: String
 
     /// Last up-to-14 trend values, for the hero tile sparkline.
     var sparkValues: [Double] { Array(fullTrend.suffix(14)).map(\.value) }
@@ -815,7 +823,7 @@ struct StressModel {
 
         // Baseline window: up to 30 days ending the day BEFORE the scored day, so it's measured
         // against its own recent past rather than itself.
-        let baseline = idx > 0 ? Array(orderedDays[0..<idx].suffix(30)) : []
+        let baseline = idx > 0 ? Array(orderedDays[0..<idx].suffix(Self.baselineWindowDays)) : []
 
         let rhrBase = baseline.compactMap { $0.restingHr }.map(Double.init)
         let hrvBase = baseline.compactMap { $0.avgHrv }
@@ -844,6 +852,8 @@ struct StressModel {
 
         let s = derivedToday ?? storedToday ?? 1.5
         self.usingStored = derivedToday == nil && storedToday != nil
+        self.algorithmVersion = Self.scoringAlgorithmVersion
+        self.baselineVersion = Self.baselineDefinitionVersion
         self.score = s
         self.band = StressBand(score: s)
         self.rhrToday = today.restingHr
@@ -864,7 +874,8 @@ struct StressModel {
         var pts: [TrendPoint] = []
         for (dayIndex, d) in orderedDays.enumerated() {
             guard let date = Self.dayParser.date(from: d.day) else { continue }
-            let prior = dayIndex > 0 ? Array(orderedDays[0..<dayIndex].suffix(30)) : []
+            let prior = dayIndex > 0
+                ? Array(orderedDays[0..<dayIndex].suffix(Self.baselineWindowDays)) : []
             let dayRHRBase = prior.compactMap { $0.restingHr }.map(Double.init)
             let dayHRVBase = prior.compactMap { $0.avgHrv }
             let dayMeanRHR = StressMath.mean(dayRHRBase)

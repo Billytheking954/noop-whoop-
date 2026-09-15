@@ -66,6 +66,8 @@ class StressModelTest {
         val importedWithLegacyStoredRow = StressModel.build(days, mapOf("2026-07-02" to 0.0))!!
         assertEquals(native.score, importedWithLegacyStoredRow.score, 0.0)
         assertFalse(importedWithLegacyStoredRow.usingStored)
+        assertEquals("stress-daily-v2", native.algorithmVersion)
+        assertEquals("trailing-mean-sd-30d-causal-v1", native.baselineVersion)
     }
 
     @Test
