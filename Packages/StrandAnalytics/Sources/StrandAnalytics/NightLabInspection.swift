@@ -28,6 +28,8 @@ public struct NightLabInspection: Sendable, Equatable {
     public let baselineError: String?
     public let receipts: [NightLabInspectionReceipt]
     public let receiptsError: String?
+    public let spO2Diagnostics: NightLabSpO2Diagnostics?
+    public let spO2DiagnosticsError: String?
 
     /// No runner, reference loader, or live store is used here. Protocol rows remain in this
     /// nonisolated async operation; only the Sendable inspection projection crosses to the UI.
@@ -35,7 +37,8 @@ public struct NightLabInspection: Sendable, Equatable {
         let manifest = try await archive.inspectionManifest(nightID: nightID)
         guard manifest.state == .sealed else {
             return Self(manifest: manifest, coverage: [], baseline: nil, baselineSHA256: nil,
-                        baselineError: nil, receipts: [], receiptsError: nil)
+                        baselineError: nil, receipts: [], receiptsError: nil,
+                        spO2Diagnostics: nil, spO2DiagnosticsError: nil)
         }
         // The typed loader validates its known streams. Verify additional declared assets too.
         for asset in manifest.rawAssets {
@@ -65,8 +68,30 @@ public struct NightLabInspection: Sendable, Equatable {
                     error: matches ? nil : "Receipt cannot be matched to the validated saved baseline")
             }
         } catch { receiptsError = String(describing: error) }
+
+        var spO2Diagnostics: NightLabSpO2Diagnostics?
+        var spO2DiagnosticsError: String?
+        if manifest.rawAssets.contains(where: { $0.id == NightLabSpO2Diagnostics.rawAssetID }) {
+            do {
+                let data = try await archive.rawData(
+                    nightID: nightID,
+                    assetID: NightLabSpO2Diagnostics.rawAssetID
+                )
+                let rows = try NightLabJSON.decode([NightLabSpO2FrameRow].self, from: data)
+                spO2Diagnostics = NightLabSpO2Diagnostics.analyze(
+                    rows: rows,
+                    windowStartUnix: manifest.windowStartUnix,
+                    windowEndUnix: manifest.windowEndUnix,
+                    baseline: baseline
+                )
+            } catch {
+                spO2DiagnosticsError = String(describing: error)
+            }
+        }
+
         return Self(manifest: manifest, coverage: coverage, baseline: baseline, baselineSHA256: sha,
-                    baselineError: baselineError, receipts: receipts, receiptsError: receiptsError)
+                    baselineError: baselineError, receipts: receipts, receiptsError: receiptsError,
+                    spO2Diagnostics: spO2Diagnostics, spO2DiagnosticsError: spO2DiagnosticsError)
     }
 
     private static func validate(_ b: SleepStagerV2BaselineArtifact, manifest m: NightRecordManifest) throws {
