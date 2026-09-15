@@ -74,6 +74,10 @@ final class ImportTraceEmitTests: XCTestCase {
         let daysOff = try await storeOff.dailyMetrics(deviceId: "my-whoop", from: "0000-00-00", to: "9999-99-99")
         let daysOn = try await storeOn.dailyMetrics(deviceId: "my-whoop", from: "0000-00-00", to: "9999-99-99")
         XCTAssertEqual(daysOff.count, daysOn.count)
+        let stress = try await storeOn.metricSeries(deviceId: "my-whoop", key: "stress",
+                                                    from: "0000-00-00", to: "9999-99-99")
+        XCTAssertTrue(stress.isEmpty,
+                      "WHOOP import must not persist a whole-export, future-aware stress formula")
         XCTAssertFalse(collector.lines.isEmpty)   // the traced run did emit (sanity for the comparison)
     }
 }

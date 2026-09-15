@@ -1494,24 +1494,27 @@ internal class StressModel private constructor(
     }
 
     companion object {
-        /** Build from oldest→newest daily metrics plus any stored "stress" series.
-         *  Returns null only when there is no usable signal at all. */
+        /** Build from daily metrics plus any stored "stress" series. ISO days are sorted first, so an
+         *  out-of-order import/replay is deterministic. Returns null only when no signal is usable. */
         fun build(days: List<DailyMetric>, stored: Map<String, Double>): StressModel? {
+            // Byte-twin of Swift: normalize vendor summaries once before selection or fallback.
+            val storedByDay = stored.mapValues { (_, value) -> value.coerceIn(0.0, 3.0) }
+            val orderedDays = days.sortedBy { it.day }
             // Carry (#543): today's own row is often vitals-less until the overnight is analyzed —
             // especially right after an app update relaunches and re-runs the pass — so score the NEWEST
             // day that actually carries usable signal (RHR/HRV, or a stored/imported stress value) instead
             // of calibrating, the same last-night carry every other Today vital uses. The predicate mirrors
             // the storedToday||derived gate below, so an imported stress-only latest day is still honored
             // (not skipped). Falls back to the last row when no day has any signal (cold start).
-            val idx = days.indexOfLast {
-                it.restingHr != null || it.avgHrv != null || stored.containsKey(it.day)
-            }.let { if (it >= 0) it else days.size - 1 }
+            val idx = orderedDays.indexOfLast {
+                it.restingHr != null || it.avgHrv != null || storedByDay.containsKey(it.day)
+            }.let { if (it >= 0) it else orderedDays.size - 1 }
             if (idx < 0) return null   // no days at all
-            val today = days[idx]
+            val today = orderedDays[idx]
 
             // Baseline window: up to 30 days ending the day BEFORE the scored day, so it's measured
             // against its own recent past rather than itself.
-            val baseline = if (idx > 0) days.subList(0, idx).takeLast(30) else emptyList()
+            val baseline = if (idx > 0) orderedDays.subList(0, idx).takeLast(30) else emptyList()
 
             val rhrBase = baseline.mapNotNull { it.restingHr?.toDouble() }
             val hrvBase = baseline.mapNotNull { it.avgHrv }
@@ -1525,7 +1528,7 @@ internal class StressModel private constructor(
             val hrvT = today.avgHrv
 
             val derivedAvailable = (rhrT != null && meanRHR != null) || (hrvT != null && meanHRV != null)
-            val storedToday = stored[today.day]
+            val storedToday = storedByDay[today.day]
             if (storedToday == null && !derivedAvailable) return null
 
             val derivedToday: Double? = if (derivedAvailable) {
@@ -1534,26 +1537,35 @@ internal class StressModel private constructor(
                 null
             }
 
-            val s = storedToday ?: derivedToday ?: 1.5
-            val usingStored = storedToday != null
+            // Imported and native rows share this derivation. A stored vendor summary is only a fallback
+            // when the row has no derivable RHR/HRV; it cannot override causal physiology.
+            val s = derivedToday ?: storedToday ?: 1.5
+            val usingStored = derivedToday == null && storedToday != null
             val band = StressBand.forScore(s)
             val rhrDelta = if (rhrT != null && meanRHR != null) rhrT - meanRHR else null
             val hrvDelta = if (hrvT != null && meanHRV != null) hrvT - meanHRV else null
             val explanation = explanation(band, rhrDelta, hrvDelta)
 
-            // Full daily proxy history: stored value if present for the day, else the
-            // z-score derivation against the SAME baseline so the line is comparable.
+            // Each historical day is scored only against its own preceding 30 rows. Future observations
+            // cannot move an already-scored point; stored values remain a no-physiology fallback.
             val pts = ArrayList<TrendPoint>()
-            for (d in days) {
-                val v = stored[d.day]
-                if (v != null) {
-                    pts.add(TrendPoint(d.day, v.coerceIn(0.0, 3.0)))
-                    continue
-                }
+            for ((dayIndex, d) in orderedDays.withIndex()) {
+                val prior = if (dayIndex > 0) orderedDays.subList(0, dayIndex).takeLast(30) else emptyList()
+                val dayRhrBase = prior.mapNotNull { it.restingHr?.toDouble() }
+                val dayHrvBase = prior.mapNotNull { it.avgHrv }
+                val dayMeanRhr = mean(dayRhrBase)
+                val dayMeanHrv = mean(dayHrvBase)
                 val dRHR = d.restingHr?.toDouble()
                 val dHRV = d.avgHrv
-                if ((dRHR == null || meanRHR == null) && (dHRV == null || meanHRV == null)) continue
-                pts.add(TrendPoint(d.day, squash(rawScore(dRHR, meanRHR, sdRHR, dHRV, meanHRV, sdHRV))))
+                val canDerive = (dRHR != null && dayMeanRhr != null) || (dHRV != null && dayMeanHrv != null)
+                if (canDerive) {
+                    pts.add(TrendPoint(d.day, squash(rawScore(
+                        dRHR, dayMeanRhr, std(dayRhrBase, dayMeanRhr),
+                        dHRV, dayMeanHrv, std(dayHrvBase, dayMeanHrv),
+                    ))))
+                } else {
+                    storedByDay[d.day]?.let { pts.add(TrendPoint(d.day, it)) }
+                }
             }
 
             // "Calm time": share of the last 30 charted days that sat in the LOW band.
