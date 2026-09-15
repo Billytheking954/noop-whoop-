@@ -94,22 +94,10 @@ enum WhoopImporter {
                 add(day, "hours_vs_needed_pct", asleep / need * 100)
             }
         }
-        // Derived: a daily stress proxy from RHR (up) + HRV (down) vs the personal baseline.
-        func meanStd(_ a: [Double]) -> (Double, Double) {
-            guard !a.isEmpty else { return (0, 1) }
-            let m = a.reduce(0, +) / Double(a.count)
-            let v = a.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(a.count)
-            return (m, max(v.squareRoot(), 0.0001))
-        }
-        let (rm, rs) = meanStd(result.cycles.compactMap(\.restingHeartRate))
-        let (hm, hs) = meanStd(result.cycles.compactMap(\.hrvMs))
-        for c in result.cycles {
-            guard let rhr = c.restingHeartRate, let hrv = c.hrvMs,
-                  let day = cycleDay(wake: c.wakeOnset, end: c.cycleEnd, start: c.cycleStart,
-                                     tzOffsetMin: c.tzOffsetMin) else { continue }
-            let z = 0.6 * ((rhr - rm) / rs) - 0.6 * ((hrv - hm) / hs)
-            add(day, "stress", max(0, min(3, 1.5 + z)))
-        }
+        // Daily stress is NOT materialised here. `StressModel` derives imported and native DailyMetric
+        // rows through the same causal path, using only days preceding the one being scored. The removed
+        // importer-only formula used whole-export mean/SD (including the target and future days), so its
+        // result depended on how much later history happened to be present in the imported ZIP.
         // Derived: daily HR-zone minutes + strength-activity time from workouts.
         var zoneByDay: [String: [Double]] = [:]
         var strengthByDay: [String: Double] = [:]

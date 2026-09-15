@@ -10,6 +10,11 @@ import WhoopStore
 final class ReadOnlyDB {
     private var handle: OpaquePointer?
 
+    enum Binding {
+        case integer(Int)
+        case text(String)
+    }
+
     init(path: String) throws {
         // `immutable=1` promises the file will not change under us and suppresses any journal/WAL
         // recovery write — the reason a plain read-only open is not enough for a pulled device DB.
@@ -26,14 +31,34 @@ final class ReadOnlyDB {
         init(_ d: String) { description = d }
     }
 
-    /// Run `sql` and hand each row to `each` as a statement cursor.
-    func query(_ sql: String, _ each: (OpaquePointer) -> Void) throws {
+    /// Run a bound query and hand each row to `each` as a statement cursor. A terminal SQLite error is
+    /// reported rather than being mistaken for an ordinary end-of-results condition.
+    func query(_ sql: String, bindings: [Binding] = [], _ each: (OpaquePointer) -> Void) throws {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw Err("prepare failed: \(String(cString: sqlite3_errmsg(handle))) [\(sql)]")
         }
         defer { sqlite3_finalize(stmt) }
-        while sqlite3_step(stmt) == SQLITE_ROW { each(stmt!) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (offset, value) in bindings.enumerated() {
+            let index = Int32(offset + 1)
+            let rc: Int32
+            switch value {
+            case .integer(let number):
+                rc = sqlite3_bind_int64(stmt, index, sqlite3_int64(number))
+            case .text(let string):
+                rc = string.withCString { sqlite3_bind_text(stmt, index, $0, -1, transient) }
+            }
+            guard rc == SQLITE_OK else {
+                throw Err("bind failed: \(String(cString: sqlite3_errmsg(handle))) [parameter \(index)]")
+            }
+        }
+        while true {
+            let rc = sqlite3_step(stmt)
+            if rc == SQLITE_ROW { each(stmt!); continue }
+            if rc == SQLITE_DONE { return }
+            throw Err("step failed: \(String(cString: sqlite3_errmsg(handle))) [\(sql)]")
+        }
     }
 
     static func int(_ s: OpaquePointer, _ i: Int32) -> Int { Int(sqlite3_column_int64(s, i)) }
@@ -44,6 +69,22 @@ final class ReadOnlyDB {
     static func str(_ s: OpaquePointer, _ i: Int32) -> String? {
         guard let c = sqlite3_column_text(s, i) else { return nil }
         return String(cString: c)
+    }
+
+    func hasTable(_ table: String) throws -> Bool {
+        var found = false
+        try query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+                  bindings: [.text(table)]) { _ in found = true }
+        return found
+    }
+
+    func hasColumn(_ column: String, in table: String) throws -> Bool {
+        // Both identifiers are compile-time names supplied by this tool, never user input.
+        var found = false
+        try query("PRAGMA table_info(\(table))") { statement in
+            if ReadOnlyDB.str(statement, 1) == column { found = true }
+        }
+        return found
     }
 }
 
@@ -79,9 +120,9 @@ extension ReadOnlyDB {
         var out: [SessionRow] = []
         let sql = """
         SELECT startTs, endTs, efficiency, userEdited, startTsAdjusted, stagesJSON, sleepStateJSON
-        FROM sleepSession WHERE deviceId = '\(device)' ORDER BY startTs
+        FROM sleepSession WHERE deviceId = ? ORDER BY startTs
         """
-        try query(sql) { s in
+        try query(sql, bindings: [.text(device)]) { s in
             let stagesJSON = ReadOnlyDB.str(s, 5) ?? "[]"
             let stages = (try? JSONDecoder().decode([StageSegment].self,
                                                     from: Data(stagesJSON.utf8))) ?? []
@@ -106,15 +147,11 @@ extension ReadOnlyDB {
     /// need, but detection wants a wider span than the session, hence the caller-chosen padding.
     func streams(device: String, from: Int, to: Int) throws -> Streams {
         var st = Streams()
-        let w = "deviceId = '\(device)' AND ts >= \(from) AND ts <= \(to)"
-        try query("SELECT ts, bpm FROM hrSample WHERE \(w) ORDER BY ts") { s in
-            st.hr.append(HRSample(ts: ReadOnlyDB.int(s, 0), bpm: ReadOnlyDB.int(s, 1)))
-        }
-        // `ord` then `seq` preserves the within-second beat order the store guarantees.
-        try query("SELECT ts, rrMs FROM rrInterval WHERE \(w) ORDER BY ts, ord, seq") { s in
-            st.rr.append(RRInterval(ts: ReadOnlyDB.int(s, 0), rrMs: ReadOnlyDB.int(s, 1)))
-        }
-        try query("SELECT ts, x, y, z, dynAccel FROM gravitySample WHERE \(w) ORDER BY ts") { s in
+        st.hr = try scoringHR(device: device, from: from, to: to)
+        st.rr = try scoringRR(device: device, from: from, to: to)
+        let window: [Binding] = [.text(device), .integer(from), .integer(to)]
+        try query("SELECT ts, x, y, z, dynAccel FROM gravitySample WHERE deviceId = ? AND ts >= ? AND ts <= ? ORDER BY ts",
+                  bindings: window) { s in
             st.grav.append(GravitySample(
                 ts: ReadOnlyDB.int(s, 0), x: ReadOnlyDB.dbl(s, 1), y: ReadOnlyDB.dbl(s, 2),
                 z: ReadOnlyDB.dbl(s, 3), unit: "g",
@@ -125,19 +162,118 @@ extension ReadOnlyDB {
         // them by provenance at every scoring read, so the bench must refuse them the same way or it
         // would score a night the app cannot produce. Same seam, one line: `OuraRespScale.forScoring`.
         if !OuraRespScale.isRingRateStream(deviceId: device) {
-            try query("SELECT ts, raw FROM respSample WHERE \(w) ORDER BY ts") { s in
+            try query("SELECT ts, raw FROM respSample WHERE deviceId = ? AND ts >= ? AND ts <= ? ORDER BY ts",
+                      bindings: window) { s in
                 st.resp.append(RespSample(ts: ReadOnlyDB.int(s, 0), raw: ReadOnlyDB.int(s, 1)))
             }
         }
-        try query("SELECT ts, counter, activityClass FROM stepSample WHERE \(w) ORDER BY ts") { s in
+        try query("SELECT ts, counter, activityClass FROM stepSample WHERE deviceId = ? AND ts >= ? AND ts <= ? ORDER BY ts",
+                  bindings: window) { s in
             st.steps.append(StepSample(
                 ts: ReadOnlyDB.int(s, 0), counter: ReadOnlyDB.int(s, 1),
                 activityClass: ReadOnlyDB.isNull(s, 2) ? nil : ReadOnlyDB.int(s, 2)))
         }
-        try query("SELECT ts, state FROM sleepStateSample WHERE \(w) ORDER BY ts") { s in
+        try query("SELECT ts, state FROM sleepStateSample WHERE deviceId = ? AND ts >= ? AND ts <= ? ORDER BY ts",
+                  bindings: window) { s in
             st.band.append((ts: ReadOnlyDB.int(s, 0), state: ReadOnlyDB.int(s, 1)))
         }
         return st
+    }
+
+    /// The app's measured-first HR union: a PPG estimate fills only seconds with no measured row.
+    private func scoringHR(device: String, from: Int, to: Int) throws -> [HRSample] {
+        var out: [HRSample] = []
+        let values: [Binding] = [.text(device), .integer(from), .integer(to)]
+        if try hasTable("ppgHrSample") {
+            try query("""
+                SELECT ts, bpm FROM (
+                    SELECT ts, bpm FROM hrSample
+                    WHERE deviceId = ? AND ts >= ? AND ts <= ?
+                    UNION ALL
+                    SELECT p.ts, CAST(ROUND(p.bpm) AS INTEGER) FROM ppgHrSample p
+                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+                      AND NOT EXISTS (SELECT 1 FROM hrSample h
+                                      WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+                ) ORDER BY ts ASC
+                """, bindings: values + values) { statement in
+                out.append(HRSample(ts: ReadOnlyDB.int(statement, 0), bpm: ReadOnlyDB.int(statement, 1)))
+            }
+        } else {
+            try query("SELECT ts, bpm FROM hrSample WHERE deviceId = ? AND ts >= ? AND ts <= ? ORDER BY ts ASC",
+                      bindings: values) { statement in
+                out.append(HRSample(ts: ReadOnlyDB.int(statement, 0), bpm: ReadOnlyDB.int(statement, 1)))
+            }
+        }
+        return out
+    }
+
+    /// Mirror the current store R-R policy without opening the snapshot through migrations: reject suspect
+    /// timestamps, exclude Oura's duplicate SpO2 IBI channel, and pin a WHOOP 5 window to one verified
+    /// transport. Missing legacy columns stay explicit rather than being guessed into a modern source.
+    private func scoringRR(device: String, from: Int, to: Int) throws -> [RRInterval] {
+        let hasSource = try hasColumn("srcChannel", in: "rrInterval")
+        let hasOrder = try hasColumn("ord", in: "rrInterval")
+        let hasSequence = try hasColumn("seq", in: "rrInterval")
+        let hasSuspect = try hasColumn("tsSuspect", in: "rrInterval")
+        let strictWhoop5 = try usesCanonicalWhoop5RR(device: device, hasSource: hasSource)
+
+        let sourceSelect = hasSource ? "srcChannel" : "NULL AS srcChannel"
+        let orderSelect = hasOrder ? "ord" : "NULL AS ord"
+        let sequenceSelect = hasSequence ? "seq" : "0 AS seq"
+        let suspectPredicate = hasSuspect ? "AND (tsSuspect IS NULL OR tsSuspect <> 1)" : ""
+        let duplicatePredicate = hasSource ? "AND (srcChannel IS NULL OR srcChannel <> 2)" : ""
+        let sourcePredicate: String
+        if strictWhoop5 && hasSource {
+            sourcePredicate = """
+                AND srcChannel = (SELECT MIN(srcChannel) FROM rrInterval
+                    WHERE deviceId = ? AND ts >= ? AND ts <= ? AND srcChannel IN (5, 7)
+                    \(hasSuspect ? "AND (tsSuspect IS NULL OR tsSuspect <> 1)" : ""))
+                """
+        } else if strictWhoop5 {
+            // A current migrated store would add the source column as NULL and withhold these unverified
+            // WHOOP 5 rows. The immutable historical snapshot cannot be mutated just to demonstrate that.
+            sourcePredicate = "AND 0"
+        } else {
+            sourcePredicate = ""
+        }
+
+        var out: [RRInterval] = []
+        var bindings: [Binding] = [.text(device), .integer(from), .integer(to)]
+        if strictWhoop5 && hasSource { bindings += [.text(device), .integer(from), .integer(to)] }
+        try query("""
+            SELECT ts, rrMs, \(sourceSelect), \(orderSelect), \(sequenceSelect) FROM rrInterval
+            WHERE deviceId = ? AND ts >= ? AND ts <= ?
+            \(duplicatePredicate)
+            \(sourcePredicate)
+            \(suspectPredicate)
+            ORDER BY ts ASC, ord ASC, rrMs ASC, seq ASC
+            """, bindings: bindings) { statement in
+            let rawSource = ReadOnlyDB.isNull(statement, 2) ? nil : ReadOnlyDB.int(statement, 2)
+            out.append(RRInterval(
+                ts: ReadOnlyDB.int(statement, 0), rrMs: ReadOnlyDB.int(statement, 1),
+                srcChannel: rawSource.flatMap(RRSourceChannel.init(rawValue:)),
+                ord: ReadOnlyDB.isNull(statement, 3) ? nil : ReadOnlyDB.int(statement, 3),
+                seq: ReadOnlyDB.int(statement, 4)))
+        }
+        return out
+    }
+
+    private func usesCanonicalWhoop5RR(device: String, hasSource: Bool) throws -> Bool {
+        guard try hasTable("pairedDevice"),
+              try hasColumn("model", in: "pairedDevice"),
+              try hasColumn("brand", in: "pairedDevice") else { return false }
+        var model: String?, brand: String?
+        try query("SELECT model, brand FROM pairedDevice WHERE id = ? LIMIT 1",
+                  bindings: [.text(device)]) { statement in
+            model = ReadOnlyDB.str(statement, 0)
+            brand = ReadOnlyDB.str(statement, 1)
+        }
+        var tagged = false
+        if hasSource {
+            try query("SELECT 1 FROM rrInterval WHERE deviceId = ? AND srcChannel IN (5, 6, 7) LIMIT 1",
+                      bindings: [.text(device)]) { _ in tagged = true }
+        }
+        return Whoop5RR.usesCanonicalSource(model: model, brand: brand, hasTaggedIntervals: tagged)
     }
 
     /// The `stagelock:<deviceId>:<startTs>` cursors. A lock is written ONLY by `CloudEditApplier` when an
@@ -148,7 +284,8 @@ extension ReadOnlyDB {
     func stageLockedStarts(device: String) throws -> Set<Int> {
         var out: Set<Int> = []
         let prefix = "stagelock:\(device):"
-        try query("SELECT name FROM cursors WHERE value = 1 AND name LIKE '\(prefix)%'") { s in
+        try query("SELECT name FROM cursors WHERE value = 1 AND name LIKE ?",
+                  bindings: [.text(prefix + "%")]) { s in
             if let n = ReadOnlyDB.str(s, 0), let ts = Int(n.dropFirst(prefix.count)) { out.insert(ts) }
         }
         return out
@@ -156,10 +293,7 @@ extension ReadOnlyDB {
 
     /// Mean / min HR over a window — the stratifier for the supplement-HR hypothesis.
     func hrStats(device: String, from: Int, to: Int) throws -> (mean: Double, n: Int, p10: Double)? {
-        var v: [Double] = []
-        try query("SELECT bpm FROM hrSample WHERE deviceId = '\(device)' AND ts >= \(from) AND ts <= \(to)") { s in
-            v.append(ReadOnlyDB.dbl(s, 0))
-        }
+        var v = try scoringHR(device: device, from: from, to: to).map { Double($0.bpm) }
         guard !v.isEmpty else { return nil }
         v.sort()
         return (v.reduce(0, +) / Double(v.count), v.count, v[max(0, Int(Double(v.count) * 0.10) - 1)])
