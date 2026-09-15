@@ -65,6 +65,8 @@ final class StressModelCarryTests: XCTestCase {
                        "equivalent RHR/HRV must score identically regardless of acquisition path")
         XCTAssertFalse(importedWithLegacyStoredRow?.usingStored ?? true,
                        "legacy importer stress must not override derivable physiology")
+        XCTAssertEqual(native?.algorithmVersion, "stress-daily-v2")
+        XCTAssertEqual(native?.baselineVersion, "trailing-mean-sd-30d-causal-v1")
     }
 
     func testFutureDaysCannotChangeAnEarlierHistoricalScore() {

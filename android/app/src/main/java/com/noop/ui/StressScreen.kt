@@ -75,8 +75,8 @@ import kotlin.math.sqrt
 //
 // A Whoop-style "Stress Monitor": one 0–3 number, a band (LOW/MEDIUM/HIGH), and a
 // single plain-English line on *why*. The score is a transparent proxy for autonomic
-// load, DERIVED from how today's resting HR / HRV sit against a personal 30-day
-// baseline (a stored "stress" series, if present, takes priority):
+// load, DERIVED from how today's resting HR / HRV sit against a causal personal
+// 30-day baseline. A stored vendor summary is used only when physiology cannot be derived:
 //
 //   zRHR = (todayRHR − meanRHR) / sdRHR        // positive when RHR is UP
 //   zHRV = (meanHRV − todayHRV) / sdHRV        // positive when HRV is DOWN
@@ -87,11 +87,7 @@ import kotlin.math.sqrt
 // `recentDays` (+ the stored series) so the math is fully inspectable — see the
 // "How this is computed" card at the bottom.
 //
-// Source priority for today's value:
-//   1. A persisted daily `stress` value from the metricSeries store ("my-whoop").
-//   2. Otherwise the z-score derivation above.
-// Both the hero number and the full trend line share ONE baseline so the line is
-// internally comparable.
+// Each historical point uses only its own preceding window; future rows cannot move it.
 
 @Composable
 fun StressScreen(vm: AppViewModel, onBreathe: () -> Unit = {}) {
@@ -184,7 +180,7 @@ private suspend fun loadDaytimeStress(vm: AppViewModel, personalBaseline: Boolea
     val from = todayWindow.fromEpochSecond
     val tzOffsetSeconds = zone.rules.getOffset(Instant.ofEpochSecond(nowSeconds)).totalSeconds.toLong()
     val hr = vm.repo.hrSamplesUnion(vm.activeStrapId, from, nowSeconds, limit = 200_000)
-    if (hr.size < DaytimeStress.minHourHrSamples) {
+    if (hr.isEmpty()) {
         return DaytimeReadout(DaytimeStress.Result.EMPTY, null, null)
     }
     val rr = vm.repo.rrIntervalsUnion(vm.activeStrapId, from, nowSeconds, limit = 200_000)
@@ -195,14 +191,15 @@ private suspend fun loadDaytimeStress(vm: AppViewModel, personalBaseline: Boolea
     // Score against the PERSONAL cross-day baseline only when the user opted in (#463) AND enough worn
     // history exists (DaytimeBaselines.scoringMode is the degradation gate); else the day's own calm
     // hours (DayRelative, the default). The trailing-history reads happen only past the HR-count guard
-    // above and only while the toggle is ON, so the default read is byte-identical to before. Twin of
+    // above and only while the toggle is ON. Twin of
     // the iOS StressView daytimeScoringMode.
     val mode = if (personalBaseline) {
         daytimeScoringMode(vm, todayWindow.day, zone)
     } else {
         DaytimeStress.ScoringMode.DayRelative
     }
-    val daytime = DaytimeStress.analyze(hr, rr, gravity, tzOffsetSeconds, mode)
+    val daytime = DaytimeStress.analyze(hr, rr, gravity, tzOffsetSeconds, mode,
+        asOfTimestamp = nowSeconds)
     // ADDITIVE advanced readouts from the SAME `rr`. Each engine self-gates and returns null when
     // its requirement is not met, in which case its row is simply hidden in the UI.
     val si = StressIndex.components(rr)
@@ -214,7 +211,7 @@ private suspend fun loadDaytimeStress(vm: AppViewModel, personalBaseline: Boolea
  * Build the personal daytime baselines from the trailing [baselineHistoryDays] local days (TODAY
  * EXCLUDED — it's the day being scored, not part of its own baseline) and return the scoring mode for
  * today's intraday read: BaselineRelative once there's enough real worn daytime-HR history for a usable
- * baseline, else DayRelative (the unchanged default). Reads each past day's raw HR once (bounded per
+ * baseline, else causal DayRelative. Reads each past day's raw HR once (bounded per
  * day) via [vm].repo; unworn days (no HR) are skipped without an R-R read. Faithful twin of the iOS
  * StressView.daytimeScoringMode. [todayLocalDay] is today's date in [zone]. Each day is reduced
  * to its aggregate as it is read (#2107), so only the aggregates are retained, never the streams.
@@ -250,7 +247,13 @@ private suspend fun daytimeScoringMode(
             limit = 200_000,
         )
         aggregates.add(
-            DaytimeBaselines.dayDaytimeAggregate(dayHr, dayRr, window.offsetSeconds.toLong()),
+            // DST transitions are overnight; local noon supplies the offset used by all scored
+            // waking buckets on that civil day instead of the stale pre-transition midnight offset.
+            DaytimeBaselines.dayDaytimeAggregate(
+                dayHr, dayRr,
+                todayLocalDay.minusDays(back.toLong()).atTime(12, 0).atZone(zone)
+                    .offset.totalSeconds.toLong(),
+            ),
         )
     }
     return DaytimeBaselines.scoringModeFromAggregates(aggregates)
@@ -1476,6 +1479,8 @@ internal class StressModel private constructor(
     val calmTimeValue: String,
     val calmTimeCaption: String,
     val usingStored: Boolean,     // true when today's value came from the stored series
+    val algorithmVersion: String,
+    val baselineVersion: String,
 ) {
     data class TrendPoint(val day: String, val value: Double)
 
@@ -1494,6 +1499,10 @@ internal class StressModel private constructor(
     }
 
     companion object {
+        const val ALGORITHM_VERSION = "stress-daily-v2"
+        const val BASELINE_VERSION = "trailing-mean-sd-30d-causal-v1"
+        const val BASELINE_WINDOW_DAYS = 30
+
         /** Build from daily metrics plus any stored "stress" series. ISO days are sorted first, so an
          *  out-of-order import/replay is deterministic. Returns null only when no signal is usable. */
         fun build(days: List<DailyMetric>, stored: Map<String, Double>): StressModel? {
@@ -1514,7 +1523,8 @@ internal class StressModel private constructor(
 
             // Baseline window: up to 30 days ending the day BEFORE the scored day, so it's measured
             // against its own recent past rather than itself.
-            val baseline = if (idx > 0) orderedDays.subList(0, idx).takeLast(30) else emptyList()
+            val baseline = if (idx > 0) orderedDays.subList(0, idx).takeLast(BASELINE_WINDOW_DAYS)
+                else emptyList()
 
             val rhrBase = baseline.mapNotNull { it.restingHr?.toDouble() }
             val hrvBase = baseline.mapNotNull { it.avgHrv }
@@ -1550,7 +1560,9 @@ internal class StressModel private constructor(
             // cannot move an already-scored point; stored values remain a no-physiology fallback.
             val pts = ArrayList<TrendPoint>()
             for ((dayIndex, d) in orderedDays.withIndex()) {
-                val prior = if (dayIndex > 0) orderedDays.subList(0, dayIndex).takeLast(30) else emptyList()
+                val prior = if (dayIndex > 0) {
+                    orderedDays.subList(0, dayIndex).takeLast(BASELINE_WINDOW_DAYS)
+                } else emptyList()
                 val dayRhrBase = prior.mapNotNull { it.restingHr?.toDouble() }
                 val dayHrvBase = prior.mapNotNull { it.avgHrv }
                 val dayMeanRhr = mean(dayRhrBase)
@@ -1594,6 +1606,8 @@ internal class StressModel private constructor(
                 calmTimeValue = calmValue,
                 calmTimeCaption = calmCaption,
                 usingStored = usingStored,
+                algorithmVersion = ALGORITHM_VERSION,
+                baselineVersion = BASELINE_VERSION,
             )
         }
 

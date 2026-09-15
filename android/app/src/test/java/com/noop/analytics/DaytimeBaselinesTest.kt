@@ -20,14 +20,14 @@ class DaytimeBaselinesTest {
 
     // MARK: - Fixtures (multi-day: day `d` is offset by d·86 400 s; local hour-of-day is preserved)
 
-    /** One local day of HR: every hour in [hours] filled with [n] 1 Hz samples at a per-hour bpm. */
+    /** One local day of HR: every hour in [hours] receives evenly distributed samples. */
     private fun dayHr(dayIndex: Int, hours: List<Int>, bpms: List<Int>,
-                      n: Int = DaytimeStress.minHourHrSamples): List<HrSample> {
+                      n: Int = 3_600, spacing: Long = 1L): List<HrSample> {
         val dayBase = dayIndex.toLong() * 86_400L
         val out = ArrayList<HrSample>()
         for ((h, bpm) in hours.zip(bpms)) {
             val base = dayBase + h.toLong() * 3_600L
-            for (i in 0 until n) out.add(HrSample(deviceId = "t", ts = base + i, bpm = bpm))
+            for (i in 0 until n) out.add(HrSample(deviceId = "t", ts = base + i * spacing, bpm = bpm))
         }
         return out
     }
@@ -63,11 +63,11 @@ class DaytimeBaselinesTest {
     }
 
     @Test
-    fun dayHRAggregateAppliesTheSameMinSamplesGateAsTheScorer() {
-        // An under-gate sparse hour at a very low bpm must NOT drag the P10 floor down — the scorer
+    fun dayHRAggregateAppliesTheSameTemporalGateAsTheScorer() {
+        // A clustered high-count hour at a very low bpm must NOT drag the P10 floor down — the scorer
         // would never score it, so the aggregate must not reference it either.
         val dense = dayHr(0, (8..17).toList(), listOf(60, 62, 64, 66, 68, 70, 72, 74, 76, 78))
-        val sparse = dayHr(0, listOf(7), listOf(40), n = DaytimeStress.minHourHrSamples - 1)
+        val sparse = dayHr(0, listOf(7), listOf(40), n = 300, spacing = 1L)
         val withSparse = DaytimeBaselines.dayDaytimeAggregate(dense + sparse, emptyList(), 0L)
         val denseOnly = DaytimeBaselines.dayDaytimeAggregate(dense, emptyList(), 0L)
         assertEquals("a below-gate hour leaked into the daytime-HR floor",

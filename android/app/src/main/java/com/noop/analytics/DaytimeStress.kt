@@ -23,34 +23,29 @@ import kotlin.math.sqrt
  *   • mean HR over the hour                    (HR up   = stress, like daily RHR)
  *   • RMSSD over the hour's clean R-R          (HRV down = stress, like daily avgHRV)
  *
- * and z-scores each against the day's OWN quiet reference (the calm-hour quartile + the
- * spread across hours), then squashes the z-sum onto 0–3 with the identical logistic
+ * and z-scores each against the strictly prior portion of the day's quiet reference,
+ * then squashes the z-sum onto 0–3 with the identical logistic
  *   stress = 3 / (1 + e^(−raw)). 0 calm · 1.5 baseline · 3 high — same bands as the daily
- * score. The day is its own baseline: a desk day with one tense afternoon reads that
- * afternoon as elevated *relative to that person's own calm hours*, no cloud, no history
- * needed beyond the day itself.
+ * score. During cross-day-baseline warm-up, only completed earlier hours can seed a point.
  *
  * "Sustained high stress" is an honest, conservative flag: the most recent
  * [sustainedHours] covered hours must ALL sit in the HIGH band (≥ [highBandFloor]). It
  * drives a passive in-app suggestion to run a Breathe session — never a notification.
  *
- * APPROXIMATE and non-clinical: an hour with too little data (few HR samples / too few
- * clean beats) is reported with a null level and never invented.
+ * APPROXIMATE and non-clinical: an hour with inadequate temporal coverage or too few clean
+ * beats is reported with a null level and never invented.
  */
 object DaytimeStress {
 
     // MARK: - Tunables
 
-    /**
-     * Minimum HR samples in an hour before its mean HR is trusted (~5 min at nominal 1 Hz).
-     * NEXT QUALITY-GATE SEAM: replace this count-only decision inside `aggregate` with timestamp
-     * coverage across the 3,600-second bucket plus a maximum consecutive-gap limit. Imported and
-     * intermittently banked streams are not guaranteed to retain the nominal cadence, so 300 clustered
-     * samples must not eventually be treated as equivalent to five minutes distributed through the hour.
-     */
-    const val minHourHrSamples: Int = 300
     /** Bucket width for the timeline, in seconds (one hour). */
     const val bucketSeconds: Long = 3_600L
+    /** Day-relative cold start is ready after one completed, quality-accepted waking bucket. */
+    const val minimumCausalReferenceHours: Int = 1
+    const val scoringAlgorithmVersion: String = "daytime-stress-v2"
+    const val causalBaselineVersion: String = "strict-prior-hour-calm-prefix-v1"
+    const val personalBaselineVersion: String = "daytime-winsorized-ewma-v1"
     /**
      * How far the DISPLAY timeline slides its window between points.
      *
@@ -160,11 +155,8 @@ object DaytimeStress {
      */
     sealed interface ScoringMode {
         /**
-         * DEFAULT — unchanged from before this mode existed. Each hour is z-scored against
-         * THIS DAY's own calm-hour reference: the lower quartile of the day's own waking-hour
-         * mean HR, the upper quartile of its own waking-hour RMSSD. No personal history needed —
-         * the day is its own baseline. Byte-identical output to the pre-existing single-mode
-         * `analyze` for the same hr/rr/tzOffsetSeconds.
+         * Cold-start fallback. Each hour is z-scored against the calm reference built from
+         * strictly earlier accepted waking hours; the first accepted hour is withheld.
          */
         object DayRelative : ScoringMode
 
@@ -213,6 +205,8 @@ object DaytimeStress {
          * reference and the coverage totals. See the motion-gate constants above.
          */
         val maskedForActivity: Boolean = false,
+        /** Structured, versioned HR quality evidence for this exact half-open bucket. */
+        val quality: StressQualityDecision? = null,
     ) {
         /** True when the hour was scored (had enough HR to place on the curve). */
         val hasData: Boolean get() = level != null
@@ -265,6 +259,10 @@ object DaytimeStress {
          * overlapping windows would count the same minute more than once.
          */
         val timeline: List<HourPoint> = hours,
+        /** Replay receipt: algorithm/baseline identities and causal cutoff used for this result. */
+        val algorithmVersion: String = scoringAlgorithmVersion,
+        val baselineVersion: String = causalBaselineVersion,
+        val asOfTimestamp: Long? = null,
     ) {
         /** The scored hours only (level non-null), in time order. */
         val scored: List<HourPoint> get() = hours.filter { it.level != null }
@@ -341,7 +339,7 @@ object DaytimeStress {
      *   present, ambulatory hours are masked out of the score (see the motion-gate constants).
      * @param tzOffsetSeconds seconds east of UTC, for placing each bucket on the LOCAL clock
      *   (so "waking hours" and the hour labels are local). Defaults to UTC.
-     * @param mode [ScoringMode.DayRelative] (DEFAULT — unchanged existing behaviour) or
+     * @param mode causal [ScoringMode.DayRelative] (default) or
      *   [ScoringMode.BaselineRelative] (Oura-style, vs a personal rolling baseline). ADDITIVE and
      *   opt-in: existing callers that don't pass `mode` keep the exact prior behaviour.
      *
@@ -361,15 +359,39 @@ object DaytimeStress {
      200 000-row reads, would be cost for nothing. The widget and the Today card ask for it.
          */
         includeTimeline: Boolean = false,
+        asOfTimestamp: Long? = null,
     ): Result {
-        if (hr.isEmpty()) return Result.EMPTY
+        val normalizedHr = hr.map { sample ->
+            StressSignalSample(
+                timestamp = sample.ts, value = sample.bpm.toDouble(),
+                source = "repository-normalized", provenance = "com.noop.data.HrSample",
+                quality = if (sample.bpm in 30..220) StressSignalSample.Quality.VALID
+                    else StressSignalSample.Quality.REJECTED,
+            )
+        }
+        return analyzeCanonical(normalizedHr, rr, gravity, tzOffsetSeconds, mode,
+            includeTimeline, asOfTimestamp)
+    }
+
+    private fun analyzeUncached(
+        normalizedHr: List<StressSignalSample>,
+        rr: List<RrInterval>,
+        gravity: List<GravitySample>,
+        tzOffsetSeconds: Long,
+        mode: ScoringMode,
+        includeTimeline: Boolean,
+        asOfTimestamp: Long,
+    ): Result {
+        if (normalizedHr.isEmpty()) return Result.EMPTY
+        val effectiveAsOf = asOfTimestamp
 
         // 1) Bucket HR + R-R into LOCAL hour-of-day buckets, keyed by the bucket start
         //    (floored to the hour on the local clock).
-        fun hrBuckets(phase: Long): HashMap<Long, MutableList<Double>> {
-            val m = HashMap<Long, MutableList<Double>>()
-            for (s in hr) m.getOrPut(bucketOf(s.ts + tzOffsetSeconds, phase)) { ArrayList() }
-                .add(s.bpm.toDouble())
+        fun hrBuckets(phase: Long): HashMap<Long, MutableList<StressSignalSample>> {
+            val m = HashMap<Long, MutableList<StressSignalSample>>()
+            for (s in normalizedHr) {
+                m.getOrPut(bucketOf(s.timestamp + tzOffsetSeconds, phase)) { ArrayList() }.add(s)
+            }
             return m
         }
         fun rrBuckets(phase: Long): HashMap<Long, MutableList<Double>> {
@@ -381,21 +403,34 @@ object DaytimeStress {
         val hrByBucket = hrBuckets(0L)
         val rrByBucket = rrBuckets(0L)
 
-        // 2) Per-hour mean HR + RMSSD (RMSSD via the shared HRV cleaner, so ectopic beats
-        //    can't fabricate variability). An hour with < minHourHrSamples HR is left
-        //    unscored (null level) — never invented.
-        data class HourAgg(val bucket: Long, val meanHr: Double?, val rmssd: Double?)
+        // 2) Per-hour mean HR + RMSSD. HR is accepted only when the versioned temporal decision clears
+        //    represented-duration coverage and longest-gap limits; sample count is diagnostic only.
+        data class HourAgg(
+            val bucket: Long,
+            val meanHr: Double?,
+            val rmssd: Double?,
+            val quality: StressQualityDecision,
+            val activeContext: Boolean,
+        )
         fun aggregate(
-            hrGrid: Map<Long, MutableList<Double>>,
+            hrGrid: Map<Long, MutableList<StressSignalSample>>,
             rrGrid: Map<Long, MutableList<Double>>,
         ): List<HourAgg> {
             val ordered = hrGrid.keys.sorted()
             val out = ArrayList<HourAgg>(ordered.size)
             for (b in ordered) {
-                val hrs = hrGrid[b] ?: emptyList<Double>()
-                val mHr = if (hrs.size >= minHourHrSamples) mean(hrs) else null
+                val hrs = hrGrid[b] ?: emptyList()
+                val wallStart = b - tzOffsetSeconds
+                val wallEnd = minOf(safeAdd(wallStart, bucketSeconds), effectiveAsOf)
+                val quality = StressTemporalQuality.evaluate(
+                    hrs, wallStart, wallEnd, true,
+                )
+                val mHr = if (quality.accepted) StressTemporalQuality.canonicalMean(
+                    hrs, wallStart, wallEnd,
+                ) else null
                 val rrRes = HrvAnalyzer.analyzeRaw(rrGrid[b] ?: emptyList())
-                out.add(HourAgg(b, mHr, rrRes.rmssd))
+                out.add(HourAgg(b, mHr, rrRes.rmssd, quality,
+                    hrs.any { it.activityContext == StressSignalSample.ActivityContext.ACTIVE }))
             }
             return out
         }
@@ -428,43 +463,22 @@ object DaytimeStress {
             return out
         }
         val activeFracByBucket = activeFractions(0L)
-        fun isAmbulatory(bucket: Long): Boolean =
-            (activeFracByBucket[bucket] ?: 0.0) >= activityMaskFraction
-
-        // 3) The reference point + spread for each signal — WHERE they come from depends on
-        //    `mode`. Every other step (bucketing above incl. the motion gate, the waking-hour
-        //    filter, the squash curve, sustained-high, high-stress-minutes below) is identical
-        //    between modes; only the reference differs.
+        // 3) External reference state. Day-relative references are built per point from a causal
+        //    prefix inside scoreGrid, never from later buckets.
         val refHr: Double?
         val sdHr: Double
         val refRmssd: Double?
         val sdRmssd: Double
         val hrOnlyFallback: Boolean
+        val baselineVersion: String
         when (mode) {
             is ScoringMode.DayRelative -> {
-                // The day's OWN quiet reference: centre on the CALM end (the lower quartile of
-                // hourly mean HR, the upper quartile of hourly RMSSD), and spread from the
-                // across-hour SD. This makes a flat day read ~baseline and a spiky day surface its
-                // tense hours — without any cross-day history. Falls back to the plain mean when
-                // there are too few scored hours for a quartile.
-                //
-                // Built from the WAKING hours only — the same hours scored in step 4. Sleep is the
-                // calmest, lowest-HR / highest-HRV stretch of the day, and the analysis window
-                // always begins at local midnight, so the current day routinely carries several
-                // hours of it. Letting those night hours into the reference drags the "calm" anchor
-                // far beneath every waking hour, inflating an ordinary calm day toward HIGH and
-                // falsely tripping the sustained-high Breathe nudge.
-                // Ambulatory hours are excluded from the day's OWN calm reference too (the motion
-                // gate): an exertion hour's elevated HR / suppressed HRV must not pull the calm
-                // anchor up or inflate the across-hour spread the z-scores divide by.
-                val referenceAggs = aggs.filter { isWakingHour(it.bucket) && !isAmbulatory(it.bucket) }
-                val hrMeans = referenceAggs.mapNotNull { it.meanHr }
-                val rmssdVals = referenceAggs.mapNotNull { it.rmssd }
-                refHr = calmReference(hrMeans, calmIsLow = true)         // calm HR is LOW
-                refRmssd = calmReference(rmssdVals, calmIsLow = false)   // calm HRV is HIGH
-                sdHr = std(hrMeans, mean(hrMeans))
-                sdRmssd = std(rmssdVals, mean(rmssdVals))
+                refHr = null
+                refRmssd = null
+                sdHr = 0.0
+                sdRmssd = 0.0
                 hrOnlyFallback = false
+                baselineVersion = causalBaselineVersion
             }
             is ScoringMode.BaselineRelative -> {
                 // The PERSONAL cross-day baseline, folded by the caller from past daytime
@@ -495,6 +509,7 @@ object DaytimeStress {
                     sdRmssd = 0.0
                     hrOnlyFallback = true
                 }
+                baselineVersion = personalBaselineVersion
             }
         }
 
@@ -505,11 +520,44 @@ object DaytimeStress {
         // hour differently — which is the whole reason the sliding read reuses the references
         // computed above rather than deriving its own.
         fun scoreGrid(gridAggs: List<HourAgg>, activeFrac: Map<Long, Double>): List<HourPoint> {
+            val contextByBucket = gridAggs.associate { it.bucket to it.activeContext }
             fun ambulatory(bucket: Long): Boolean =
-                (activeFrac[bucket] ?: 0.0) >= activityMaskFraction
+                contextByBucket[bucket] == true ||
+                    (activeFrac[bucket] ?: 0.0) >= activityMaskFraction
             val out = ArrayList<HourPoint>(gridAggs.size)
             for (a in gridAggs) {
                 if (!isWakingHour(a.bucket)) continue
+                val pointRefHr: Double?
+                val pointSdHr: Double
+                val pointRefRmssd: Double?
+                val pointSdRmssd: Double
+                when (mode) {
+                    is ScoringMode.DayRelative -> {
+                        val prefix = gridAggs.filter {
+                            it.bucket < a.bucket && isWakingHour(it.bucket) && !ambulatory(it.bucket)
+                        }
+                        val hrMeans = prefix.mapNotNull { it.meanHr }
+                        val rmssdVals = prefix.mapNotNull { it.rmssd }
+                        pointRefHr = calmReference(hrMeans, calmIsLow = true)
+                        pointSdHr = std(hrMeans, mean(hrMeans))
+                        pointRefRmssd = calmReference(rmssdVals, calmIsLow = false)
+                        pointSdRmssd = std(rmssdVals, mean(rmssdVals))
+                    }
+                    is ScoringMode.BaselineRelative -> {
+                        pointRefHr = refHr
+                        pointSdHr = sdHr
+                        pointRefRmssd = refRmssd
+                        pointSdRmssd = sdRmssd
+                    }
+                }
+                val referenceReady = when (mode) {
+                    is ScoringMode.DayRelative -> gridAggs.count {
+                        it.bucket < a.bucket && isWakingHour(it.bucket) && !ambulatory(it.bucket) &&
+                            it.meanHr != null
+                    } >= minimumCausalReferenceHours
+                    is ScoringMode.BaselineRelative -> mode.hr.usable
+                }
+                val pointQuality = a.quality.withBaselineReadiness(referenceReady)
                 val hourOfDay = (floorDiv(a.bucket, bucketSeconds) % 24).toInt()
                 // The wall-clock bucket start (undo the local shift applied above).
                 val wallStart = a.bucket - tzOffsetSeconds
@@ -521,16 +569,19 @@ object DaytimeStress {
                 // — a no-HR hour is plain no-data, not "masked". The look-back is one FULL window on
                 // either grid, so the half-step pass shadows the same hour of exertion.
                 val shadow = ambulatory(a.bucket - bucketSeconds) &&
-                    a.meanHr != null && refHr != null && a.meanHr > refHr + postActivityShadowBpm
+                    a.meanHr != null && pointRefHr != null &&
+                    a.meanHr > pointRefHr + postActivityShadowBpm
                 val masked = a.meanHr != null && (ambulatory(a.bucket) || shadow)
-                // Score only when HR cleared the count gate AND the hour was not motion-masked (HR is
+                // Score only when HR cleared the temporal gate AND the hour was not motion-masked (HR is
                 // the always-available anchor; RMSSD enriches it when beats allow).
-                val level: Double? = if (a.meanHr != null && !masked) {
-                    squash(rawScore(a.meanHr, refHr, sdHr, a.rmssd, refRmssd, sdRmssd))
+                val level: Double? = if (pointQuality.accepted && a.meanHr != null && !masked) {
+                    squash(rawScore(a.meanHr, pointRefHr, pointSdHr,
+                        a.rmssd, pointRefRmssd, pointSdRmssd))
                 } else {
                     null
                 }
-                out.add(HourPoint(hourOfDay, wallStart, level, a.meanHr, a.rmssd, masked))
+                out.add(HourPoint(hourOfDay, wallStart, level, a.meanHr, a.rmssd,
+                    maskedForActivity = masked, quality = pointQuality))
             }
             return out
         }
@@ -559,7 +610,8 @@ object DaytimeStress {
             return if (points.isEmpty()) Result.EMPTY
             else Result(points, sustainedHigh = false, sustainedRun = 0, dayMean = null, peak = null,
                 activityMaskedHours = activityMaskedHours,
-                highStressMinutes = 0, hrOnlyFallback = hrOnlyFallback, timeline = timeline)
+                highStressMinutes = 0, hrOnlyFallback = hrOnlyFallback, timeline = timeline,
+                baselineVersion = baselineVersion, asOfTimestamp = effectiveAsOf)
         }
 
         // 5) Sustained-high flag: walk back from the latest SCORED hour while each is HIGH.
@@ -580,8 +632,26 @@ object DaytimeStress {
         return Result(points, sustained, run, dayMean, peak,
             timeline = timeline,
             activityMaskedHours = activityMaskedHours,
-            highStressMinutes = highStressMinutes, hrOnlyFallback = hrOnlyFallback)
+            highStressMinutes = highStressMinutes, hrOnlyFallback = hrOnlyFallback,
+            baselineVersion = baselineVersion, asOfTimestamp = effectiveAsOf)
     }
+
+    /** Canonical decoder entry point; legacy [HrSample] callers use the adapter in [analyze]. */
+    fun analyzeCanonical(
+        samples: List<StressSignalSample>,
+        rr: List<RrInterval>,
+        gravity: List<GravitySample> = emptyList(),
+        tzOffsetSeconds: Long = 0L,
+        mode: ScoringMode = ScoringMode.DayRelative,
+        includeTimeline: Boolean = false,
+        asOfTimestamp: Long? = null,
+    ): Result = analyzeUncached(
+        samples, rr, gravity, tzOffsetSeconds, mode, includeTimeline,
+        asOfTimestamp ?: Long.MAX_VALUE,
+    )
+
+    private fun safeAdd(value: Long, positiveDelta: Long): Long =
+        if (value > Long.MAX_VALUE - positiveDelta) Long.MAX_VALUE else value + positiveDelta
 
     // MARK: - Helpers
 

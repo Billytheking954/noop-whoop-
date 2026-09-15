@@ -16,10 +16,79 @@ import org.junit.Test
  */
 class DaytimeStressTest {
 
-    /** Fill one local hour-of-day with `n` 1 Hz HR samples at `bpm` (UTC, tz offset 0). */
-    private fun hourHr(hour: Int, bpm: Int, n: Int = DaytimeStress.minHourHrSamples): List<HrSample> {
+    /** Fill one local hour with evenly distributed HR samples (UTC, tz offset 0). */
+    private fun hourHr(hour: Int, bpm: Int, n: Int = 3_600, spacing: Long = 1L): List<HrSample> {
         val base = hour.toLong() * 3_600L
-        return (0 until n).map { HrSample(deviceId = "t", ts = base + it, bpm = bpm) }
+        return (0 until n).map { HrSample(deviceId = "t", ts = base + it * spacing, bpm = bpm) }
+    }
+
+    @Test fun dayRelativeWarmupUsesOnlyPriorAcceptedHours() {
+        val result = DaytimeStress.analyze(hourHr(7, 60) + hourHr(8, 70), emptyList())
+        val first = result.hours.first { it.hour == 7 }
+        val second = result.hours.first { it.hour == 8 }
+        assertNull(first.level)
+        assertEquals(listOf(StressQualityRejectionReason.BASELINE_NOT_READY),
+            first.quality?.rejectionReasons)
+        assertNotNull(second.level)
+        assertTrue(second.quality?.baselineReady == true)
+    }
+
+    @Test fun appendingFutureHourCannotChangeCompletedHourlyOrTimelinePoints() {
+        val prefix = hourHr(7, 60) + hourHr(8, 72)
+        val cutoff = 9 * DaytimeStress.bucketSeconds
+        val original = DaytimeStress.analyze(prefix, emptyList(), includeTimeline = true,
+            asOfTimestamp = cutoff)
+        val replay = DaytimeStress.analyze(prefix + hourHr(9, 210), emptyList(), includeTimeline = true,
+            asOfTimestamp = 10 * 3_600L)
+        assertEquals(original.hours.filter { it.startTs + 3_600L <= cutoff },
+            replay.hours.filter { it.startTs + 3_600L <= cutoff })
+        assertEquals(original.timeline.filter { it.startTs + 3_600L <= cutoff },
+            replay.timeline.filter { it.startTs + 3_600L <= cutoff })
+    }
+
+    @Test fun partialCurrentHourUsesOnlyElapsedRequestedWindow() {
+        val result = DaytimeStress.analyze(hourHr(7, 60) + hourHr(8, 70, 300, 1L), emptyList(),
+            asOfTimestamp = 8 * 3_600L + 300L)
+        val current = result.hours.first { it.hour == 8 }
+        assertEquals(300L, current.quality?.windowDurationSeconds)
+        assertEquals(100.0, current.quality?.coveragePercentage ?: 0.0, 0.0)
+        assertNotNull(current.level)
+    }
+
+    @Test fun partialCurrentHourStillRequiresFiveMinutesOfValidDuration() {
+        val result = DaytimeStress.analyze(hourHr(7, 60) + hourHr(8, 70, 299, 1L), emptyList(),
+            asOfTimestamp = 8 * 3_600L + 299L)
+        val current = result.hours.first { it.hour == 8 }
+        assertNull(current.level)
+        assertTrue(StressQualityRejectionReason.INSUFFICIENT_TEMPORAL_COVERAGE in
+            (current.quality?.rejectionReasons ?: emptyList()))
+    }
+
+    @Test fun canonicalImportedAndNativeStreamsProduceIdenticalStress() {
+        val rows = (7 * 3_600L until 9 * 3_600L).map { ts ->
+            StressSignalSample(ts, if (ts < 8 * 3_600L) 60.0 else 72.0,
+                source = "native", provenance = "fixture-native",
+                quality = StressSignalSample.Quality.VALID)
+        }
+        val imported = rows.map { it.copy(source = "imported", provenance = "fixture-imported") }
+        assertEquals(DaytimeStress.analyzeCanonical(rows, emptyList()),
+            DaytimeStress.analyzeCanonical(imported, emptyList()))
+    }
+
+    @Test fun canonicalActiveContextIsConservativelyMasked() {
+        val prior = (7 * 3_600L until 8 * 3_600L).map {
+            StressSignalSample(it, 60.0, source = "native",
+                quality = StressSignalSample.Quality.VALID)
+        }
+        val active = (8 * 3_600L until 9 * 3_600L).map {
+            StressSignalSample(it, 100.0, source = "imported",
+                quality = StressSignalSample.Quality.VALID,
+                activityContext = StressSignalSample.ActivityContext.ACTIVE)
+        }
+        val point = DaytimeStress.analyzeCanonical(prior + active, emptyList())
+            .hours.first { it.hour == 8 }
+        assertTrue(point.maskedForActivity)
+        assertNull(point.level)
     }
 
     /** R-R for one hour with a controllable beat-to-beat jitter (drives RMSSD). */
@@ -38,27 +107,27 @@ class DaytimeStressTest {
         // sliding pass has to bucket on a shifted grid AND reuse the hourly references, and either
         // half drifting would move these numbers on one platform only.
         val hr = ArrayList<HrSample>()
-        val rr = ArrayList<RrInterval>()
-        for (h in 7..11) { hr += hourHr(h, 60 + (h - 7) * 4); rr += hourRrVariable(h, 900, 20) }
-        val res = DaytimeStress.analyze(hr, rr, includeTimeline = true)
+        for (h in 7..11) hr += hourHr(h, 60 + (h - 7) * 4)
+        val res = DaytimeStress.analyze(hr, emptyList(), includeTimeline = true)
 
         fun render(points: List<DaytimeStress.HourPoint>) = points.joinToString(" ") {
             "${it.startTs}:" + (it.level?.let { l -> String.format(java.util.Locale.US, "%.6f", l) } ?: "nil")
         }
         assertEquals(
-            "25200:0.990715 28800:1.500000 32400:2.009285 36000:2.413289 39600:2.678875",
+            "25200:nil 28800:1.500000 32400:2.857722 36000:2.761572 39600:2.844558",
             render(res.hours),
         )
         assertEquals(
-            "23400:0.990715 25200:0.990715 27000:1.500000 28800:1.500000 30600:2.009285 " +
-                "32400:2.009285 34200:2.413289 36000:2.413289 37800:2.678875 39600:2.678875",
+            "23400:nil 25200:nil 27000:nil 28800:1.500000 30600:1.500000 " +
+                "32400:2.857722 34200:2.857722 36000:2.761572 37800:2.761572 " +
+                "39600:2.844558 41400:nil",
             render(res.timeline),
         )
         // The day-level figures the twin reports for the same input, all still hourly-derived.
         assertEquals(180, res.highStressMinutes)
         assertTrue(res.sustainedHigh)
         assertEquals(3, res.sustainedRun)
-        assertEquals(39600L, res.peak?.startTs)
+        assertEquals(32400L, res.peak?.startTs)
     }
 
     @Test
@@ -169,7 +238,8 @@ class DaytimeStressTest {
             "sleep hours sharing the window must not change the sustained-high verdict",
             wakingOnly.sustainedHigh, withSleep.sustainedHigh,
         )
-        for (h in 6..17) {
+        // Local 06:00 is the explicit causal warm-up bucket; compare every score-ready hour.
+        for (h in 7..17) {
             val withLvl = withSleep.scored.firstOrNull { it.hour == h }?.level
             val withoutLvl = wakingOnly.scored.firstOrNull { it.hour == h }?.level
             assertNotNull("waking hour $h should be scored in both runs", withLvl)
@@ -356,11 +426,13 @@ class DaytimeStressTest {
         // is a day-wide tally and must still count the earlier spike hour — proving it is computed
         // independently, not derived from sustainedRun.
         val hr = ArrayList<HrSample>()
-        hr += hourHr(7, 130)   // isolated high spike
-        hr += hourHr(8, 60)
+        hr += hourHr(6, 60)
+        hr += hourHr(7, 61)
+        hr += hourHr(8, 130)   // isolated high spike after a causal calm prefix
         hr += hourHr(9, 60)
         hr += hourHr(10, 60)
-        hr += hourHr(11, 60)   // trailing hour is calm -> NOT sustained
+        hr += hourHr(11, 60)
+        hr += hourHr(12, 60)   // trailing hour is calm -> NOT sustained
         val r = DaytimeStress.analyze(hr, emptyList())
 
         assertFalse("the trailing hour is calm, so sustained-high must not fire", r.sustainedHigh)

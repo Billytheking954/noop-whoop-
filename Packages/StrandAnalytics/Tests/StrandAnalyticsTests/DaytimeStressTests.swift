@@ -4,10 +4,79 @@ import WhoopProtocol
 
 final class DaytimeStressTests: XCTestCase {
 
-    /// Fill one local hour-of-day with `n` 1 Hz HR samples at `bpm` (UTC, tz offset 0).
-    private func hourHR(_ hour: Int, bpm: Int, n: Int = DaytimeStress.minHourHRSamples) -> [HRSample] {
+    /// Fill one local hour with evenly distributed HR samples (UTC, tz offset 0).
+    private func hourHR(_ hour: Int, bpm: Int, n: Int = 3_600, spacing: Int = 1) -> [HRSample] {
         let base = hour * 3_600
-        return (0..<n).map { HRSample(ts: base + $0, bpm: bpm) }
+        return (0..<n).map { HRSample(ts: base + $0 * spacing, bpm: bpm) }
+    }
+
+    func testDayRelativeWarmupUsesOnlyPriorAcceptedHours() throws {
+        let result = DaytimeStress.analyze(hr: hourHR(7, bpm: 60) + hourHR(8, bpm: 70), rr: [])
+        let first = try XCTUnwrap(result.hours.first { $0.hour == 7 })
+        let second = try XCTUnwrap(result.hours.first { $0.hour == 8 })
+        XCTAssertNil(first.level)
+        XCTAssertEqual(first.quality?.rejectionReasons, [.baselineNotReady])
+        XCTAssertNotNil(second.level)
+        XCTAssertTrue(second.quality?.baselineReady == true)
+    }
+
+    func testAppendingFutureHourCannotChangeCompletedHourlyOrTimelinePoints() {
+        let prefix = hourHR(7, bpm: 60) + hourHR(8, bpm: 72)
+        let cutoff = 9 * DaytimeStress.bucketSeconds
+        let original = DaytimeStress.analyze(hr: prefix, rr: [], includeTimeline: true,
+                                             asOfTimestamp: cutoff)
+        let replay = DaytimeStress.analyze(hr: prefix + hourHR(9, bpm: 210), rr: [],
+                                           includeTimeline: true, asOfTimestamp: 10 * 3_600)
+        XCTAssertEqual(original.hours.filter { $0.startTs + 3_600 <= cutoff },
+                       replay.hours.filter { $0.startTs + 3_600 <= cutoff })
+        XCTAssertEqual(original.timeline.filter { $0.startTs + 3_600 <= cutoff },
+                       replay.timeline.filter { $0.startTs + 3_600 <= cutoff })
+    }
+
+    func testPartialCurrentHourUsesOnlyElapsedRequestedWindow() throws {
+        let elapsed = hourHR(8, bpm: 70, n: 300, spacing: 1)
+        let result = DaytimeStress.analyze(hr: hourHR(7, bpm: 60) + elapsed, rr: [],
+                                           asOfTimestamp: 8 * 3_600 + 300)
+        let current = try XCTUnwrap(result.hours.first { $0.hour == 8 })
+        XCTAssertEqual(current.quality?.windowDurationSeconds, 300)
+        XCTAssertEqual(current.quality?.coveragePercentage, 100)
+        XCTAssertNotNil(current.level)
+    }
+
+    func testPartialCurrentHourStillRequiresFiveMinutesOfValidDuration() throws {
+        let elapsed = hourHR(8, bpm: 70, n: 299, spacing: 1)
+        let result = DaytimeStress.analyze(hr: hourHR(7, bpm: 60) + elapsed, rr: [],
+                                           asOfTimestamp: 8 * 3_600 + 299)
+        let current = try XCTUnwrap(result.hours.first { $0.hour == 8 })
+        XCTAssertNil(current.level)
+        XCTAssertTrue(current.quality?.rejectionReasons.contains(.insufficientTemporalCoverage) == true)
+    }
+
+    func testCanonicalImportedAndNativeStreamsProduceIdenticalStress() {
+        let rows = (7 * 3_600..<(9 * 3_600)).map { ts in
+            StressSignalSample(timestamp: ts, value: ts < 8 * 3_600 ? 60 : 72,
+                               source: "native", provenance: "fixture-native", quality: .valid)
+        }
+        let imported = rows.map {
+            StressSignalSample(timestamp: $0.timestamp, value: $0.value, source: "imported",
+                               provenance: "fixture-imported", quality: $0.quality)
+        }
+        XCTAssertEqual(DaytimeStress.analyzeCanonical(samples: rows, rr: []),
+                       DaytimeStress.analyzeCanonical(samples: imported, rr: []))
+    }
+
+    func testCanonicalActiveContextIsConservativelyMasked() throws {
+        let prior = (7 * 3_600..<(8 * 3_600)).map {
+            StressSignalSample(timestamp: $0, value: 60, source: "native", quality: .valid)
+        }
+        let active = (8 * 3_600..<(9 * 3_600)).map {
+            StressSignalSample(timestamp: $0, value: 100, source: "imported", quality: .valid,
+                               activityContext: .active)
+        }
+        let result = DaytimeStress.analyzeCanonical(samples: prior + active, rr: [])
+        let point = try XCTUnwrap(result.hours.first { $0.hour == 8 })
+        XCTAssertTrue(point.maskedForActivity)
+        XCTAssertNil(point.level)
     }
 
     func testTheSlidingReadIsOptIn() {
@@ -92,32 +161,35 @@ final class DaytimeStressTests: XCTestCase {
         // The other half of the oracle. The Kotlin `DaytimeStressTest` asserts these same literals for
         // this same scenario, so a change landing on ONE platform moves one of the two and fails here
         // or there. An oracle only guards the direction it is written in.
-        let (hr, rr) = wornMorning()
-        let res = DaytimeStress.analyze(hr: hr, rr: rr, includeTimeline: true)
+        let (hr, _) = wornMorning()
+        let res = DaytimeStress.analyze(hr: hr, rr: [], includeTimeline: true)
         func render(_ points: [DaytimeStress.HourPoint]) -> String {
             points.map { "\($0.startTs):" + ($0.level.map { String(format: "%.6f", $0) } ?? "nil") }
                 .joined(separator: " ")
         }
         XCTAssertEqual(render(res.hours),
-                       "25200:0.990715 28800:1.500000 32400:2.009285 36000:2.413289 39600:2.678875")
+                       "25200:nil 28800:1.500000 32400:2.857722 36000:2.761572 39600:2.844558")
         XCTAssertEqual(render(res.timeline),
-                       "23400:0.990715 25200:0.990715 27000:1.500000 28800:1.500000 30600:2.009285 "
-                       + "32400:2.009285 34200:2.413289 36000:2.413289 37800:2.678875 39600:2.678875")
+                       "23400:nil 25200:nil 27000:nil 28800:1.500000 30600:1.500000 "
+                       + "32400:2.857722 34200:2.857722 36000:2.761572 37800:2.761572 "
+                       + "39600:2.844558 41400:nil")
         XCTAssertEqual(res.highStressMinutes, 180)
         XCTAssertTrue(res.sustainedHigh)
         XCTAssertEqual(res.sustainedRun, 3)
-        XCTAssertEqual(res.peak?.startTs, 39600)
+        XCTAssertEqual(res.peak?.startTs, 32400)
     }
 
     func testEmptyWhenNoHR() {
         XCTAssertEqual(DaytimeStress.analyze(hr: [], rr: []), .empty)
     }
 
-    func testHourBelowGateIsUnscored() {
-        // One waking hour with too few HR samples → present but unscored (honest gap).
-        let hr = hourHR(9, bpm: 70, n: DaytimeStress.minHourHRSamples - 1)
+    func testClusteredHighCountHourIsUnscored() {
+        // Three hundred rows packed into five minutes satisfy the old count but leave an excessive gap.
+        let hr = hourHR(9, bpm: 70, n: 300, spacing: 1)
         let r = DaytimeStress.analyze(hr: hr, rr: [])
-        XCTAssertTrue(r.scored.isEmpty, "an under-gate hour must not be scored")
+        XCTAssertTrue(r.scored.isEmpty, "a clustered high-count hour must not be scored")
+        XCTAssertEqual(r.hours.first?.quality?.rejectionReasons,
+                       [.maximumGapExceeded])
     }
 
     func testScoresMapOntoZeroToThree() {
@@ -189,7 +261,8 @@ final class DaytimeStressTests: XCTestCase {
 
         XCTAssertEqual(withSleep.sustainedHigh, wakingOnly.sustainedHigh,
             "sleep hours sharing the window must not change the sustained-high verdict")
-        for h in 6...17 {
+        // Local 06:00 is the explicit causal warm-up bucket; compare every score-ready hour.
+        for h in 7...17 {
             guard let withLvl = withSleep.scored.first(where: { $0.hour == h })?.level,
                   let withoutLvl = wakingOnly.scored.first(where: { $0.hour == h })?.level else {
                 XCTFail("waking hour \(h) should be scored in both runs"); continue
@@ -411,11 +484,13 @@ final class DaytimeStressTests: XCTestCase {
         // highStressMinutes is a day-wide tally and must still count the earlier spike hour —
         // proving it is computed independently, not derived from sustainedRun.
         var hr: [HRSample] = []
-        hr += hourHR(7, bpm: 130)   // isolated high spike
-        hr += hourHR(8, bpm: 60)
+        hr += hourHR(6, bpm: 60)
+        hr += hourHR(7, bpm: 61)
+        hr += hourHR(8, bpm: 130)   // isolated high spike after a causal calm prefix
         hr += hourHR(9, bpm: 60)
         hr += hourHR(10, bpm: 60)
-        hr += hourHR(11, bpm: 60)   // trailing hour is calm -> NOT sustained
+        hr += hourHR(11, bpm: 60)
+        hr += hourHR(12, bpm: 60)   // trailing hour is calm -> NOT sustained
         let r = DaytimeStress.analyze(hr: hr, rr: [])
 
         XCTAssertFalse(r.sustainedHigh, "the trailing hour is calm, so sustained-high must not fire")
