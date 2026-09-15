@@ -79,7 +79,10 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
                                               decodeError: nil))
             } catch {
                 decodeFailures += 1
-                if case WHOOPSpO2DecoderError.crcMismatch = error { crcFailures += 1 }
+                if let decoderError = error as? WHOOPSpO2DecoderError,
+                   case .crcMismatch = decoderError {
+                    crcFailures += 1
+                }
                 epochDiagnostics.append(.init(timestampUnix: nil,
                                               spo2Percent: nil,
                                               qualityScore: nil,
