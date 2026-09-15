@@ -122,14 +122,6 @@
     ],
     [
       "android/app/src/main/java/com/noop/ui/CoachScreen.kt",
-      "Off: the coach answers generally and sends none of your metrics."
-    ],
-    [
-      "android/app/src/main/java/com/noop/ui/CoachScreen.kt",
-      "On: your recovery, sleep, HRV and workouts are shared with the provider for tailored coaching."
-    ],
-    [
-      "android/app/src/main/java/com/noop/ui/CoachScreen.kt",
       "Only if your server requires one"
     ],
     [
@@ -450,10 +442,6 @@
     ],
     [
       "android/app/src/main/java/com/noop/ui/LiveWorkoutScreen.kt",
-      "%d:%02d"
-    ],
-    [
-      "android/app/src/main/java/com/noop/ui/LiveWorkoutScreen.kt",
       "Below Zone 1"
     ],
     [
@@ -723,10 +711,6 @@
     [
       "android/app/src/main/java/com/noop/ui/UpdatesInboxScreen.kt",
       "Unread. ${item.title}. ${item.message}"
-    ],
-    [
-      "android/app/src/main/java/com/noop/ui/WorkoutStart.kt",
-      "%d:%02d"
     ],
     [
       "android/app/src/main/java/com/noop/ui/WorkoutsScreen.kt",
@@ -1011,6 +995,98 @@
       "\\(row.time), \\(row.value), \\(row.source)"
     ],
     [
+      "Strand/Screens/NightLabView.swift",
+      "Archived night"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Baseline not generated"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Captured evidence"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Coverage describes data availability, not staging accuracy."
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Derived baseline"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Exact gap boundaries unavailable"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Execution receipts"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Export selected…"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Import bundle…"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Incomplete archive"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Inspection failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Leading fragment \\(NightLabInspectionFormatting.interval(start: leading.startUnix, end: leading.endUnix)): \\(leading.stage.rawValue)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "No archived nights"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "No saved execution receipts"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Not recorded"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Raw evidence verified"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Receipt read failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Saved baseline validated without replay"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Saved baseline validation failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Saved sleep stages"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Signal coverage"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Unknown cadence or event-driven signal"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Verifying bundle…"
+    ],
+    [
       "Strand/Screens/SettingsView.swift",
       "%+.0f%%"
     ],
@@ -1021,10 +1097,6 @@
     [
       "Strand/Screens/SettingsView.swift",
       "Date of birth, age \\(profile.age) years"
-    ],
-    [
-      "Strand/Screens/SettingsView.swift",
-      "NOOP estimates your steps from your WHOOP's motion, calibrated to your phone's step count. It's an estimate, not a step counter — a WHOOP 5.0 / MG streams motion (not a step count) only with deep data on."
     ],
     [
       "Strand/Screens/SettingsView.swift",
@@ -1077,6 +1149,10 @@
     [
       "Strand/Screens/TestCentreView.swift",
       "Keys each Oura sleep night on its stable 0x49 onset and suppresses duplicate re-serves at the source, instead of the shipped end-anchored persist (#1284). Off by default — a hardware-validation toggle. Watch the strap log for \\u{201C}onset-key(#1284)\\u{201D} lines."
+    ],
+    [
+      "Strand/Screens/TestCentreView.swift",
+      "Night Lab"
     ],
     [
       "Strand/Screens/TestCentreView.swift",

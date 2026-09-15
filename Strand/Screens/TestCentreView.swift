@@ -323,6 +323,11 @@ struct TestCentreView: View {
                     .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
 
+                NavigationLink(destination: NightLabView()) {
+                    Label("Night Lab", systemImage: "moon.stars")
+                }
+                Divider().overlay(StrandPalette.hairline)
+
                 // Strap log, the same exportableLogText the Settings + Live strap-log cards share.
                 HStack(spacing: 12) {
                     Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
