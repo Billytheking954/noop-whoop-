@@ -11,10 +11,11 @@ import WhoopStore
 // autonomic load.
 //
 // Source of the daily 0–3 value, in priority order:
-//   1. The persisted `stress` metric series ("my-whoop") via `repo.series` — if a
-//      day has a stored stress value we trust it.
-//   2. Otherwise we DERIVE it from how today's resting HR / HRV sit against a
-//      personal 30-day baseline. Stress shows up as HIGHER resting HR and LOWER
+//   1. DERIVE it from how the day's resting HR / HRV sit against a causal personal
+//      30-day baseline containing only preceding days.
+//   2. If physiology cannot be derived, use a persisted `stress` metric series
+//      ("my-whoop") as a vendor-summary fallback.
+// Stress shows up as HIGHER resting HR and LOWER
 //      HRV, so we sum two z-scores and squash onto 0–3 with a logistic curve:
 //
 //        zRHR = (todayRHR − meanRHR) / sdRHR        // positive when RHR is UP
@@ -30,7 +31,7 @@ import WhoopStore
 struct StressView: View {
     @EnvironmentObject var repo: Repository
 
-    /// The stored 0–3 stress series ("my-whoop"), oldest→newest. Empty → derive.
+    /// Stored vendor stress summaries, oldest→newest. Used only when RHR/HRV cannot be derived.
     @State private var storedSeries: [(day: String, value: Double)] = []
     @State private var loaded = false
     /// Trend window for the chart (W/M/3M/6M/1Y/ALL).
@@ -788,7 +789,8 @@ struct StressModel {
         return f
     }()
 
-    /// Build from oldest→newest daily metrics plus any stored "stress" series.
+    /// Build from daily metrics plus any stored "stress" series. Inputs are sorted by ISO day first;
+    /// callers may supply imports/replays in any order without changing the result.
     /// Returns nil only when there is no usable signal at all.
     init?(days: [DailyMetric], stored: [(day: String, value: Double)]) {
         // Stored values keyed by day, clamped to 0–3.
@@ -797,21 +799,23 @@ struct StressModel {
             uniquingKeysWith: { _, b in b }
         )
 
+        let orderedDays = days.sorted { $0.day < $1.day }
+
         // Carry (#543): today's own row is often vitals-less until the overnight is analyzed —
         // especially right after an app update relaunches and re-runs the pass — so score the NEWEST
         // day that actually carries usable signal (RHR/HRV, or a stored/imported stress value) instead of
         // calibrating, the same last-night carry every other Today vital uses. The predicate mirrors the
         // storedToday||derived gate below, so an imported stress-only latest day is still honored (not
         // skipped). Falls back to the last row when no day has any signal (cold start).
-        guard let idx = days.lastIndex(where: {
+        guard let idx = orderedDays.lastIndex(where: {
             $0.restingHr != nil || $0.avgHrv != nil || storedByDay[$0.day] != nil
-        }) ?? days.indices.last
+        }) ?? orderedDays.indices.last
         else { return nil }   // no days at all
-        let today = days[idx]
+        let today = orderedDays[idx]
 
         // Baseline window: up to 30 days ending the day BEFORE the scored day, so it's measured
         // against its own recent past rather than itself.
-        let baseline = idx > 0 ? Array(days[0..<idx].suffix(30)) : []
+        let baseline = idx > 0 ? Array(orderedDays[0..<idx].suffix(30)) : []
 
         let rhrBase = baseline.compactMap { $0.restingHr }.map(Double.init)
         let hrvBase = baseline.compactMap { $0.avgHrv }
@@ -824,7 +828,10 @@ struct StressModel {
         let rhrT = today.restingHr.map(Double.init)
         let hrvT = today.avgHrv
 
-        // Resolve today's score: prefer a stored value, else derive.
+        // Resolve today's score through the canonical RHR/HRV path whenever those inputs can be scored.
+        // Stored stress is only a fallback for a row with no derivable physiology (for example a vendor
+        // daily summary). This also makes pre-fix WHOOP imports converge with native rows: their old leaked
+        // stored value no longer overrides the causal calculation from the imported RHR/HRV.
         let derivedAvailable = (rhrT != nil && meanRHR != nil) || (hrvT != nil && meanHRV != nil)
         let storedToday = storedByDay[today.day]
         guard storedToday != nil || derivedAvailable else { return nil }
@@ -835,8 +842,8 @@ struct StressModel {
                 hrvToday: hrvT, meanHRV: meanHRV, sdHRV: sdHRV))
             : nil
 
-        let s = storedToday ?? derivedToday ?? 1.5
-        self.usingStored = storedToday != nil
+        let s = derivedToday ?? storedToday ?? 1.5
+        self.usingStored = derivedToday == nil && storedToday != nil
         self.score = s
         self.band = StressBand(score: s)
         self.rhrToday = today.restingHr
@@ -851,23 +858,31 @@ struct StressModel {
             usingStored: self.usingStored
         )
 
-        // Full daily proxy history: stored value if present for the day, else the
-        // z-score derivation against the SAME baseline so the line is comparable.
+        // Full daily proxy history: each day gets its OWN causal baseline from at most the preceding
+        // 30 rows. A later row can therefore never change an earlier point. Stored values remain a
+        // fallback only when that day's physiology cannot be derived.
         var pts: [TrendPoint] = []
-        for d in days {
+        for (dayIndex, d) in orderedDays.enumerated() {
             guard let date = Self.dayParser.date(from: d.day) else { continue }
-            if let v = storedByDay[d.day] {
-                pts.append(TrendPoint(date: date, value: v))
-                continue
-            }
+            let prior = dayIndex > 0 ? Array(orderedDays[0..<dayIndex].suffix(30)) : []
+            let dayRHRBase = prior.compactMap { $0.restingHr }.map(Double.init)
+            let dayHRVBase = prior.compactMap { $0.avgHrv }
+            let dayMeanRHR = StressMath.mean(dayRHRBase)
+            let dayMeanHRV = StressMath.mean(dayHRVBase)
             let dRHR = d.restingHr.map(Double.init)
             let dHRV = d.avgHrv
-            guard (dRHR != nil && meanRHR != nil) || (dHRV != nil && meanHRV != nil) else { continue }
-            let r = StressMath.rawScore(
-                rhrToday: dRHR, meanRHR: meanRHR, sdRHR: sdRHR,
-                hrvToday: dHRV, meanHRV: meanHRV, sdHRV: sdHRV
-            )
-            pts.append(TrendPoint(date: date, value: StressMath.squash(r)))
+            let canDerive = (dRHR != nil && dayMeanRHR != nil) || (dHRV != nil && dayMeanHRV != nil)
+            if canDerive {
+                let r = StressMath.rawScore(
+                    rhrToday: dRHR, meanRHR: dayMeanRHR,
+                    sdRHR: StressMath.std(dayRHRBase, mean: dayMeanRHR),
+                    hrvToday: dHRV, meanHRV: dayMeanHRV,
+                    sdHRV: StressMath.std(dayHRVBase, mean: dayMeanHRV)
+                )
+                pts.append(TrendPoint(date: date, value: StressMath.squash(r)))
+            } else if let v = storedByDay[d.day] {
+                pts.append(TrendPoint(date: date, value: v))
+            }
         }
         self.fullTrend = pts
 

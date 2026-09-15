@@ -144,15 +144,17 @@ WakeMotionRefinement has its own density and behaviour tests. SleepBench has
 calibration tests; SleepPSG has scoring, dataset/ablation and recipe-port tests.
 The test inventory was inspected; the Swift suites were not executed here.
 
-High-priority mismatch: SleepBench `DB.swift` reads only hrSample. The app reads
-hrSample plus ppgHrSample. Its RR query also omits current source/suspect filters
-and differs in ordering. A direct replay can therefore use different observations
-than the shipped app. Fixing only the stager before this seam would be misleading.
-Recommendation confidence: 0.99.
+The initial audit found a high-priority mismatch: SleepBench read only `hrSample`,
+while the app reads measured HR plus `ppgHrSample` fallback. Its R-R query also
+omitted the current source/suspect filters and differed in ordering. The reader now
+mirrors those store policies: measured HR wins per second, WHOOP 5 is pinned to one
+verified R-R transport, suspect timestamps and the duplicate SpO2 IBI channel are
+excluded, and emission ordering is preserved. Legacy snapshots are feature-detected;
+missing provenance columns remain missing and are never guessed into a modern source.
 
-ReadOnlyDB also embeds device strings into SQL and does not check the terminal
-sqlite3_step error. A subsequent reader change should bind parameters, propagate
-errors, and document supported schemas. The new Python sidecar does bind values.
+All reader values are now bound parameters and terminal `sqlite3_step` failures are
+reported. These changes make replay inputs match the current app policy; they do not
+change a stager or establish physiological accuracy.
 
 SleepPSG's baseline calls the shipped stager, while variants use RecipePort. Its
 synthetic equivalence suite is valuable and must pass after any recipe edit.
@@ -161,10 +163,8 @@ detection is not tested. These historical values have not been reproduced here.
 
 ## 5. Ranked changes and acceptance tests
 
-1. Freeze source, flags, input hashes and reference provenance; repair replay HR
-   and RR parity against the store. Test mixed measured/PPG timestamps, source
-   precedence over the complete read window, suspect RR, duplicates, aliases and
-   older schemas. Confidence 0.99.
+1. Freeze source, flags, input hashes and reference provenance; keep replay HR/RR
+   parity tests aligned with the store as either read policy evolves. Confidence 0.99.
 2. Add feature availability, sample counts, maximum gaps and derivation origin.
    Keep diagnostic extraction observational before changing labels. Confidence 0.98.
 3. As one controlled ablation, make absent motion unknown: optional movement/jerk,

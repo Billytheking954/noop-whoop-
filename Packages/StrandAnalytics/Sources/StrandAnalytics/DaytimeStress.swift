@@ -30,7 +30,11 @@ public enum DaytimeStress {
 
     // MARK: - Tunables
 
-    /// Minimum HR samples in an hour before its mean HR is trusted (~5 min at 1 Hz).
+    /// Minimum HR samples in an hour before its mean HR is trusted (~5 min at nominal 1 Hz).
+    /// NEXT QUALITY-GATE SEAM: replace this count-only decision inside `aggregate` with timestamp
+    /// coverage across the 3,600-second bucket plus a maximum consecutive-gap limit. Imported and
+    /// intermittently banked streams are not guaranteed to retain the nominal cadence, so 300 clustered
+    /// samples must not eventually be treated as equivalent to five minutes distributed through the hour.
     public static let minHourHRSamples: Int = 300
     /// Bucket width for the timeline, in seconds (one hour).
     public static let bucketSeconds: Int = 3_600
