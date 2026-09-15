@@ -323,7 +323,43 @@ should remain distinguishable from consumer-wearable labels.
 - [x] typed sealed-archive loader for deterministic replay
 - [x] replay adapter for the current SleepStagerV2 session stager
 - [x] deterministic canonical V2 baseline artifact + separate execution receipts
-- [ ] developer UI for viewing a night's signal coverage
-- [ ] export/import of a complete Night Lab bundle
+- [x] developer UI for viewing a night's signal coverage
+- [x] export/import of a complete Night Lab bundle
 
 The unchecked items are intentionally implementation work, not promises hidden in a data model.
+
+## Developer inspection
+
+Settings → Test Centre → Night Lab lists archives under the local
+`StorePaths.nightLabRoot()` parent (`OpenWhoop/NightLab/<night-id>` beside the durable store).
+The screen never captures, seals, stages or repairs an archive. Its only write path imports a fully validated
+portable bundle through `NightLabFileStore`; export is read-only.
+It uses the validated typed loader and existing coverage reports; all declared raw assets
+also receive SHA verification, including assets outside the typed loader's known IDs.
+Saved baseline JSON is validated against the manifest and its own production segments,
+then displayed without executing the stager. The displayed SHA hashes the original file bytes.
+Receipts are read separately and mismatches/corruption remain visible.
+
+Creation time and exact gap-boundary arrays are not recorded by the current manifest/coverage
+models and are shown as unavailable. Largest timestamp spacing follows the existing coverage
+model; it is not claimed to be an exact missing-data duration. Unknown/event-driven cadence
+never becomes a continuous percentage. Additional raw formats show declared counts and verified
+bytes, with coverage unavailable rather than guessed. Recording nights remain incomplete.
+
+The inspection tests use an independently authored saved hypnogram, compare every file byte
+before/after repeated reads, and cover missing data, schema rejection and corruption.
+Device visual acceptance remains separate from automated package/build verification.
+
+## Portable bundles
+
+A `.nightlab` file is canonical sorted-key JSON containing one sealed night id and a lexically sorted list
+of every regular archive file. Each member carries its relative path, exact bytes, byte count and SHA-256.
+There is no export timestamp, so exporting unchanged evidence twice produces identical bytes. The importer
+rejects non-canonical encoding, unsupported schemas, missing or extra raw assets, duplicate/unsafe paths,
+hash or size mismatches, invalid references, invalid saved baselines/receipts, and raw streams that fail the
+typed replay loader's kind/count/window checks.
+
+Import validation happens in an isolated staging root. Only a fully validated night is moved into the live
+archive. Existing nights are never overwritten: an exact bundle is idempotent and different evidence using
+the same night id is a conflict. Reference files are preserved, but remain outside `NightReplayInput` and
+`NightLabArchivedStreams`.
