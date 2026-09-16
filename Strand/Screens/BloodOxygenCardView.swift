@@ -25,7 +25,7 @@ struct BloodOxygenCardView: View {
                         if isExperimental {
                             Text("Experimental WHOOP 5 telemetry")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundColor(.secondary)
                         }
                     }
                     Spacer()
@@ -37,19 +37,19 @@ struct BloodOxygenCardView: View {
                         .font(.system(size: 36, weight: .semibold, design: .rounded))
                         + Text("%")
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(.secondary)
                 } else {
                     Text("Unavailable")
                         .font(.title2.weight(.semibold))
                     Text("Not enough validated Slow-Wave Sleep telemetry")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(.secondary)
                 }
 
                 if trend.isEmpty {
                     Text("No validated 7-day history")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(.secondary)
                 } else {
                     Chart(Array(trend.sorted { $0.date < $1.date }.suffix(7))) { point in
                         LineMark(
