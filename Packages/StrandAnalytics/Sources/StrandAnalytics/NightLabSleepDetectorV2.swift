@@ -72,11 +72,12 @@ public enum NightLabSleepDetectorV2 {
         public let availableRRIntervalCount: Int
         public let availableRespirationSampleCount: Int
         public let availableWristStatusCount: Int
+        public let explicitWristOffIntervalCount: Int
         public let hrGaps: GapDiagnostics
         public let gravityGaps: GapDiagnostics
     }
 
-    public enum Warning: String, Equatable, Codable, Sendable {
+    public enum Warning: String, Equatable, Hashable, Codable, Sendable {
         case duplicateHRTimestampsCanonicalized
         case duplicateGravityTimestampsCanonicalized
         case nonFiniteGravityRejected
@@ -85,6 +86,7 @@ public enum NightLabSleepDetectorV2 {
         case rrArchivedButNotUsedForBoundarySelection
         case respirationArchivedButNotUsedForBoundarySelection
         case wristStatusArchivedButNotInterpreted
+        case unsealedArchiveRejected
     }
 
     public struct Provenance: Equatable, Codable, Sendable {
@@ -92,7 +94,9 @@ public enum NightLabSleepDetectorV2 {
         public let algorithmVersion: String
         public let candidateSource: String
         public let configurationIdentity: String
+        public let timezoneOffsetSeconds: Int
         public let nightID: String?
+        public let sourceStreamFingerprint: String?
         public let archiveWindowStartUnix: Int?
         public let archiveWindowEndUnix: Int?
     }
@@ -106,26 +110,39 @@ public enum NightLabSleepDetectorV2 {
         public let provenance: Provenance
     }
 
-    /// Run against a sealed Night Lab archive projection. RR/respiration/contact rows are included in
-    /// evidence diagnostics but intentionally do not affect bootstrap boundary selection yet.
+    /// Run against a Night Lab archive projection. The manifest's recorded timezone is authoritative by
+    /// default; an explicit override is allowed for controlled comparison experiments and is recorded in
+    /// provenance. Unsealed manifests are rejected even if a caller manually constructed the streams value.
     ///
-    /// `wristOffIntervals` stays explicit until the archive contact-state raw values have a validated,
-    /// version-stable semantic decoder. Guessing those strings would turn provenance into theatre.
+    /// RR/respiration/contact rows are included in evidence diagnostics but intentionally do not affect
+    /// bootstrap boundary selection yet. `wristOffIntervals` stays explicit until archive contact-state raw
+    /// values have a validated, version-stable semantic decoder.
     public static func detect(streams: NightLabArchivedStreams,
-                              tzOffsetSeconds: Int = 0,
+                              tzOffsetSeconds: Int? = nil,
                               wristOffIntervals: [(start: Int, end: Int)] = [],
                               configuration: Configuration = Configuration()) -> Result {
-        detect(hr: streams.hr,
-               gravity: streams.gravity,
-               tzOffsetSeconds: tzOffsetSeconds,
-               wristOffIntervals: wristOffIntervals,
-               availableRRIntervalCount: streams.rr.count,
-               availableRespirationSampleCount: streams.respiration.count,
-               availableWristStatusCount: streams.wristStatus.count,
-               archiveContext: ArchiveContext(nightID: streams.manifest.nightID,
-                                              windowStartUnix: streams.manifest.windowStartUnix,
-                                              windowEndUnix: streams.manifest.windowEndUnix),
-               configuration: configuration)
+        let effectiveTimezoneOffset = tzOffsetSeconds ?? streams.manifest.timezoneOffsetSeconds
+        let result = detect(hr: streams.hr,
+                            gravity: streams.gravity,
+                            tzOffsetSeconds: effectiveTimezoneOffset,
+                            wristOffIntervals: wristOffIntervals,
+                            availableRRIntervalCount: streams.rr.count,
+                            availableRespirationSampleCount: streams.respiration.count,
+                            availableWristStatusCount: streams.wristStatus.count,
+                            archiveContext: ArchiveContext(nightID: streams.manifest.nightID,
+                                                           sourceStreamFingerprint: streams.manifest.sourceStreamFingerprint,
+                                                           windowStartUnix: streams.manifest.windowStartUnix,
+                                                           windowEndUnix: streams.manifest.windowEndUnix),
+                            configuration: configuration)
+        guard streams.manifest.state == .sealed else {
+            return Result(status: .invalidEvidence,
+                          candidates: [],
+                          primaryBoundary: nil,
+                          evidence: result.evidence,
+                          warnings: canonicalWarnings(result.warnings + [.unsealedArchiveRejected]),
+                          provenance: result.provenance)
+        }
+        return result
     }
 
     /// Direct signal entry point for synthetic/property tests and future comparison benches.
@@ -147,6 +164,7 @@ public enum NightLabSleepDetectorV2 {
 
     private struct ArchiveContext {
         let nightID: String
+        let sourceStreamFingerprint: String
         let windowStartUnix: Int
         let windowEndUnix: Int
     }
@@ -181,6 +199,7 @@ public enum NightLabSleepDetectorV2 {
             availableRRIntervalCount: availableRRIntervalCount,
             availableRespirationSampleCount: availableRespirationSampleCount,
             availableWristStatusCount: availableWristStatusCount,
+            explicitWristOffIntervalCount: normalizedWristOff.count,
             hrGaps: gapDiagnostics(timestamps: normalizedHR.samples.map(\.ts),
                                    threshold: configuration.diagnosticGapSeconds),
             gravityGaps: gapDiagnostics(timestamps: normalizedGravity.samples.map(\.ts),
@@ -204,7 +223,9 @@ public enum NightLabSleepDetectorV2 {
             algorithmVersion: algorithmVersion,
             candidateSource: candidateSource,
             configurationIdentity: configuration.identity,
+            timezoneOffsetSeconds: tzOffsetSeconds,
             nightID: archiveContext?.nightID,
+            sourceStreamFingerprint: archiveContext?.sourceStreamFingerprint,
             archiveWindowStartUnix: archiveContext?.windowStartUnix,
             archiveWindowEndUnix: archiveContext?.windowEndUnix
         )
