@@ -28,6 +28,24 @@ final class NightLabSleepDetectorV2Tests: XCTestCase {
         return result
     }
 
+    private func manifest(id: String,
+                          state: NightRecordState,
+                          start: Int,
+                          end: Int,
+                          timezoneOffsetSeconds: Int) -> NightRecordManifest {
+        NightRecordManifest(nightID: id,
+                            state: state,
+                            windowStartUnix: start,
+                            windowEndUnix: end,
+                            timezoneOffsetSeconds: timezoneOffsetSeconds,
+                            sourceDeviceID: "phase2-test-source",
+                            sourceDeviceModel: "WHOOP 5.0",
+                            sourceStoreSchemaVersion: 18,
+                            sourceStreamFingerprint: "phase2-source-fingerprint",
+                            noopVersion: "test",
+                            rawAssets: [])
+    }
+
     func testEmptyEvidenceIsExplicitlyInsufficient() {
         let result = NightLabSleepDetectorV2.detect(hr: [], gravity: [])
         XCTAssertEqual(result.status, .insufficientEvidence)
@@ -94,7 +112,7 @@ final class NightLabSleepDetectorV2Tests: XCTestCase {
         XCTAssertTrue(duplicated.warnings.contains(.duplicateGravityTimestampsCanonicalized))
     }
 
-    func testCrossMidnightSleepIsNotSplitAtCalendarBoundary() {
+    func testCrossMidnightSleepIsNotSplitAtCalendarBoundary() throws {
         let start = referenceMidnight + 23 * 3_600
         let midnight = referenceMidnight + 24 * 3_600
         let duration = 90 * 60
@@ -143,6 +161,7 @@ final class NightLabSleepDetectorV2Tests: XCTestCase {
             wristOffIntervals: [(start: start + 5 * 60, end: start + duration)])
 
         XCTAssertEqual(result.status, .noPlausibleSleep)
+        XCTAssertEqual(result.evidence.explicitWristOffIntervalCount, 1)
     }
 
     func testGapDiagnosticsArePerSignalAndDoNotInventCoverage() {
@@ -201,6 +220,58 @@ final class NightLabSleepDetectorV2Tests: XCTestCase {
         XCTAssertEqual(shiftedPrimary.durationSeconds, basePrimary.durationSeconds)
     }
 
+    func testArchiveUsesManifestTimezoneAndCarriesProvenance() {
+        let start = referenceMidnight + 2 * 3_600
+        let duration = 70 * 60
+        let archived = NightLabArchivedStreams(
+            manifest: manifest(id: "timezone-night",
+                               state: .sealed,
+                               start: start,
+                               end: start + duration,
+                               timezoneOffsetSeconds: 10 * 3_600),
+            hr: hrStream(start: start, durationS: duration, bpm: 50),
+            rr: [],
+            gravity: stillGravity(start: start, durationS: duration),
+            respiration: [],
+            wristStatus: [])
+
+        // Same absolute evidence: +10 h places the session center in the stricter daytime band.
+        let manifestTimezone = NightLabSleepDetectorV2.detect(streams: archived)
+        XCTAssertEqual(manifestTimezone.status, .noPlausibleSleep)
+        XCTAssertEqual(manifestTimezone.provenance.timezoneOffsetSeconds, 10 * 3_600)
+        XCTAssertEqual(manifestTimezone.provenance.nightID, "timezone-night")
+        XCTAssertEqual(manifestTimezone.provenance.sourceStreamFingerprint, "phase2-source-fingerprint")
+        XCTAssertEqual(manifestTimezone.provenance.archiveWindowStartUnix, start)
+        XCTAssertEqual(manifestTimezone.provenance.archiveWindowEndUnix, start + duration)
+
+        // Controlled override back to UTC makes the same 70-min evidence an overnight candidate.
+        let utcOverride = NightLabSleepDetectorV2.detect(streams: archived, tzOffsetSeconds: 0)
+        XCTAssertEqual(utcOverride.status, .detected)
+        XCTAssertEqual(utcOverride.provenance.timezoneOffsetSeconds, 0)
+    }
+
+    func testUnsealedArchiveIsRejectedEvenWhenStreamsAreConstructedDirectly() {
+        let start = referenceMidnight + 2 * 3_600
+        let duration = 90 * 60
+        let archived = NightLabArchivedStreams(
+            manifest: manifest(id: "recording-night",
+                               state: .recording,
+                               start: start,
+                               end: start + duration,
+                               timezoneOffsetSeconds: 0),
+            hr: hrStream(start: start, durationS: duration, bpm: 50),
+            rr: [],
+            gravity: stillGravity(start: start, durationS: duration),
+            respiration: [],
+            wristStatus: [])
+
+        let result = NightLabSleepDetectorV2.detect(streams: archived)
+        XCTAssertEqual(result.status, .invalidEvidence)
+        XCTAssertTrue(result.candidates.isEmpty)
+        XCTAssertNil(result.primaryBoundary)
+        XCTAssertTrue(result.warnings.contains(.unsealedArchiveRejected))
+    }
+
     func testWristIntervalsAreSortedMergedAndInvalidIntervalsDropped() {
         let normalized = NightLabSleepDetectorV2.normalizeWristOffIntervals([
             (start: 30, end: 40),
@@ -221,6 +292,7 @@ final class NightLabSleepDetectorV2Tests: XCTestCase {
         XCTAssertEqual(result.provenance.algorithmID, "nightlab.sleep-detection-v2")
         XCTAssertEqual(result.provenance.algorithmVersion, "0.1.0-bootstrap-v1-spine")
         XCTAssertEqual(result.provenance.candidateSource, "SleepStager.detectSleep.stage0-v1")
+        XCTAssertEqual(result.provenance.timezoneOffsetSeconds, 0)
         XCTAssertTrue(result.provenance.configurationIdentity.contains("diagnostic-gap=321s"))
     }
 }
