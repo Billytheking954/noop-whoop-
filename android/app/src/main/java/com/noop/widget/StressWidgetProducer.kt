@@ -123,7 +123,7 @@ internal object StressWidgetProducer {
             memo?.let { if (it.day == day && it.fingerprint == fingerprint) return Curve(it.points, day) }
 
             val hr = repo.hrSamplesUnion(deviceId, from, nowSeconds, limit = 200_000)
-            val points = if (hr.size < DaytimeStress.minHourHrSamples) {
+            val points = if (hr.isEmpty()) {
                 // Too little signal to score honestly. An EMPTY curve, not a null: this is a real
                 // answer about today, and the widget should drop yesterday's line rather than keep it.
                 emptyList()
@@ -138,6 +138,7 @@ internal object StressWidgetProducer {
                 DaytimeStress.analyze(
                     hr, rr, gravity, tzOffsetSeconds, DaytimeStress.ScoringMode.DayRelative,
                     includeTimeline = true,
+                    asOfTimestamp = nowSeconds,
                     // The half-step display series rather than the bare hours: same scored window,
                     // same reference, read twice as often, so the curve tracks the day instead of
                     // stepping through it. Nothing here counts hours, so the overlap is free.

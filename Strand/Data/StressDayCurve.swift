@@ -62,7 +62,7 @@ enum StressDayCurve {
 
         let hr = await repo.hrSamples(from: from, to: to, limit: 200_000)
         var scored: DaytimeStress.Result = .empty
-        if hr.count >= DaytimeStress.minHourHRSamples {
+        if !hr.isEmpty {
             let rr = await repo.rrIntervals(from: from, to: to, limit: 200_000)
             // Wrist accelerometer for the motion gate, so an ambulatory hour reads as exertion rather
             // than as stress. Empty on hardware or imports without gravity, which degrades to no masking
@@ -80,7 +80,7 @@ enum StressDayCurve {
             scored = await Task.detached(priority: .utility) {
                 DaytimeStress.analyze(hr: hr, rr: rr, gravity: gravity,
                                       tzOffsetSeconds: tz, mode: .dayRelative,
-                                      includeTimeline: true)
+                                      includeTimeline: true, asOfTimestamp: to)
             }.value
         }
         // Too little signal leaves an EMPTY result, which is a real answer about today rather than a

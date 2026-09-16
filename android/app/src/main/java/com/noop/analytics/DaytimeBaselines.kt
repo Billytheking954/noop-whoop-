@@ -18,7 +18,7 @@ import com.noop.data.RrInterval
  * with the daytime-specific Baselines.daytimeHRCfg / daytimeRMSSDCfg configs.
  *
  * The per-day aggregate is defined in terms of EXACTLY the hourly means the scorer references: it
- * reuses DaytimeStress's own floorDiv / bucketSeconds / isWakingHour / minHourHrSamples /
+ * reuses DaytimeStress's own floorDiv / bucketSeconds / isWakingHour / temporal-quality gate /
  * HrvAnalyzer so "the value we fold into the baseline" and "the value we later z-score against that
  * baseline" are the same quantity, never two drifting definitions.
  */
@@ -72,7 +72,7 @@ object DaytimeBaselines {
      * One day's daytime aggregates, computed with the SCORER's own hourly bucketing so the folded
      * value matches what BaselineRelative later references:
      *   - hr: the [daytimeHRAggregatePercentile] (P10) of the day's WAKING-hour mean HRs, where each
-     *     hour's mean HR is gated at DaytimeStress.minHourHrSamples exactly like the scorer (a
+     *     hour's mean HR is gated by StressTemporalQuality exactly like the scorer (a
      *     sparse/imported day whose hours never clear the gate yields null — it contributes no
      *     daytime-HR floor, honestly).
      *   - rmssd: the [daytimeRMSSDAggregatePercentile] (P50) of the day's WAKING-hour RMSSDs, each
@@ -85,11 +85,19 @@ object DaytimeBaselines {
         if (hr.isEmpty()) return DayAggregate(null, null)
 
         // Bucket HR + R-R into LOCAL hour-of-day buckets, byte-for-byte the scorer's step 1.
-        val hrByBucket = HashMap<Long, MutableList<Double>>()
+        val hrByBucket = HashMap<Long, MutableList<StressSignalSample>>()
         for (s in hr) {
             val local = s.ts + tzOffsetSeconds
             val bucket = DaytimeStress.floorDiv(local, DaytimeStress.bucketSeconds) * DaytimeStress.bucketSeconds
-            hrByBucket.getOrPut(bucket) { ArrayList() }.add(s.bpm.toDouble())
+            hrByBucket.getOrPut(bucket) { ArrayList() }.add(
+                StressSignalSample(
+                    timestamp = s.ts,
+                    value = s.bpm.toDouble(),
+                    source = "repository",
+                    quality = if (s.bpm in 30..220) StressSignalSample.Quality.VALID
+                        else StressSignalSample.Quality.REJECTED,
+                ),
+            )
         }
         val rrByBucket = HashMap<Long, MutableList<Double>>()
         for (s in rr) {
@@ -105,8 +113,14 @@ object DaytimeBaselines {
         val wakingRMSSDs = ArrayList<Double>()
         for ((bucket, hrs) in hrByBucket) {
             if (!DaytimeStress.isWakingHour(bucket)) continue
-            if (hrs.size >= DaytimeStress.minHourHrSamples) {
-                DaytimeStress.mean(hrs)?.let { wakingMeanHRs.add(it) }
+            val wallStart = bucket - tzOffsetSeconds
+            val quality = StressTemporalQuality.evaluate(
+                hrs, wallStart, wallStart + DaytimeStress.bucketSeconds, baselineReady = true,
+            )
+            if (quality.accepted) {
+                StressTemporalQuality.canonicalMean(
+                    hrs, wallStart, wallStart + DaytimeStress.bucketSeconds,
+                )?.let { wakingMeanHRs.add(it) }
             }
             HrvAnalyzer.analyzeRaw(rrByBucket[bucket] ?: emptyList()).rmssd?.let { wakingRMSSDs.add(it) }
         }
