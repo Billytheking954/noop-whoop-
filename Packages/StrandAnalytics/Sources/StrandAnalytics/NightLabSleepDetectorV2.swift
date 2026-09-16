@@ -151,7 +151,7 @@ public enum NightLabSleepDetectorV2 {
         let windowEndUnix: Int
     }
 
-    private struct Normalized<T> {
+    struct Normalized<T> {
         let samples: [T]
         let duplicateTimestampsRemoved: Int
         let rejectedSamples: Int
