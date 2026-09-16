@@ -164,7 +164,7 @@ public enum NightLabSleepDetectorV2 {
 
     private struct ArchiveContext {
         let nightID: String
-        let sourceStreamFingerprint: String
+        let sourceStreamFingerprint: String?
         let windowStartUnix: Int
         let windowEndUnix: Int
     }
