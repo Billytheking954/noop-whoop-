@@ -623,9 +623,15 @@ extension NightLabSleepDetectorV2 {
     private static func makeShadowComparison(v1: Result, v2: ExperimentalResult) -> ShadowComparison {
         let v1Primary = v1.primaryBoundary
         let v2Primary = v2.primaryBoundary
-        let startDifference = zipOptional(v1Primary?.start, v2Primary?.start).map { $1 - $0 }
-        let endDifference = zipOptional(v1Primary?.end, v2Primary?.end).map { $1 - $0 }
-        let durationDifference = zipOptional(v1Primary?.durationSeconds, v2Primary?.durationSeconds).map { $1 - $0 }
+        let startDifference = zipOptional(v1Primary?.start, v2Primary?.start).map { pair in
+            pair.1 - pair.0
+        }
+        let endDifference = zipOptional(v1Primary?.end, v2Primary?.end).map { pair in
+            pair.1 - pair.0
+        }
+        let durationDifference = zipOptional(v1Primary?.durationSeconds, v2Primary?.durationSeconds).map { pair in
+            pair.1 - pair.0
+        }
 
         let disagreement: ShadowDisagreement
         if v1.status == .detected && v2.status != .detected {
