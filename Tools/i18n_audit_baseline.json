@@ -899,6 +899,34 @@
       "The most common cause is the ring was not fully reset in the Oura app, or the Oura app is still running. Reset the ring again, force-quit Oura, then try once more. If it keeps failing, your ring may be a generation NOOP cannot adopt yet. The ring is not bricked: re-pair it in the Oura app to recover it. You can still use file import."
     ],
     [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Experimental WHOOP 5 telemetry"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "No coverage"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "No validated 7-day history"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Not enough validated Slow-Wave Sleep telemetry"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Seven day blood oxygen trend"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Telemetry coverage"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Unavailable"
+    ],
+    [
       "Strand/Screens/BreathingView.swift",
       "%.1f br/min"
     ],
@@ -993,6 +1021,22 @@
     [
       "Strand/Screens/MetricExplorerView.swift",
       "\\(row.time), \\(row.value), \\(row.source)"
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "0x52 is the NIGHTLY_TELEMETRY_SUMMARY command identifier. Saturation is decoded only from bytes 8–9."
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "No whoop5-spo2-summary raw asset is archived for this night."
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "SpO₂ diagnostics failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "WHOOP 5 SpO₂ telemetry"
     ],
     [
       "Strand/Screens/NightLabView.swift",
