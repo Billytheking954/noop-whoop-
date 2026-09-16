@@ -93,8 +93,43 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
             }
         }
 
+        let duration = max(0, windowEndUnix - windowStartUnix)
+        let expected = duration == 0 ? 0 : Int(ceil(Double(duration) / 300.0))
+        let inWindowDecoded = decoded.filter {
+            let ts = Int($0.timestampUnix)
+            return ts >= windowStartUnix && ts < windowEndUnix
+        }
+
+        // Identical retransmissions must not inflate coverage or the trimmed mean. Conflicting frames at
+        // one timestamp are ambiguous evidence, so retain neither interpretation and fail the aggregate.
+        var uniqueByTimestamp: [UInt32: WHOOPSpO2Sample] = [:]
+        var hasConflictingDuplicate = false
+        for sample in inWindowDecoded {
+            if let existing = uniqueByTimestamp[sample.timestampUnix], existing != sample {
+                hasConflictingDuplicate = true
+            } else {
+                uniqueByTimestamp[sample.timestampUnix] = sample
+            }
+        }
+        let canonicalDecoded = uniqueByTimestamp.values.sorted { $0.timestampUnix < $1.timestampUnix }
+        let coverage = expected == 0 ? 0 : min(1, Double(canonicalDecoded.count) / Double(expected))
+        var maximumGap = max(0, windowEndUnix - windowStartUnix)
+        if let first = canonicalDecoded.first, let last = canonicalDecoded.last {
+            maximumGap = max(0, Int(first.timestampUnix) - windowStartUnix)
+            if canonicalDecoded.count > 1 {
+                for index in 1..<canonicalDecoded.count {
+                    maximumGap = max(
+                        maximumGap,
+                        Int(canonicalDecoded[index].timestampUnix)
+                            - Int(canonicalDecoded[index - 1].timestampUnix)
+                    )
+                }
+            }
+            maximumGap = max(maximumGap, max(0, windowEndUnix - Int(last.timestampUnix)))
+        }
+
         let quality = SpO2QualityFilter.filter(decoded)
-        let aggregationEpochs = decoded.map { sample in
+        let aggregationEpochs = canonicalDecoded.map { sample in
             SpO2SleepEpoch(
                 sample: sample,
                 isSlowWaveSleep: baseline.map {
@@ -105,21 +140,32 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
 
         let aggregate: SpO2NightlyAggregate?
         let aggregationError: String?
-        do {
-            aggregate = try SpO2Aggregator.aggregate(aggregationEpochs)
-            aggregationError = nil
-        } catch {
+        // Research-only availability gates. They do not assert physiological accuracy; they prevent a
+        // plausible-looking value from being emitted from sparse or heavily clustered evidence. A frame
+        // represents five minutes, so 900 seconds permits at most two missing starts between observations.
+        if hasConflictingDuplicate {
             aggregate = nil
-            aggregationError = error.localizedDescription
+            aggregationError = "SpO2 evidence contains conflicting frames with the same timestamp."
+        } else if coverage < 0.80 {
+            aggregate = nil
+            aggregationError = String(
+                format: "Insufficient whole-night SpO2 frame coverage: requires %.1f%%, got %.1f%%.",
+                80.0,
+                coverage * 100
+            )
+        } else if maximumGap > 15 * 60 {
+            aggregate = nil
+            aggregationError = "SpO2 evidence contains a frame gap of \(maximumGap) seconds; "
+                + "the maximum allowed is \(15 * 60) seconds."
+        } else {
+            do {
+                aggregate = try SpO2Aggregator.aggregate(aggregationEpochs)
+                aggregationError = nil
+            } catch {
+                aggregate = nil
+                aggregationError = error.localizedDescription
+            }
         }
-
-        let duration = max(0, windowEndUnix - windowStartUnix)
-        let expected = duration == 0 ? 0 : Int(ceil(Double(duration) / 300.0))
-        let inWindowDecoded = decoded.filter {
-            let ts = Int($0.timestampUnix)
-            return ts >= windowStartUnix && ts < windowEndUnix
-        }.count
-        let coverage = expected == 0 ? 0 : min(1, Double(inWindowDecoded) / Double(expected))
         let swsFrames = aggregationEpochs.filter(\.isSlowWaveSleep)
         let validSWS = SpO2QualityFilter.filter(swsFrames.map(\.sample)).acceptedCount
 
