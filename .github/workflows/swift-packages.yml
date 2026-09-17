@@ -9,7 +9,7 @@ name: Swift Packages CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, phase1/night-lab-foundation]
     paths:
       - 'Packages/**'
       - 'Tools/SleepBench/**'

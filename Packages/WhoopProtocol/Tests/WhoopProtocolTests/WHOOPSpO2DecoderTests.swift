@@ -31,7 +31,8 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
         XCTAssertEqual(sample.trailingMetadata, [1, 2, 3, 4, 5])
     }
 
-    func testCandidate82IsOpcodeNotSpO2() throws {
+    // Opcode VALUE 82 is unrelated to historical record OFFSET 82 (auxByte82).
+    func testOpcodeValue82IsNotASaturationMeasurement() throws {
         XCTAssertEqual(knownFrame[1], 82)
         let sample = try WHOOPSpO2Decoder.decode(knownFrame)
         XCTAssertEqual(sample.spo2Percent, 97.25, accuracy: 0.000_001)
@@ -127,6 +128,66 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
             XCTAssertEqual(error as? SpO2AggregatorError,
                            .insufficientValidEpochs(required: 10, actual: 9))
         }
+    }
+
+    func testEveryTruncationAndTrailingBytesAreRejected() {
+        for length in 0..<knownFrame.count {
+            XCTAssertThrowsError(try WHOOPSpO2Decoder.decode(Array(knownFrame.prefix(length))))
+        }
+        for extra in [1, 2, 26, 1_024] {
+            XCTAssertThrowsError(try WHOOPSpO2Decoder.decode(knownFrame + Array(repeating: 0, count: extra)),
+                                 "A single-frame decoder must not accept an unchecked suffix")
+        }
+    }
+
+    func testEverySingleBitCorruptionIsRejected() {
+        for offset in knownFrame.indices {
+            for bit in 0..<8 {
+                var mutated = knownFrame
+                mutated[offset] ^= UInt8(1 << bit)
+                XCTAssertThrowsError(try WHOOPSpO2Decoder.decode(mutated), "offset=\(offset), bit=\(bit)")
+            }
+        }
+    }
+
+    func testQualityGateRejectsNonFiniteNegativeAndOutOfRangeConstructedSamples() throws {
+        let base = try WHOOPSpO2Decoder.decode(knownFrame)
+        for motion in [Double.nan, .infinity, -.infinity, -0.001] {
+            XCTAssertEqual(SpO2QualityFilter.filter([sample(from: base, quality: 90, motion: motion)]).acceptedCount, 0)
+        }
+        XCTAssertEqual(SpO2QualityFilter.filter([sample(from: base, quality: 255, motion: 0)]).acceptedCount, 0)
+        // The public initializer/Codable path can bypass the byte decoder entirely.
+        for percent in [Double.nan, .infinity, -.infinity, 0, 69.99, 100.01, 98] {
+            let forged = WHOOPSpO2Sample(timestampUnix: base.timestampUnix, rawSpO2: base.rawSpO2,
+                spo2Percent: percent, opticalRatio1Raw: 0, opticalRatio2Raw: 0, qualityScore: 90,
+                motionVarianceG: 0, headerWordRaw: 0, auxiliaryWordRaw: 0, trailingMetadata: [])
+            XCTAssertEqual(SpO2QualityFilter.filter([forged]).acceptedCount, 0, "percent=\(percent)")
+        }
+    }
+
+    func testAggregatorCannotCountRetransmissionsAsTenEpochs() {
+        let epoch = SpO2SleepEpoch(sample: makeSample(timestamp: 1_000, percent: 97, quality: 90, motion: 0),
+                                  isSlowWaveSleep: true)
+        XCTAssertThrowsError(try SpO2Aggregator.aggregate(Array(repeating: epoch, count: 100)))
+    }
+
+    func testAggregatorRejectsOverlappingFiveMinuteEpochs() {
+        let epochs = (0..<20).map {
+            SpO2SleepEpoch(sample: makeSample(timestamp: UInt32(1_000 + $0), percent: 97, quality: 90, motion: 0),
+                           isSlowWaveSleep: true)
+        }
+        XCTAssertThrowsError(try SpO2Aggregator.aggregate(epochs))
+    }
+
+    func testAggregatorIdenticalRetransmissionsAreIdempotentAndConflictsFailClosed() throws {
+        let epochs = (0..<20).map {
+            SpO2SleepEpoch(sample: makeSample(timestamp: UInt32(1_000 + $0 * 300),
+                percent: Double(90 + $0 % 10), quality: 90, motion: 0), isSlowWaveSleep: true)
+        }
+        let expected = try SpO2Aggregator.aggregate(epochs)
+        XCTAssertEqual(try SpO2Aggregator.aggregate(epochs + Array(repeating: epochs[0], count: 100)), expected)
+        let conflictingStage = SpO2SleepEpoch(sample: epochs[0].sample, isSlowWaveSleep: false)
+        XCTAssertThrowsError(try SpO2Aggregator.aggregate(epochs + [conflictingStage]))
     }
 
     private func makeSample(timestamp: UInt32,
