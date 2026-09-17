@@ -180,9 +180,11 @@ final class WHOOPSpO2DecoderTests: XCTestCase {
     }
 
     func testAggregatorIdenticalRetransmissionsAreIdempotentAndConflictsFailClosed() throws {
-        let epochs = (0..<20).map {
-            SpO2SleepEpoch(sample: makeSample(timestamp: UInt32(1_000 + $0 * 300),
-                percent: Double(90 + $0 % 10), quality: 90, motion: 0), isSlowWaveSleep: true)
+        let epochs: [SpO2SleepEpoch] = (0..<20).map { (index: Int) -> SpO2SleepEpoch in
+            let timestamp = UInt32(1_000 + index * 300)
+            let percent = Double(90 + index % 10)
+            let sample = makeSample(timestamp: timestamp, percent: percent, quality: 90, motion: 0)
+            return SpO2SleepEpoch(sample: sample, isSlowWaveSleep: true)
         }
         let expected = try SpO2Aggregator.aggregate(epochs)
         XCTAssertEqual(try SpO2Aggregator.aggregate(epochs + Array(repeating: epochs[0], count: 100)), expected)
