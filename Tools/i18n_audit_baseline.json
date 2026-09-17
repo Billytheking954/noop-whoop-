@@ -1107,6 +1107,34 @@
       "\\(name) is larger than the \\(cap) NOOP restores without asking. You can still restore it from Settings → Backup & restore → Import, which will ask you to confirm."
     ],
     [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Experimental WHOOP 5 telemetry"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "No coverage"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "No validated 7-day history"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Not enough validated Slow-Wave Sleep telemetry"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Seven day blood oxygen trend"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Telemetry coverage"
+    ],
+    [
+      "Strand/Screens/BloodOxygenCardView.swift",
+      "Unavailable"
+    ],
+    [
       "Strand/Screens/BreathingView.swift",
       "%.0f / %.0fs"
     ],
@@ -1391,6 +1419,114 @@
       "vs typical - "
     ],
     [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "0x52 is the NIGHTLY_TELEMETRY_SUMMARY command identifier. Saturation is decoded only from bytes 8–9."
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "No whoop5-spo2-summary raw asset is archived for this night."
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "SpO₂ diagnostics failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabSpO2DiagnosticsCard.swift",
+      "WHOOP 5 SpO₂ telemetry"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Archived night"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Baseline not generated"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Captured evidence"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Coverage describes data availability, not staging accuracy."
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Derived baseline"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Exact gap boundaries unavailable"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Execution receipts"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Export selected…"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Import bundle…"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Incomplete archive"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Inspection failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Leading fragment \\(NightLabInspectionFormatting.interval(start: leading.startUnix, end: leading.endUnix)): \\(leading.stage.rawValue)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "No archived nights"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "No saved execution receipts"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Not recorded"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Raw evidence verified"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Receipt read failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Saved baseline validated without replay"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Saved baseline validation failed: \\(error)"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Saved sleep stages"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Signal coverage"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Unknown cadence or event-driven signal"
+    ],
+    [
+      "Strand/Screens/NightLabView.swift",
+      "Verifying bundle…"
+    ],
+    [
       "Strand/Screens/RhythmView.swift",
       "More varied"
     ],
@@ -1609,6 +1745,10 @@
     [
       "Strand/Screens/TestCentreView.swift",
       "Last frame"
+    ],
+    [
+      "Strand/Screens/TestCentreView.swift",
+      "Night Lab"
     ],
     [
       "Strand/Screens/TestCentreView.swift",
