@@ -8,8 +8,8 @@ struct NightLabSpO2DiagnosticsCard: View {
     var body: some View {
         NoopCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("WHOOP 5 SpO₂ telemetry").font(.headline)
-                Text("0x52 is the NIGHTLY_TELEMETRY_SUMMARY command identifier. Saturation is decoded only from bytes 8–9.")
+                Text(verbatim: "Experimental summary-frame hypothesis").font(.headline)
+                Text(verbatim: "Unverified format and scaling. Synthetic fixtures do not establish a WHOOP SpO₂ measurement. This is separate from historical byte 82.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -29,11 +29,11 @@ struct NightLabSpO2DiagnosticsCard: View {
                     field("Valid fully-SWS frames", String(diagnostic.validSlowWaveFrameCount))
 
                     if let aggregate = diagnostic.aggregate {
-                        field("Canonical nightly SpO₂", String(format: "%.2f%%", aggregate.spo2Percent))
+                        field("Experimental aggregate", String(format: "%.2f%%", aggregate.spo2Percent))
                         field("SWS quality coverage", String(format: "%.1f%%", aggregate.coverageFraction * 100))
                         field("Trimmed per tail", String(aggregate.trimCountPerTail))
                     } else if let aggregationError = diagnostic.aggregationError {
-                        field("Canonical nightly SpO₂", "Unavailable")
+                        field("Experimental aggregate", "Unavailable")
                         Text(aggregationError).font(.caption).foregroundStyle(.secondary)
                     }
 
@@ -44,7 +44,7 @@ struct NightLabSpO2DiagnosticsCard: View {
                                     field("Timestamp", String(timestamp))
                                 }
                                 if let percent = epoch.spo2Percent {
-                                    field("SpO₂", String(format: "%.2f%%", percent))
+                                    field("Candidate value", String(format: "%.2f%%", percent))
                                 }
                                 if let quality = epoch.qualityScore {
                                     field("Quality", String(quality))

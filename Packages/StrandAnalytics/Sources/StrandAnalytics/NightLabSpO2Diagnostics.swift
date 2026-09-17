@@ -1,7 +1,7 @@
 import Foundation
 import WhoopProtocol
 
-/// Canonical archive row for one raw WHOOP 5 nightly-telemetry frame.
+/// Archive row for one frame under the UNVERIFIED WHOOP 5 summary-frame hypothesis.
 /// Night Lab stores the original bytes as lowercase/uppercase-insensitive hex so replay can always
 /// run a newer decoder against the exact evidence rather than persisting only derived percentages.
 public struct NightLabSpO2FrameRow: Codable, Equatable, Sendable {
@@ -68,8 +68,7 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
                 let sws = baseline.map {
                     isFullySlowWaveSleep(startUnix: Int(sample.timestampUnix), baseline: $0)
                 } ?? false
-                let accepted = sample.qualityScore >= SpO2QualityFilter.minimumQualityScore
-                    && sample.motionVarianceG <= SpO2QualityFilter.maximumMotionVarianceG
+                let accepted = SpO2QualityFilter.filter([sample]).acceptedCount == 1
                 epochDiagnostics.append(.init(timestampUnix: Int(sample.timestampUnix),
                                               spo2Percent: sample.spo2Percent,
                                               qualityScore: Int(sample.qualityScore),
@@ -93,11 +92,14 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
             }
         }
 
-        let duration = max(0, windowEndUnix - windowStartUnix)
+        // UInt32 device timestamps bound the supported research window and avoid Int overflow.
+        let validWindow = windowStartUnix >= 0 && windowEndUnix > windowStartUnix
+            && windowEndUnix <= Int(UInt32.max)
+        let duration = validWindow ? windowEndUnix - windowStartUnix : 0
         let expected = duration == 0 ? 0 : Int(ceil(Double(duration) / 300.0))
         let inWindowDecoded = decoded.filter {
             let ts = Int($0.timestampUnix)
-            return ts >= windowStartUnix && ts < windowEndUnix
+            return validWindow && ts >= windowStartUnix && ts < windowEndUnix
         }
 
         // Identical retransmissions must not inflate coverage or the trimmed mean. Conflicting frames at
@@ -112,16 +114,28 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
             }
         }
         let canonicalDecoded = uniqueByTimestamp.values.sorted { $0.timestampUnix < $1.timestampUnix }
-        let coverage = expected == 0 ? 0 : min(1, Double(canonicalDecoded.count) / Double(expected))
-        var maximumGap = max(0, windowEndUnix - windowStartUnix)
-        if let first = canonicalDecoded.first, let last = canonicalDecoded.last {
+        // Coverage is the union of quality-accepted five-minute intervals, not a sample count.
+        let acceptedInWindow = SpO2QualityFilter.filter(canonicalDecoded).validSamples
+        var coveredSeconds = 0
+        var coveredThrough = windowStartUnix
+        for sample in acceptedInWindow {
+            let start = Int(sample.timestampUnix)
+            let end = min(windowEndUnix, start + SpO2SleepEpoch.canonicalDurationSeconds)
+            if end > max(start, coveredThrough) {
+                coveredSeconds += end - max(start, coveredThrough)
+            }
+            coveredThrough = max(coveredThrough, end)
+        }
+        let coverage = duration == 0 ? 0 : Double(coveredSeconds) / Double(duration)
+        var maximumGap = duration
+        if let first = acceptedInWindow.first, let last = acceptedInWindow.last {
             maximumGap = max(0, Int(first.timestampUnix) - windowStartUnix)
-            if canonicalDecoded.count > 1 {
-                for index in 1..<canonicalDecoded.count {
+            if acceptedInWindow.count > 1 {
+                for index in 1..<acceptedInWindow.count {
                     maximumGap = max(
                         maximumGap,
-                        Int(canonicalDecoded[index].timestampUnix)
-                            - Int(canonicalDecoded[index - 1].timestampUnix)
+                        Int(acceptedInWindow[index].timestampUnix)
+                            - Int(acceptedInWindow[index - 1].timestampUnix)
                     )
                 }
             }
@@ -143,7 +157,17 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
         // Research-only availability gates. They do not assert physiological accuracy; they prevent a
         // plausible-looking value from being emitted from sparse or heavily clustered evidence. A frame
         // represents five minutes, so 900 seconds permits at most two missing starts between observations.
-        if hasConflictingDuplicate {
+        let baselineMatches = baseline.map {
+            $0.windowStartUnix == windowStartUnix && $0.windowEndUnix == windowEndUnix
+        } ?? false
+        let coversBoundaries = acceptedInWindow.first.map { Int($0.timestampUnix) == windowStartUnix } == true
+            && acceptedInWindow.last.map {
+                Int($0.timestampUnix) + SpO2SleepEpoch.canonicalDurationSeconds >= windowEndUnix
+            } == true
+        if !validWindow || !baselineMatches {
+            aggregate = nil
+            aggregationError = "Missing or mismatched SpO2 archive/baseline window."
+        } else if hasConflictingDuplicate {
             aggregate = nil
             aggregationError = "SpO2 evidence contains conflicting frames with the same timestamp."
         } else if coverage < 0.80 {
@@ -153,6 +177,9 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
                 80.0,
                 coverage * 100
             )
+        } else if !coversBoundaries {
+            aggregate = nil
+            aggregationError = "Incomplete SpO2 evidence at the beginning or end of the night."
         } else if maximumGap > 15 * 60 {
             aggregate = nil
             aggregationError = "SpO2 evidence contains a frame gap of \(maximumGap) seconds; "
@@ -190,32 +217,30 @@ public struct NightLabSpO2Diagnostics: Equatable, Sendable {
     private static func isFullySlowWaveSleep(startUnix: Int,
                                              baseline: SleepStagerV2BaselineArtifact) -> Bool {
         let endUnix = startUnix + SpO2SleepEpoch.canonicalDurationSeconds
-        var coveredSeconds = 0
-
-        if let leading = baseline.leadingBoundary,
-           leading.endUnix > startUnix,
-           leading.startUnix < endUnix {
-            let overlap = max(0, min(endUnix, leading.endUnix) - max(startUnix, leading.startUnix))
-            if overlap > 0 {
-                guard leading.stage.rawValue == "deep" else { return false }
-                coveredSeconds += overlap
-            }
+        var intervals: [(start: Int, end: Int, deep: Bool)] = baseline.epochs.map {
+            ($0.startUnix, $0.endUnix, $0.stage.rawValue == "deep")
         }
-
-        for epoch in baseline.epochs where epoch.endUnix > startUnix && epoch.startUnix < endUnix {
-            let overlap = max(0, min(endUnix, epoch.endUnix) - max(startUnix, epoch.startUnix))
-            if overlap > 0 {
-                guard epoch.stage.rawValue == "deep" else { return false }
-                coveredSeconds += overlap
-            }
+        if let leading = baseline.leadingBoundary {
+            intervals.append((leading.startUnix, leading.endUnix, leading.stage.rawValue == "deep"))
         }
-
-        return coveredSeconds >= SpO2SleepEpoch.canonicalDurationSeconds
+        let overlapping = intervals.filter { $0.end > startUnix && $0.start < endUnix }
+            .sorted { $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start }
+        var coveredThrough = startUnix
+        for interval in overlapping {
+            guard interval.deep, interval.end > interval.start else { return false }
+            let start = max(startUnix, interval.start)
+            // Require contiguous, non-overlapping stage evidence. Repeated rows cannot fill gaps.
+            guard start == coveredThrough else { return false }
+            coveredThrough = min(endUnix, interval.end)
+        }
+        return coveredThrough == endUnix
     }
 
     private static func bytes(fromHex string: String) -> [UInt8]? {
         let value = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.count.isMultiple(of: 2) else { return nil }
+        guard value.utf8.count == WHOOPSpO2Decoder.frameLength * 2,
+              value.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) })
+        else { return nil }
         var result: [UInt8] = []
         result.reserveCapacity(value.count / 2)
         var index = value.startIndex
