@@ -3,6 +3,30 @@ import XCTest
 
 final class NightLabHighRateCoverageTests: XCTestCase {
 
+    func testOverflowingWindowsReturnUnavailableCoverage() {
+        for (start, end) in [(Int64.min, Int64.max), (Int64.max, Int64.min), (0, 0)] {
+            let report = NightHighRateCoverage.analyze(kind: .optical,
+                timestampsMilliseconds: [0], windowStartMilliseconds: start,
+                windowEndMilliseconds: end, expectedCadenceHz: 100)
+            XCTAssertEqual(report.windowMilliseconds, 0)
+            XCTAssertEqual(report.sampleCount, 0)
+            XCTAssertNil(report.coverageFraction)
+            XCTAssertNil(report.largestGapMilliseconds)
+        }
+    }
+
+    func testUnrepresentableExpectedSampleCountDoesNotTrap() {
+        for cadence in [Double.greatestFiniteMagnitude, Double(Int.max), Double.infinity, Double.nan] {
+            let report = NightHighRateCoverage.analyze(kind: .optical,
+                timestampsMilliseconds: [0, 500], windowStartMilliseconds: 0,
+                windowEndMilliseconds: 2_000, expectedCadenceHz: cadence)
+            XCTAssertEqual(report.sampleCount, 2)
+            XCTAssertEqual(report.largestGapMilliseconds, 1_500)
+            XCTAssertNil(report.expectedSamples)
+            XCTAssertNil(report.coverageFraction)
+        }
+    }
+
     func testOneSecondAt100HzDoesNotCollapseToOneSample() {
         let timestamps = (0..<100).map { Int64($0 * 10) }
         let report = NightHighRateCoverage.analyze(

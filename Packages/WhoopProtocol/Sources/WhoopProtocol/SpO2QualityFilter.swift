@@ -3,6 +3,7 @@ import Foundation
 public enum SpO2RejectionReason: String, Codable, CaseIterable, Equatable, Sendable {
     case lowQuality
     case excessiveMotion
+    case invalidValue
 }
 
 public struct SpO2RejectedSample: Codable, Equatable, Sendable {
@@ -34,7 +35,7 @@ public struct SpO2QualityFilterResult: Codable, Equatable, Sendable {
     }
 }
 
-/// Canonical quality gate for decoded WHOOP 5 nightly SpO2 summary samples.
+/// Research quality gate for the unverified summary-frame hypothesis; not a clinical validity gate.
 public enum SpO2QualityFilter {
     public static let minimumQualityScore: UInt8 = 70
     public static let maximumMotionVarianceG = 0.05
@@ -48,6 +49,14 @@ public enum SpO2QualityFilter {
             var reasons: [SpO2RejectionReason] = []
             if sample.qualityScore < minimumQualityScore {
                 reasons.append(.lowQuality)
+            }
+            // Public initialization and Codable can bypass the byte decoder. Validate here as well,
+            // before sorting/averaging: NaN comparisons otherwise silently pass threshold checks.
+            if !sample.spo2Percent.isFinite || !(70.0...100.0).contains(sample.spo2Percent)
+                || sample.spo2Percent != Double(sample.rawSpO2) / 100.0
+                || sample.qualityScore > 100
+                || !sample.motionVarianceG.isFinite || sample.motionVarianceG < 0 {
+                reasons.append(.invalidValue)
             }
             if sample.motionVarianceG > maximumMotionVarianceG {
                 reasons.append(.excessiveMotion)

@@ -135,7 +135,8 @@ public enum NightLabValidationError: Error, Sendable, Equatable {
 public enum NightManifestValidator {
     public static func validate(_ manifest: NightRecordManifest) throws {
         guard isSafeIdentifier(manifest.nightID) else { throw NightLabValidationError.invalidNightID }
-        guard manifest.windowEndUnix > manifest.windowStartUnix else {
+        let duration = manifest.windowEndUnix.subtractingReportingOverflow(manifest.windowStartUnix)
+        guard !duration.overflow, duration.partialValue > 0 else {
             throw NightLabValidationError.invalidWindow
         }
 
@@ -223,7 +224,13 @@ public enum NightSignalCoverage {
                                windowStartUnix: Int,
                                windowEndUnix: Int,
                                expectedCadenceHz: Double? = nil) -> NightSignalCoverageReport {
-        let duration = max(0, windowEndUnix - windowStartUnix)
+        let difference = windowEndUnix.subtractingReportingOverflow(windowStartUnix)
+        guard !difference.overflow, difference.partialValue > 0 else {
+            return NightSignalCoverageReport(kind: kind, sampleCount: 0, windowSeconds: 0,
+                                             expectedSamples: nil, coverageFraction: nil,
+                                             largestGapSeconds: nil, gapCount: nil)
+        }
+        let duration = difference.partialValue
         let filtered = timestamps.filter {
             $0 >= windowStartUnix && $0 < windowEndUnix
         }
@@ -246,7 +253,7 @@ public enum NightSignalCoverage {
         guard let cadence = expectedCadenceHz,
               cadence.isFinite,
               cadence > 0,
-              duration > 0 else {
+              let expectedCount = Int(exactly: (Double(duration) * cadence).rounded()) else {
             return NightSignalCoverageReport(kind: kind,
                                              sampleCount: sampleCount,
                                              windowSeconds: duration,
@@ -256,7 +263,7 @@ public enum NightSignalCoverage {
                                              gapCount: nil)
         }
 
-        let expected = max(1, Int((Double(duration) * cadence).rounded()))
+        let expected = max(1, expectedCount)
         let coverage = min(1.0, Double(ordered.count) / Double(expected))
         let expectedInterval = 1.0 / cadence
         let gapThreshold = expectedInterval * 1.5

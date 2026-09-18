@@ -1,6 +1,7 @@
 import Foundation
 
-/// One decoded WHOOP 5.0 nightly telemetry summary frame.
+/// One decoded frame under the supplied, UNVERIFIED WHOOP 5.0 summary-frame hypothesis.
+/// CRC and synthetic tests establish structural consistency, not hardware or physiological validity.
 ///
 /// This is intentionally separate from `SpO2Sample`, which represents the older raw red/IR ADC
 /// historical stream. `WHOOPSpO2Sample` is the decoded 26-byte 0x52 summary-frame contract.
@@ -47,6 +48,7 @@ public struct WHOOPSpO2Sample: Codable, Equatable, Sendable {
 
 public enum WHOOPSpO2DecoderError: Error, Equatable, Sendable {
     case payloadTruncated(expected: Int, actual: Int)
+    case unexpectedLength(expected: Int, actual: Int)
     case invalidSync(expected: UInt8, actual: UInt8)
     case unexpectedOpcode(expected: UInt8, actual: UInt8)
     case crcMismatch(expected: UInt16, actual: UInt16)
@@ -58,6 +60,8 @@ extension WHOOPSpO2DecoderError: LocalizedError {
         switch self {
         case .payloadTruncated(let expected, let actual):
             return "WHOOP SpO2 frame is truncated: expected \(expected) bytes, got \(actual)."
+        case .unexpectedLength(let expected, let actual):
+            return "Experimental SpO2 frame length mismatch: expected \(expected) bytes, got \(actual)."
         case .invalidSync(let expected, let actual):
             return String(format: "WHOOP SpO2 sync mismatch: expected 0x%02X, got 0x%02X.", expected, actual)
         case .unexpectedOpcode(let expected, let actual):
@@ -70,9 +74,10 @@ extension WHOOPSpO2DecoderError: LocalizedError {
     }
 }
 
-/// Decoder for the reverse-engineered WHOOP 5.0 26-byte `NIGHTLY_TELEMETRY_SUMMARY` frame.
+/// Research decoder for a supplied 26-byte `NIGHTLY_TELEMETRY_SUMMARY` hypothesis.
+/// No paired raw device capture in this repository establishes this as an actual WHOOP contract.
 ///
-/// Protocol invariants:
+/// Assumed layout (not independently validated):
 /// - byte 0: 0xAA sync
 /// - byte 1: 0x52 command identifier. It is NEVER an SpO2 percentage.
 /// - bytes 4...7: UInt32 little-endian timestamp
@@ -87,7 +92,10 @@ public enum WHOOPSpO2Decoder {
     public static let nightlyTelemetrySummaryOpcode: UInt8 = 0x52
 
     public static func decode(_ data: Data) throws -> WHOOPSpO2Sample {
-        try decode(Array(data))
+        guard data.count <= frameLength else {
+            throw WHOOPSpO2DecoderError.unexpectedLength(expected: frameLength, actual: data.count)
+        }
+        return try decode(Array(data))
     }
 
     public static func decode(_ bytes: [UInt8]) throws -> WHOOPSpO2Sample {
@@ -95,9 +103,11 @@ public enum WHOOPSpO2Decoder {
             throw WHOOPSpO2DecoderError.payloadTruncated(expected: frameLength, actual: bytes.count)
         }
 
-        // A notification containing more than one frame must be split by the BLE framing layer first.
-        // Parsing exactly the first protocol frame here makes this decoder deterministic and bounded.
-        let frame = Array(bytes.prefix(frameLength))
+        // One input means exactly one frame. Silently truncating would bless an unchecked suffix.
+        guard bytes.count == frameLength else {
+            throw WHOOPSpO2DecoderError.unexpectedLength(expected: frameLength, actual: bytes.count)
+        }
+        let frame = bytes
 
         guard frame[0] == syncByte else {
             throw WHOOPSpO2DecoderError.invalidSync(expected: syncByte, actual: frame[0])

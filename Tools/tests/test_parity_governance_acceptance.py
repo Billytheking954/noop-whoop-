@@ -101,23 +101,17 @@ class RepositoryBaselineTests(unittest.TestCase):
         self.assertEqual(1, registry["schema_version"])
         self.assertNotIn("exemptions", parity_ledger._load_json(TOOLS / "parity_twin_map.json", {}))
 
-    def test_core_tools_filter_covers_every_governance_tool_path(self) -> None:
+    def test_core_tools_runs_for_product_changes_and_governance_stays_scoped(self) -> None:
         core = (REPOSITORY / ".github/workflows/tools-python.yml").read_text(
             encoding="utf-8"
         )
         governance = (REPOSITORY / ".github/workflows/parity-governance.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("pull_request:\n    branches: [main]\n    paths:", core)
-        core_paths = [
-            line.strip()[3:-1]
-            for line in core.splitlines()
-            if line.startswith("      - '")
-        ]
-        self.assertEqual(
-            ["Tools/**", ".github/workflows/tools-python.yml"] * 2,
-            core_paths,
-        )
+        self.assertIn("pull_request:\n    branches: [main]", core)
+        self.assertIn("push:\n    branches: [main]", core)
+        # Source-contract tests read outside Tools/. Neither event may skip those edits.
+        self.assertNotRegex(core, r"(?m)^\s+paths(?:-ignore)?:")
         self.assertNotIn("unittest discover -s tests", core)
         self.assertIn("pull_request:\n    branches: [main]\n    paths:", governance)
         governance_paths = [
@@ -136,7 +130,6 @@ class RepositoryBaselineTests(unittest.TestCase):
             ] * 2,
             governance_paths,
         )
-        self.assertIn("Tools/**", core_paths)
         self.assertTrue(
             all(
                 path.startswith("Tools/")
