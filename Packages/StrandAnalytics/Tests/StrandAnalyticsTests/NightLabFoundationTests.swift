@@ -3,6 +3,37 @@ import XCTest
 
 final class NightLabFoundationTests: XCTestCase {
 
+    func testOverflowingManifestWindowIsRejected() {
+        let manifest = NightRecordManifest(nightID: "overflow", state: .recording,
+            windowStartUnix: Int.min, windowEndUnix: Int.max,
+            timezoneOffsetSeconds: 0, rawAssets: [])
+        XCTAssertThrowsError(try NightManifestValidator.validate(manifest)) { error in
+            XCTAssertEqual(error as? NightLabValidationError, .invalidWindow)
+        }
+    }
+
+    func testCoverageRejectsUnrepresentableWindowsWithoutTrapping() {
+        for (start, end) in [(Int.min, Int.max), (Int.max, Int.min), (10, 10)] {
+            let report = NightSignalCoverage.analyze(kind: .heartRate, timestamps: [0],
+                windowStartUnix: start, windowEndUnix: end, expectedCadenceHz: 1)
+            XCTAssertEqual(report.windowSeconds, 0)
+            XCTAssertEqual(report.sampleCount, 0)
+            XCTAssertNil(report.coverageFraction)
+            XCTAssertNil(report.largestGapSeconds)
+        }
+    }
+
+    func testUnrepresentableExpectedCountKeepsGeometryButNotCoverage() {
+        for cadence in [Double.greatestFiniteMagnitude, Double(Int.max), Double.infinity, Double.nan] {
+            let report = NightSignalCoverage.analyze(kind: .heartRate, timestamps: [0, 1],
+                windowStartUnix: 0, windowEndUnix: 2, expectedCadenceHz: cadence)
+            XCTAssertEqual(report.sampleCount, 2)
+            XCTAssertEqual(report.largestGapSeconds, 1)
+            XCTAssertNil(report.expectedSamples)
+            XCTAssertNil(report.coverageFraction)
+        }
+    }
+
     private func sealedManifest() -> NightRecordManifest {
         NightRecordManifest(
             nightID: "2026-09-13",

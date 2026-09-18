@@ -107,6 +107,72 @@ final class NightLabSpO2DiagnosticsTests: XCTestCase {
         XCTAssertEqual(original.frameCoverageFraction, withOutside.frameCoverageFraction)
     }
 
+    func testClusteredDistinctTimestampsCannotManufactureWholeNightCoverage() {
+        // 96 distinct starts and no start-gap >900 seconds previously passed as 100% coverage,
+        // although only about one third of the night is represented by non-overlapping intervals.
+        let rows = (0..<32).flatMap { group in
+            (0..<3).map { frame(timestamp: windowStart + group * 900 + $0) }
+        }
+        let result = analyze(rows)
+        XCTAssertLessThan(result.frameCoverageFraction, 0.40)
+        XCTAssertNil(result.aggregate)
+    }
+
+    func testRejectedQualityCannotFillAnOtherwiseMissingNight() {
+        let rows = (0..<96).map {
+            frame(timestamp: windowStart + $0 * 300, quality: $0 < 10 ? 90 : 0)
+        }
+        XCTAssertNil(analyze(rows).aggregate, "Ten good epochs do not validate a night of rejected evidence")
+    }
+
+    func testMissingBeginningOrEndFailsClosedDespiteHighCoverage() {
+        let rows = completeNightRows()
+        XCTAssertNil(analyze(Array(rows.dropFirst(2))).aggregate)
+        XCTAssertNil(analyze(Array(rows.dropLast(2))).aggregate)
+    }
+
+    func testMismatchedAndOverlappingBaselineCannotManufactureSlowWaveSleep() {
+        let rows = completeNightRows()
+        XCTAssertNil(analyze(rows, baseline: deepBaseline(start: windowStart - 300)).aggregate)
+        let repeated = (0..<96).flatMap { index in
+            Array(repeating: SleepStagerV2BaselineEpoch(startUnix: windowStart + index * 300,
+                endUnix: windowStart + index * 300 + 30, stage: .deep), count: 10)
+        }
+        XCTAssertNil(analyze(rows, baseline: deepBaseline(epochsOverride: repeated)).aggregate,
+                     "Ten copies of 30 seconds must not count as 300 seconds of deep sleep")
+    }
+
+    func testBackfillCompletionThenEvidenceRemovalRecomputesAvailability() {
+        let complete = completeNightRows()
+        XCTAssertNil(analyze(Array(complete.prefix(10))).aggregate)
+        XCTAssertNotNil(analyze(complete).aggregate)
+        XCTAssertNil(analyze(Array(complete.prefix(10))).aggregate)
+        XCTAssertNil(analyze([]).aggregate)
+    }
+
+    func testMalformedHexAndOversizedFrameCannotReachAggregation() {
+        let valid = frame(timestamp: windowStart)
+        let malformed = ["", "0", "gg", valid.hex + "00", "+a" + String(valid.hex.dropFirst(2)),
+                         String(repeating: "00", count: 1_000)]
+        for hex in malformed {
+            let result = analyze([NightLabSpO2FrameRow(hex: hex)])
+            XCTAssertEqual(result.decodedFrameCount, 0, "hex length=\(hex.count)")
+            XCTAssertEqual(result.decodeFailureCount, 1)
+        }
+    }
+
+    func testIdenticalRetransmissionsDoNotAlterTheMean() throws {
+        let complete = completeNightRows()
+        XCTAssertEqual(analyze(complete).aggregate,
+                       analyze(Array(complete.reversed()) + Array(repeating: complete[0], count: 100)).aggregate)
+    }
+
+    private func analyze(_ rows: [NightLabSpO2FrameRow],
+                         baseline: SleepStagerV2BaselineArtifact? = nil) -> NightLabSpO2Diagnostics {
+        NightLabSpO2Diagnostics.analyze(rows: rows, windowStartUnix: windowStart,
+            windowEndUnix: windowStart + windowDuration, baseline: baseline ?? deepBaseline())
+    }
+
     private func completeNightRows() -> [NightLabSpO2FrameRow] {
         (0..<(windowDuration / 300)).map { frame(timestamp: windowStart + ($0 * 300)) }
     }
@@ -127,7 +193,9 @@ final class NightLabSpO2DiagnosticsTests: XCTestCase {
         return NightLabSpO2FrameRow(hex: bytes.map { String(format: "%02x", $0) }.joined())
     }
 
-    private func deepBaseline() -> SleepStagerV2BaselineArtifact {
+    private func deepBaseline(start: Int? = nil,
+                              epochsOverride: [SleepStagerV2BaselineEpoch]? = nil) -> SleepStagerV2BaselineArtifact {
+        let start = start ?? windowStart
         let end = windowStart + windowDuration
         return SleepStagerV2BaselineArtifact(
             nightID: "spo2-gate-test",
@@ -145,11 +213,13 @@ final class NightLabSpO2DiagnosticsTests: XCTestCase {
             sourceNOOPVersion: "test",
             timezoneOffsetSeconds: 0,
             inputAssets: [],
-            windowStartUnix: windowStart,
+            windowStartUnix: start,
             windowEndUnix: end,
-            productionSegments: [StageSegment(start: windowStart, end: end, stage: "deep")],
+            productionSegments: [StageSegment(start: start, end: end, stage: "deep")],
             leadingBoundary: nil,
-            epochs: [SleepStagerV2BaselineEpoch(startUnix: windowStart, endUnix: end, stage: .deep)]
+            epochs: epochsOverride ?? stride(from: start, to: end, by: 30).map {
+                SleepStagerV2BaselineEpoch(startUnix: $0, endUnix: min($0 + 30, end), stage: .deep)
+            }
         )
     }
 
