@@ -22,7 +22,10 @@ def open_verified_database(path: str | Path) -> sqlite3.Connection:
     with path.open('rb') as source:
         if source.read(16) != b'SQLite format 3\x00':
             raise BackupValidationError('Input is not a SQLite database')
-    db = sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)
+    try:
+        db = sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)
+    except sqlite3.Error as exc:
+        raise BackupValidationError('SQLite validation failed; comparison refused') from exc
     try:
         db.execute('PRAGMA query_only=ON')
         # quick_check misses some index/content disagreements; require the full check.
