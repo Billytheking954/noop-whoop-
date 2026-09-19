@@ -8,8 +8,11 @@ struct NightLabSpO2DiagnosticsCard: View {
     var body: some View {
         NoopCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text(verbatim: "Experimental summary-frame hypothesis").font(.headline)
-                Text(verbatim: "Unverified format and scaling. Synthetic fixtures do not establish a WHOOP SpO₂ measurement. This is separate from historical byte 82.")
+                // Keep this copy deliberately conservative. This card visualises an unverified
+                // summary-frame research hypothesis and must not imply a canonical WHOOP SpO₂
+                // contract or equivalence with the separate historical @82 candidate.
+                Text("strap estimate (unverified)").font(.headline)
+                Text("Every metric is an unvalidated approximation. Don't use NOOP to diagnose, treat, or make any health decision. Always consult a qualified professional.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -29,11 +32,11 @@ struct NightLabSpO2DiagnosticsCard: View {
                     field("Valid fully-SWS frames", String(diagnostic.validSlowWaveFrameCount))
 
                     if let aggregate = diagnostic.aggregate {
-                        field("Experimental aggregate", String(format: "%.2f%%", aggregate.spo2Percent))
+                        field(String(localized: "strap estimate (unverified)"), String(format: "%.2f%%", aggregate.spo2Percent))
                         field("SWS quality coverage", String(format: "%.1f%%", aggregate.coverageFraction * 100))
                         field("Trimmed per tail", String(aggregate.trimCountPerTail))
                     } else if let aggregationError = diagnostic.aggregationError {
-                        field("Experimental aggregate", "Unavailable")
+                        field(String(localized: "strap estimate (unverified)"), "Unavailable")
                         Text(aggregationError).font(.caption).foregroundStyle(.secondary)
                     }
 
@@ -44,7 +47,7 @@ struct NightLabSpO2DiagnosticsCard: View {
                                     field("Timestamp", String(timestamp))
                                 }
                                 if let percent = epoch.spo2Percent {
-                                    field("Candidate value", String(format: "%.2f%%", percent))
+                                    field(String(localized: "Estimate"), String(format: "%.2f%%", percent))
                                 }
                                 if let quality = epoch.qualityScore {
                                     field("Quality", String(quality))
