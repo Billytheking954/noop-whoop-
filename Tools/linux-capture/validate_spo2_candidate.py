@@ -24,14 +24,15 @@ THREE INPUT KINDS, and the third is why #103 has been stuck (#845):
   • a **NOOP app store** — the shipped app's own SQLite (GRDB), read from `v18AuxSample`, the table
     PR #848 added. Until this existed, only someone running linux-capture could contribute evidence,
     so the app could not answer its own open question even though it banks the byte. An ordinary user
-    who syncs with NOOP can now run the promote gate on their own data.
+    who syncs with NOOP can now contribute correlation evidence from their own data.
 
     The one thing an app store cannot do is the OFFSET SPECIFICITY SCAN: the app banks decoded slots,
     not frame bytes, so there is no neighbour byte to rank @82 against. That is reported as
     `specificity_scan: "unavailable_app_db"` and the corresponding checklist item is n/a — NOT False,
     which would read as "@82 lost the scan" about a byte that was never ranked. A capture is still
     required to settle specificity; the correlation, MAE, bias, duty-cycle detection and window
-    coverage all work from either.
+    coverage all work from either. App-store-only evidence therefore remains incomplete and cannot
+    make the multi-device research summary report a fully-passing evidence set.
 
 Three things the harness has to get right before a number from it means anything:
 
@@ -43,7 +44,7 @@ Three things the harness has to get right before a number from it means anything
   • **"value is in 70–100" is not a specific screen.** Timestamp bytes and thermal channels pass it.
     An offset must also show real variation before its correlation is worth ranking.
   • **A strap that never emits @82 is not a failed correlation.** It is classified `feature_absent`
-    and counts as neither a PASS nor a FAIL in the multi-device promote gate.
+    and counts as neither a PASS nor a FAIL in the multi-device evidence summary.
 
 Usage:
 
@@ -907,12 +908,17 @@ def _validate_device(
         "offset_82_wins": None if from_app_db else best_off == OFF_SPO2_CANDIDATE,
         # A byte with a handful of distinct values cannot be a nightly SpO₂ however well it correlates.
         "value_variance": distinct_82 >= min_distinct and stdev_82 >= MIN_INBAND_STDEV,
-        # Unknown coverage is not a measured pass.
+        # Unknown coverage is not a measured pass. It is only REQUIRED when a duty cycle was detected.
         "window_coverage": None if median_coverage is None else median_coverage >= min_window_coverage,
     }
-    # Preserve the existing applicable-check policy; unsupported checks remain explicit
-    # nulls instead of fabricated successes. This is not a clinical promotion gate.
+    # `pass` means every APPLICABLE check passed. Keep N/A explicit instead of inventing success/failure.
+    # `evidence_complete` is stricter: specificity is always required for a fully evaluable research set,
+    # while window coverage is required only when the candidate is actually duty-cycled.
     checklist["pass"] = all(v for v in checklist.values() if v is not None)
+    checklist["evidence_complete"] = (
+        checklist["offset_82_wins"] is not None
+        and (duty["mode"] != "duty_cycled" or checklist["window_coverage"] is not None)
+    )
 
     # A strap that never emits @82 has not failed a correlation — it has no data to correlate. Say so
     # explicitly, but only once the capture actually WATCHED the strap long enough, and finely enough,
@@ -953,9 +959,14 @@ def _validate_device(
         and observed_asleep_s >= ABSENT_MIN_ASLEEP_SPAN_S
         and cadence_could_see_window
     )
-    classification = (
-        "feature_absent" if feature_absent else ("pass" if checklist["pass"] else "fail")
-    )
+    if feature_absent:
+        classification = "feature_absent"
+    elif not checklist["pass"]:
+        classification = "fail"
+    elif not checklist["evidence_complete"]:
+        classification = "incomplete"
+    else:
+        classification = "pass"
     if nights and all(n["no_overlap"] for n in nights):
         classification = "no_overlap"
 
@@ -1077,7 +1088,8 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
 
 OVERALL_TEXT = {
     "no_overlap": "NO OVERLAP (agreement unassessable; keep instrumentation-only)",
-    "pass": "PASS (candidate strengthens)",
+    "incomplete": "INCOMPLETE (measured checks pass, but required evidence is unavailable; keep instrumentation-only)",
+    "pass": "PASS (candidate strengthens; still experimental)",
     "fail": "FAIL (keep instrumentation-only)",
     "feature_absent": (
         "FEATURE ABSENT (@82 flat 0x00 across the capture — neither a PASS nor a FAIL; "
@@ -1134,6 +1146,11 @@ def coverage_warnings(result: dict) -> List[str]:
     if result.get("classification") == "no_overlap":
         out.append(f"{result['device']}: no sensor records overlap the exported sleep windows; "
                    "agreement cannot be assessed, and this does not prove feature absence")
+    if result.get("classification") == "incomplete":
+        out.append(
+            f"{result['device']}: measured checks pass but required evidence is incomplete; "
+            "raw-frame offset specificity is required before this evidence set can be fully evaluated"
+        )
     d = result.get("duty") or {}
     if d.get("n_missing", 0):
         out.append(
@@ -1175,7 +1192,8 @@ def format_postable(results: Sequence[dict]) -> str:
     lines = [
         "spo2_candidate_82 multi-device validation (validate_spo2_candidate.py)",
         "device,classification,paired_nights,r,mae,bias,best_offset,"
-        "duty_mode,duty_period_s,duty_window_s,duty_phase_s,window_coverage,checklist_pass",
+        "duty_mode,duty_period_s,duty_window_s,duty_phase_s,window_coverage,"
+        "checklist_pass,evidence_complete",
     ]
     for res in results:
         r = res["r"]
@@ -1183,6 +1201,7 @@ def format_postable(results: Sequence[dict]) -> str:
         bias = res["bias"]
         d = res.get("duty") or {}
         cov = res.get("median_window_coverage")
+        checklist = res.get("checklist") or {}
         lines.append(
             f"{res['device']},{res.get('classification', 'fail')},{res['paired_nights']},"
             f"{'' if r is None else f'{r:.3f}'},"
@@ -1194,27 +1213,32 @@ def format_postable(results: Sequence[dict]) -> str:
             f"{d.get('window_len_s') or ''},"
             f"{'' if d.get('phase_s') is None else d['phase_s']},"
             f"{'' if cov is None else f'{cov:.2f}'},"
-            f"{res['checklist']['pass']}"
+            f"{checklist.get('pass', False)},"
+            f"{checklist.get('evidence_complete', False)}"
         )
-    # Multi-device aggregate: promote only if every device with ≥5 paired nights passes. A strap that
-    # never emits @82 is counted on neither side — it is not evidence for the candidate, and it is
-    # not evidence against it either.
+    # Multi-device aggregate is deliberately fail-closed. N/A may be honest for a per-device report,
+    # but an evidence set with an unmeasured required check must never be summarized as all-passing.
     absent = [res for res in results if res.get("classification") == "feature_absent"]
     eligible = [
         res for res in results
         if res["paired_nights"] >= 5 and res.get("classification") != "feature_absent"
     ]
     if eligible:
-        all_pass = all(res["checklist"]["pass"] for res in eligible)
+        all_pass = all(
+            res.get("checklist", {}).get("pass", False)
+            and res.get("checklist", {}).get("evidence_complete", False)
+            for res in eligible
+        )
         lines.append(
             f"multi_device_eligible={len(eligible)} all_pass={all_pass} "
             f"feature_absent={len(absent)} "
-            f"(promote spo2Pct only if all_pass and ≥2 devices)"
+            f"(candidate remains instrumentation-only; all_pass requires complete, measured research evidence "
+            f"across every eligible device)"
         )
     else:
         lines.append(
             f"multi_device_eligible=0 feature_absent={len(absent)} "
-            f"(need ≥5 paired nights per device)"
+            f"(need ≥5 paired nights per device; candidate remains instrumentation-only)"
         )
     for res in results:
         for w in coverage_warnings(res):
