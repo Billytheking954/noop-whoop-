@@ -1,9 +1,11 @@
 """Synthetic backup integrity tests: no user exports or physiological values."""
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from backup_validation import BackupValidationError, open_verified_database, snapshot_path
@@ -15,8 +17,9 @@ class BackupTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.db = self.root / 'source.sqlite'
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db:
             db.executescript('CREATE TABLE t(x,y); INSERT INTO t VALUES(1,20),(2,10); CREATE INDEX ix ON t(x);')
+            db.commit()
 
     def archive(self):
         path = self.root / 'backup.noopbak'
@@ -47,10 +50,11 @@ class BackupTests(unittest.TestCase):
         with self.assertRaises(BackupValidationError), snapshot_path(path): pass
 
     def test_full_check_catches_index_mismatch_quick_check_misses(self):
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db:
             db.execute('PRAGMA writable_schema=ON')
             db.execute("UPDATE sqlite_master SET sql='CREATE INDEX ix ON t(y)' WHERE name='ix'")
-        with sqlite3.connect(self.db) as db:
+            db.commit()
+        with closing(sqlite3.connect(self.db)) as db:
             self.assertEqual(db.execute('PRAGMA quick_check').fetchall(), [('ok',)])
         before = self.db.read_bytes()
         with self.assertRaisesRegex(BackupValidationError, 'integrity'):
@@ -70,10 +74,16 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(sidecar.read_bytes(), b'pending')
 
     def test_foreign_key_violation_rejected(self):
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db:
             db.executescript('CREATE TABLE p(id PRIMARY KEY); CREATE TABLE c(pid REFERENCES p(id)); INSERT INTO c VALUES(1);')
+            db.commit()
         with self.assertRaisesRegex(BackupValidationError, 'foreign-key'):
             open_verified_database(self.db)
+
+    def test_sqlite_open_failure_is_normalized(self):
+        with patch('backup_validation.sqlite3.connect', side_effect=sqlite3.DatabaseError('open failed')):
+            with self.assertRaisesRegex(BackupValidationError, 'validation failed'):
+                open_verified_database(self.db)
 
     def test_paths_and_duplicate_databases_rejected(self):
         for names in [('noop-backup.sqlite','../outside'),('nested/noop-backup.sqlite',),
