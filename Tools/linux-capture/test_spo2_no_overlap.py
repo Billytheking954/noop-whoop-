@@ -1,4 +1,5 @@
 """Synthetic regressions for absent overlap and unsupported checklist results."""
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -73,9 +74,11 @@ class NoOverlapTests(unittest.TestCase):
             rows = [(start-1, 99, 2), (start, 0, 2), (start+1, 97, 2),
                     (start+2, 160, 2), (start+3, 0, 2), (start+4, 99, 2)]
             db = _write_app_db(td, rows)
-            with sqlite3.connect(db) as conn:
+            # Keep the write transactional while still closing the handle before temp cleanup.
+            with closing(sqlite3.connect(db)) as conn:
                 conn.execute('UPDATE v18AuxSample SET fields=? WHERE ts=?',
                              (b'\x02\x00\x00\x00\x00', start+3))
+                conn.commit()
             export = _write_export(td, [('2025-01-01 00:00:00', 97, start, start+4)])
             res = vs.validate_device(db, export)
         night = res['nights'][0]
