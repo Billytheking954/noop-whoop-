@@ -1,4 +1,5 @@
 """Regression tests: missing banked @82 must not prove feature absence."""
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -29,8 +30,11 @@ class MissingObservationTests(unittest.TestCase):
     def test_missing_slot_survives_database_reader(self):
         with tempfile.TemporaryDirectory() as td:
             path = _write_app_db(td, [(100, 0, 2)])
-            with sqlite3.connect(path) as db:
+            # A sqlite3 connection context commits/rolls back but does not close.
+            # Close explicitly so Windows can remove the temporary database.
+            with closing(sqlite3.connect(path)) as db:
                 db.execute("UPDATE v18AuxSample SET fields=?", (b'\x02\x00\x00\x00\x00',))
+                db.commit()
             row = vs.load_app_db_records(path)[0]
             self.assertIsNone(row['aux_byte_82'])
             self.assertIsNone(vs.byte_at_offset(row, 82))
@@ -56,8 +60,9 @@ class MissingObservationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             start = _utc(2026, 8, 1)
             path = _write_app_db(td, [(start+i, 0, 2) for i in range(4000)])
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 db.execute("UPDATE v18AuxSample SET fields=?", (b'\xff',))
+                db.commit()
             export = _write_export(td, [('2026-08-01 00:00:00', 97, start, start+4000)])
             result = vs.validate_device(path, export)
             self.assertNotEqual(result['classification'], 'feature_absent')
