@@ -96,6 +96,12 @@ validation tools are research instrumentation, not a source of validated health 
 with imported values. Its thresholds are research-tool policy, not proof of a
 physiological field or calibration.
 
+For a NOOP-owned WHOOP 5 night, use the
+[independent-reference workflow](SPO2_REFERENCE_WORKFLOW.md). Its capture-only
+mode can establish what NOOP retained before a reference exists. Comparing
+against a separate recording oximeter does not require two apps to offload the
+same strap history. The workflow does not establish that @82 represents oxygen.
+
 ```bash
 cd Tools/linux-capture
 python3 validate_spo2_candidate.py capture.json my_whoop_data/ --device strap-a --postable

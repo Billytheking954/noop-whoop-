@@ -23,8 +23,8 @@ name: Tools Python CI
 on:
   # Core tests inspect Swift/Kotlin sources and translation catalogues outside Tools/.
   # Run on every change so product-only regressions cannot bypass these contracts.
+  # Include stacked PRs: their target may be another feature/fix branch, not main.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:

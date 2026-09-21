@@ -371,7 +371,7 @@ def looks_like_app_db(path: str) -> bool:
     if not looks_like_sqlite(path):
         return False
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+        con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro&immutable=1", uri=True)
     except sqlite3.Error:
         return False
     try:
@@ -398,7 +398,7 @@ def load_app_db_records(path: str, *, device_id: Optional[str] = None) -> List[d
     carry no `_frame` key, which the scan already treats as "skip", and `main` says so rather than
     printing an empty scan that reads like a negative result.
     """
-    con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro&immutable=1", uri=True)
     try:
         devices = [r[0] for r in con.execute("SELECT DISTINCT deviceId FROM v18AuxSample").fetchall()]
         if not devices:
@@ -493,26 +493,38 @@ def load_frame_records(path: str, *, device_id: int = 2) -> List[dict]:
     return capture
 
 
-def iter_v18_records(capture_records: Sequence[dict]) -> Iterable[dict]:
-    """Yield decoded v18 fields from capture.json entries (absolute frame offsets)."""
+def iter_v18_records(capture_records: Sequence[dict], *,
+                     diagnostics: Optional[Dict[str, int]] = None) -> Iterable[dict]:
+    """Yield only intact WHOOP 5 historical v18 frames, never unchecked test buffers.
+
+    A layout byte cannot substitute for either CRC. Constructed test fixtures must
+    carry the same envelope as hardware input; no production test-data bypass exists.
+    """
+    counts = diagnostics if diagnostics is not None else {}
+    counts.update(input=0, invalid_encoding=0, invalid_integrity=0,
+                  unsupported_layout=0, decoded=0)
     for rec in capture_records:
+        counts["input"] += 1
         hx = rec.get("hex") if isinstance(rec, dict) else None
-        if not hx:
+        if not isinstance(hx, str) or not hx:
+            counts["invalid_encoding"] += 1
             continue
         try:
             frame = bytes.fromhex(hx)
         except ValueError:
+            counts["invalid_encoding"] += 1
             continue
-        if len(frame) <= 116:
+        if not wf.verify_whoop5_frame(frame) or frame[1] != 1:
+            counts["invalid_integrity"] += 1
             continue
-        # Prefer CRC-valid WHOOP 5 frames; still accept synthetic absolute buffers used in tests
-        # (make_v18 style: length 124, hist_version @9, no real CRC).
-        if frame[0] == 0xAA and len(frame) > 8:
-            if not (wf.verify_whoop5_frame(frame) or frame[OFF_HIST_VERSION] == 18):
-                continue
+        if len(frame) != 124 or frame[8] != 47 or frame[OFF_HIST_VERSION] != 18:
+            counts["unsupported_layout"] += 1
+            continue
         d = wa.decode_v18(frame)
         if d is None:
+            counts["unsupported_layout"] += 1
             continue
+        counts["decoded"] += 1
         d = dict(d)
         raw82 = frame[OFF_SPO2_CANDIDATE] if len(frame) > OFF_SPO2_CANDIDATE else d.get("aux_byte_82")
         d["aux_byte_82"] = raw82
@@ -792,10 +804,13 @@ def _validate_device(
     # `v18AuxSample` table rather than by extension or by a flag, so a user does not have to know which
     # kind of file they were handed.
     from_app_db = looks_like_app_db(capture_path)
+    frame_validation: Optional[Dict[str, int]] = None
     if from_app_db:
         records = load_app_db_records(capture_path, device_id=app_device)
     else:
-        records = list(iter_v18_records(load_frame_records(capture_path, device_id=device_id)))
+        frame_validation = {}
+        records = list(iter_v18_records(load_frame_records(capture_path, device_id=device_id),
+                                       diagnostics=frame_validation))
 
     cycles = load_cycles(export_path)
 
@@ -977,6 +992,7 @@ def _validate_device(
         # something completely different in the two cases, and a batch pooling both must be able to
         # tell them apart without re-opening the files.
         "source": "noop_app_db" if from_app_db else "capture",
+        "frame_validation": frame_validation,
         "specificity_scan": "unavailable_app_db" if from_app_db else "ran",
         "v18_records": len(records),
         "export_nights_with_spo2": len(cycles),
@@ -1018,6 +1034,11 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
         f"export_nights={result['export_nights_with_spo2']}  paired={result['paired_nights']}  "
         f"inband_samples={result['inband_samples_total']}"
     )
+    if (frames := result.get("frame_validation")) is not None:
+        lines.append(f"  raw frames: decoded={frames['decoded']}/{frames['input']}  "
+                     f"integrity_rejected={frames['invalid_integrity']}  "
+                     f"invalid_encoding={frames['invalid_encoding']}  "
+                     f"unsupported_layout={frames['unsupported_layout']}")
     r = result["r"]
     mae_v = result["mae"]
     bias = result["bias"]
