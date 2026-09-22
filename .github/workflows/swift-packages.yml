@@ -55,6 +55,7 @@ jobs:
           - StrandImport
           - StrandDesign
           - NoopLocalAccess
+          - StrandHealth
     steps:
       - name: Checkout
         uses: actions/checkout@v5
