@@ -3,6 +3,66 @@ import XCTest
 
 final class NightLabFileStoreTests: XCTestCase {
 
+    func testDirectManifestReadRejectsTraversalAndIdentityMismatch() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NightLabFileStore(rootDirectory: root)
+        try await store.createNight(recordingManifest())
+        do {
+            _ = try await store.loadManifest(nightID: "../outside")
+            XCTFail("Direct reads must reject traversal before filesystem access")
+        } catch {
+            XCTAssertEqual(error as? NightLabFileStoreError, .unsafeFileName("../outside"))
+        }
+        let manifestURL = root.appendingPathComponent("NightLab/night-1/manifest.json")
+        try NightLabJSON.encode(recordingManifest(id: "different-night")).write(to: manifestURL)
+        do {
+            try await store.discardRecordingNight(nightID: "night-1")
+            XCTFail("A mismatched manifest must not authorize deletion")
+        } catch {
+            XCTAssertEqual(error as? NightLabInspectionError, .manifestIdentityMismatch)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
+    }
+
+    func testRawReadRejectsSymlinkEvenWhenDigestMatches() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NightLabFileStore(rootDirectory: root)
+        try await store.createNight(recordingManifest())
+        let bytes = Data([1, 2, 3])
+        _ = try await store.appendRawAsset(nightID: "night-1", assetID: "hr", kind: .heartRate,
+            fileName: "hr.bin", data: bytes, startUnix: 1_000, endUnix: 2_000, sampleCount: 3)
+        let external = root.appendingPathComponent("external.bin")
+        try bytes.write(to: external)
+        let raw = root.appendingPathComponent("NightLab/night-1/raw/hr.bin")
+        try FileManager.default.removeItem(at: raw)
+        try FileManager.default.createSymbolicLink(at: raw, withDestinationURL: external)
+        do {
+            _ = try await store.rawData(nightID: "night-1", assetID: "hr")
+            XCTFail("A matching hash must not bypass path isolation")
+        } catch {
+            XCTAssertEqual(error as? NightLabInspectionError, .unsafePath)
+        }
+    }
+
+    func testCreateRejectsSymlinkedArchiveParent() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let external = root.appendingPathComponent("external", isDirectory: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("NightLab"),
+                                                  withDestinationURL: external)
+        let store = NightLabFileStore(rootDirectory: root)
+        do {
+            try await store.createNight(recordingManifest())
+            XCTFail("Creation must not write through a symlinked archive namespace")
+        } catch {
+            XCTAssertEqual(error as? NightLabInspectionError, .unsafePath)
+        }
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: external.path).isEmpty)
+    }
+
     private func tempRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("NightLabTests-\(UUID().uuidString)", isDirectory: true)

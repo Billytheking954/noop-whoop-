@@ -40,7 +40,13 @@ public enum NightHighRateCoverage {
                                windowStartMilliseconds: Int64,
                                windowEndMilliseconds: Int64,
                                expectedCadenceHz: Double? = nil) -> NightHighRateCoverageReport {
-        let durationMs = max(0, windowEndMilliseconds - windowStartMilliseconds)
+        let difference = windowEndMilliseconds.subtractingReportingOverflow(windowStartMilliseconds)
+        guard !difference.overflow, difference.partialValue > 0 else {
+            return NightHighRateCoverageReport(kind: kind, sampleCount: 0, windowMilliseconds: 0,
+                                               expectedSamples: nil, coverageFraction: nil,
+                                               largestGapMilliseconds: nil, gapCount: nil)
+        }
+        let durationMs = difference.partialValue
         let inWindow = timestampsMilliseconds.filter {
             $0 >= windowStartMilliseconds && $0 < windowEndMilliseconds
         }
@@ -62,7 +68,7 @@ public enum NightHighRateCoverage {
         guard let cadence = expectedCadenceHz,
               cadence.isFinite,
               cadence > 0,
-              durationMs > 0 else {
+              let expectedCount = Int(exactly: (Double(durationMs) / 1_000.0 * cadence).rounded()) else {
             return NightHighRateCoverageReport(kind: kind,
                                                sampleCount: inWindow.count,
                                                windowMilliseconds: durationMs,
@@ -72,8 +78,7 @@ public enum NightHighRateCoverage {
                                                gapCount: nil)
         }
 
-        let durationSeconds = Double(durationMs) / 1_000.0
-        let expected = max(1, Int((durationSeconds * cadence).rounded()))
+        let expected = max(1, expectedCount)
         let coverage = min(1.0, Double(inWindow.count) / Double(expected))
         let expectedIntervalMs = 1_000.0 / cadence
         let gapThresholdMs = expectedIntervalMs * 1.5

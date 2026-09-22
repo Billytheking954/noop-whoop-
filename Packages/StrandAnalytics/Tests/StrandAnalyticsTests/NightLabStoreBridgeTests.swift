@@ -186,6 +186,35 @@ final class NightLabStoreBridgeTests: XCTestCase {
         }
     }
 
+    func testOverflowingWindowFailsBeforeCreatingPartialArchive() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try await WhoopStore.inMemory()
+        let archive = NightLabFileStore(rootDirectory: root)
+
+        do {
+            _ = try await NightLabStoreBridge.capture(
+                store: store,
+                archive: archive,
+                request: NightLabStoreBridgeRequest(nightID: "night-overflow",
+                                                    deviceID: "test-whoop",
+                                                    windowStartUnix: Int.min,
+                                                    windowEndUnix: Int.max,
+                                                    timezoneOffsetSeconds: 0)
+            )
+            XCTFail("expected overflowing window to be rejected")
+        } catch let error as NightLabStoreBridgeError {
+            XCTAssertEqual(error, .invalidWindow)
+        }
+
+        do {
+            _ = try await archive.loadManifest(nightID: "night-overflow")
+            XCTFail("invalid request must fail before creating archive files")
+        } catch let error as NightLabFileStoreError {
+            XCTAssertEqual(error, .nightNotFound("night-overflow"))
+        }
+    }
+
     func testMissingRegistryRowDoesNotBlockCapture() async throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

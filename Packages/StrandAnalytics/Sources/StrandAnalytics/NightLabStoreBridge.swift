@@ -108,7 +108,8 @@ public enum NightLabStoreBridge {
     public static func capture(store: WhoopStore,
                                archive: NightLabFileStore,
                                request: NightLabStoreBridgeRequest) async throws -> NightLabStoreBridgeResult {
-        guard request.windowEndUnix > request.windowStartUnix else {
+        let windowDuration = request.windowEndUnix.subtractingReportingOverflow(request.windowStartUnix)
+        guard !windowDuration.overflow, windowDuration.partialValue > 0 else {
             throw NightLabStoreBridgeError.invalidWindow
         }
         guard request.maxRowsPerStream > 0, request.maxRowsPerStream < Int.max else {
@@ -321,6 +322,8 @@ public enum NightLabStoreBridge {
     private static func coverageReports(snapshot: Snapshot,
                                         windowStartUnix: Int,
                                         windowEndUnix: Int) -> [NightSignalCoverageReport] {
+        let windowDuration = windowEndUnix.subtractingReportingOverflow(windowStartUnix)
+        let windowSeconds = windowDuration.overflow ? 0 : max(0, windowDuration.partialValue)
         let hr = NightSignalCoverage.analyze(kind: .heartRate,
                                              timestamps: snapshot.hr.map(\.ts),
                                              windowStartUnix: windowStartUnix,
@@ -347,7 +350,7 @@ public enum NightLabStoreBridge {
         // percentage statistics for this stream.
         let wrist = NightSignalCoverageReport(kind: .wristStatus,
                                               sampleCount: snapshot.wristStatus.count,
-                                              windowSeconds: max(0, windowEndUnix - windowStartUnix),
+                                              windowSeconds: windowSeconds,
                                               expectedSamples: nil,
                                               coverageFraction: nil,
                                               largestGapSeconds: nil,

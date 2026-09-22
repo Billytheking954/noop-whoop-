@@ -8,8 +8,11 @@ struct NightLabSpO2DiagnosticsCard: View {
     var body: some View {
         NoopCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("WHOOP 5 SpO₂ telemetry").font(.headline)
-                Text("0x52 is the NIGHTLY_TELEMETRY_SUMMARY command identifier. Saturation is decoded only from bytes 8–9.")
+                // Keep this copy deliberately conservative. This card visualises an unverified
+                // summary-frame research hypothesis and must not imply a canonical WHOOP SpO₂
+                // contract or equivalence with the separate historical @82 candidate.
+                Text("strap estimate (unverified)").font(.headline)
+                Text("Every metric is an unvalidated approximation. Don't use NOOP to diagnose, treat, or make any health decision. Always consult a qualified professional.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -29,11 +32,11 @@ struct NightLabSpO2DiagnosticsCard: View {
                     field("Valid fully-SWS frames", String(diagnostic.validSlowWaveFrameCount))
 
                     if let aggregate = diagnostic.aggregate {
-                        field("Canonical nightly SpO₂", String(format: "%.2f%%", aggregate.spo2Percent))
+                        field(String(localized: "strap estimate (unverified)"), String(format: "%.2f%%", aggregate.spo2Percent))
                         field("SWS quality coverage", String(format: "%.1f%%", aggregate.coverageFraction * 100))
                         field("Trimmed per tail", String(aggregate.trimCountPerTail))
                     } else if let aggregationError = diagnostic.aggregationError {
-                        field("Canonical nightly SpO₂", "Unavailable")
+                        field(String(localized: "strap estimate (unverified)"), "Unavailable")
                         Text(aggregationError).font(.caption).foregroundStyle(.secondary)
                     }
 
@@ -44,7 +47,7 @@ struct NightLabSpO2DiagnosticsCard: View {
                                     field("Timestamp", String(timestamp))
                                 }
                                 if let percent = epoch.spo2Percent {
-                                    field("SpO₂", String(format: "%.2f%%", percent))
+                                    field(String(localized: "Estimate"), String(format: "%.2f%%", percent))
                                 }
                                 if let quality = epoch.qualityScore {
                                     field("Quality", String(quality))

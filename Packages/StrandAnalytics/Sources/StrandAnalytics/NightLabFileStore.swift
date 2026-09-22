@@ -122,6 +122,7 @@ public actor NightLabFileStore {
         try NightManifestValidator.validate(manifest)
 
         let directory = nightURL(manifest.nightID)
+        try inspectionSafePath(directory)
         guard !fileManager.fileExists(atPath: directory.path) else {
             throw NightLabFileStoreError.nightAlreadyExists(manifest.nightID)
         }
@@ -136,11 +137,16 @@ public actor NightLabFileStore {
     }
 
     public func loadManifest(nightID: String) throws -> NightRecordManifest {
+        guard isSafeFileName(nightID) else { throw NightLabFileStoreError.unsafeFileName(nightID) }
         let url = manifestURL(nightID)
+        try inspectionSafePath(url)
         guard fileManager.fileExists(atPath: url.path) else {
             throw NightLabFileStoreError.nightNotFound(nightID)
         }
-        return try NightLabJSON.decode(NightRecordManifest.self, from: Data(contentsOf: url))
+        let manifest = try NightLabJSON.decode(NightRecordManifest.self, from: Data(contentsOf: url))
+        guard manifest.nightID == nightID else { throw NightLabInspectionError.manifestIdentityMismatch }
+        try NightManifestValidator.validate(manifest)
+        return manifest
     }
 
     /// Remove an incomplete recording so a failed multi-file capture can be retried cleanly.
@@ -314,6 +320,7 @@ public actor NightLabFileStore {
         let digest = Self.sha256Hex(canonicalData)
 
         let destination = nightURL(bundle.nightID)
+        try inspectionSafePath(destination)
         if fileManager.fileExists(atPath: destination.path) {
             let existing: Data
             do { existing = try exportBundle(nightID: bundle.nightID) }
@@ -410,6 +417,7 @@ public actor NightLabFileStore {
         _ = try loadManifest(nightID: nightID)
         guard isSafeFileName(fileName) else { throw NightLabFileStoreError.unsafeFileName(fileName) }
         let url = derivedURL(nightID).appendingPathComponent(fileName, isDirectory: false)
+        try inspectionSafePath(url)
         guard fileManager.fileExists(atPath: url.path) else {
             throw NightLabFileStoreError.derivedArtifactNotFound(fileName)
         }
@@ -425,6 +433,7 @@ public actor NightLabFileStore {
         try requireSealedNight(nightID)
         guard isSafeFileName(fileName) else { throw NightLabFileStoreError.unsafeFileName(fileName) }
         let directory = executionsURL(nightID)
+        try inspectionSafePath(directory)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(fileName, isDirectory: false)
         guard try createWriteOnce(data, at: url) else {
@@ -555,6 +564,7 @@ public actor NightLabFileStore {
             throw NightLabFileStoreError.corruptRawAsset(asset.id)
         }
         let url = rawURL(nightID).appendingPathComponent(fileName, isDirectory: false)
+        try inspectionSafePath(url)
         guard fileManager.fileExists(atPath: url.path) else {
             throw NightLabFileStoreError.rawAssetNotFound(asset.id)
         }
@@ -695,6 +705,7 @@ public actor NightLabFileStore {
     }
 
     private func writeManifest(_ manifest: NightRecordManifest) throws {
+        try inspectionSafePath(manifestURL(manifest.nightID))
         let data = try NightLabJSON.encode(manifest)
         try data.write(to: manifestURL(manifest.nightID), options: [.atomic])
     }
@@ -706,6 +717,7 @@ public actor NightLabFileStore {
     /// the hard link is an atomic create-if-absent operation on the same filesystem: if another writer won
     /// the race, the existing destination is preserved and this method returns `false`.
     private func createWriteOnce(_ data: Data, at destination: URL) throws -> Bool {
+        try inspectionSafePath(destination)
         let directory = destination.deletingLastPathComponent()
         let staging = directory.appendingPathComponent(
             ".\(destination.lastPathComponent).\(UUID().uuidString).nightlab-tmp",
@@ -729,6 +741,7 @@ public actor NightLabFileStore {
                                    to url: URL,
                                    relativePath: String,
                                    conflictName: String) throws -> NightDerivedArtifactIdentity {
+        try inspectionSafePath(url)
         if fileManager.fileExists(atPath: url.path) {
             let existing = try Data(contentsOf: url)
             guard existing == data else {

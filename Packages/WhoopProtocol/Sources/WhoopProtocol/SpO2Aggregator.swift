@@ -55,6 +55,8 @@ public struct SpO2NightlyAggregate: Codable, Equatable, Sendable {
 public enum SpO2AggregatorError: Error, Equatable, Sendable {
     case noSlowWaveSleepEpochs
     case insufficientValidEpochs(required: Int, actual: Int)
+    case conflictingTimestamp(UInt32)
+    case overlappingEpochs
 }
 
 extension SpO2AggregatorError: LocalizedError {
@@ -64,11 +66,16 @@ extension SpO2AggregatorError: LocalizedError {
             return "No canonical five-minute Slow-Wave Sleep SpO2 epochs were available."
         case .insufficientValidEpochs(let required, let actual):
             return "Insufficient valid Slow-Wave Sleep SpO2 coverage: requires at least \(required) epochs, got \(actual)."
+        case .conflictingTimestamp(let timestamp):
+            return "Conflicting experimental SpO2 evidence at timestamp \(timestamp)."
+        case .overlappingEpochs:
+            return "Experimental SpO2 five-minute epochs overlap."
         }
     }
 }
 
-/// Canonical nightly SpO2 aggregation.
+/// Research aggregation under the unverified five-minute summary-frame hypothesis.
+/// This helper alone does not establish whole-night coverage or physiological validity.
 ///
 /// A "10% trimmed mean" removes floor(10% of N) observations from EACH tail, the conventional
 /// statistical definition. Samples first pass the canonical quality/motion filter and must represent
@@ -78,13 +85,30 @@ public enum SpO2Aggregator {
     public static let trimFractionPerTail = 0.10
 
     public static func aggregate(_ epochs: [SpO2SleepEpoch]) throws -> SpO2NightlyAggregate {
-        let sws = epochs.filter(\.isSlowWaveSleep)
+        // Deduplicate BEFORE stage/quality filtering: conflicting stage or quality evidence at one
+        // timestamp must not be silently resolved by discarding the inconvenient interpretation.
+        var unique: [UInt32: SpO2SleepEpoch] = [:]
+        for epoch in epochs {
+            if let existing = unique[epoch.sample.timestampUnix], existing != epoch {
+                throw SpO2AggregatorError.conflictingTimestamp(epoch.sample.timestampUnix)
+            }
+            unique[epoch.sample.timestampUnix] = epoch
+        }
+        let ordered = unique.values.sorted { $0.sample.timestampUnix < $1.sample.timestampUnix }
+        let sws = ordered.filter(\.isSlowWaveSleep)
         let canonical = sws.filter { $0.durationSeconds == SpO2SleepEpoch.canonicalDurationSeconds }
         guard !canonical.isEmpty else {
             throw SpO2AggregatorError.noSlowWaveSleepEpochs
         }
 
         let quality = SpO2QualityFilter.filter(canonical.map(\.sample))
+        // Ten slightly shifted copies of the same five minutes are not ten independent epochs.
+        for pair in zip(quality.validSamples, quality.validSamples.dropFirst()) {
+            guard UInt64(pair.1.timestampUnix) - UInt64(pair.0.timestampUnix)
+                >= UInt64(SpO2SleepEpoch.canonicalDurationSeconds) else {
+                throw SpO2AggregatorError.overlappingEpochs
+            }
+        }
         guard quality.validSamples.count >= minimumValidEpochs else {
             throw SpO2AggregatorError.insufficientValidEpochs(
                 required: minimumValidEpochs,

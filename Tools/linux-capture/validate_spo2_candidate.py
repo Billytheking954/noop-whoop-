@@ -24,14 +24,15 @@ THREE INPUT KINDS, and the third is why #103 has been stuck (#845):
   • a **NOOP app store** — the shipped app's own SQLite (GRDB), read from `v18AuxSample`, the table
     PR #848 added. Until this existed, only someone running linux-capture could contribute evidence,
     so the app could not answer its own open question even though it banks the byte. An ordinary user
-    who syncs with NOOP can now run the promote gate on their own data.
+    who syncs with NOOP can now contribute correlation evidence from their own data.
 
     The one thing an app store cannot do is the OFFSET SPECIFICITY SCAN: the app banks decoded slots,
     not frame bytes, so there is no neighbour byte to rank @82 against. That is reported as
     `specificity_scan: "unavailable_app_db"` and the corresponding checklist item is n/a — NOT False,
     which would read as "@82 lost the scan" about a byte that was never ranked. A capture is still
     required to settle specificity; the correlation, MAE, bias, duty-cycle detection and window
-    coverage all work from either.
+    coverage all work from either. App-store-only evidence therefore remains incomplete and cannot
+    make the multi-device research summary report a fully-passing evidence set.
 
 Three things the harness has to get right before a number from it means anything:
 
@@ -43,7 +44,7 @@ Three things the harness has to get right before a number from it means anything
   • **"value is in 70–100" is not a specific screen.** Timestamp bytes and thermal channels pass it.
     An offset must also show real variation before its correlation is worth ranking.
   • **A strap that never emits @82 is not a failed correlation.** It is classified `feature_absent`
-    and counts as neither a PASS nor a FAIL in the multi-device promote gate.
+    and counts as neither a PASS nor a FAIL in the multi-device evidence summary.
 
 Usage:
 
@@ -74,16 +75,21 @@ import io
 import json
 import math
 import os
+import re
 import sqlite3
 import statistics
 import sys
 import zipfile
-from datetime import datetime, timezone
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from capture_io import configure_utf8_stdio
 import whoop_activity as wa
 import whoop_frame as wf
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backup_validation import open_verified_database, snapshot_path
 
 # Absolute frame offsets (Interpreter.decodeWhoop5Historical / whoop_activity.decode_v18).
 OFF_HIST_VERSION = 9
@@ -158,6 +164,7 @@ HEADER_ALIASES = {
     # English (official export; lowercase after norm)
     "cycle start time": "cycle_start_time",
     "cycle end time": "cycle_end_time",
+    "cycle timezone": "cycle_timezone",
     "sleep onset": "sleep_onset",
     "wake onset": "wake_onset",
     "blood oxygen %": "blood_oxygen_pct",
@@ -199,24 +206,34 @@ def _parse_float(raw: str) -> Optional[float]:
         return None
 
 
-def _parse_export_ts(raw: str) -> Optional[int]:
-    """Parse WHOOP export timestamps to unix seconds (naive wall clock → UTC for windowing).
+def _parse_export_ts(raw: str, cycle_timezone: str = "") -> Optional[int]:
+    """Convert an export timestamp to UTC, preserving its explicit offset.
 
-    Export stamps are wall-clock; for night bucketing we only need a consistent second scale
-    that lines up with the strap's unix field. Absolute TZ offset cancels out when both sides
-    use the same convention for a given local night.
+    Legacy fixtures without timezone metadata retain the prior UTC assumption.
+    An explicit but unrecognised cycle timezone is rejected, not silently ignored.
     """
     raw = (raw or "").strip()
     if not raw:
         return None
-    cleaned = raw.replace("T", " ").rstrip("Z")
-    for n, fmt in ((19, "%Y-%m-%d %H:%M:%S"), (16, "%Y-%m-%d %H:%M")):
-        try:
-            dt = datetime.strptime(cleaned[:n], fmt)
-            return int(dt.replace(tzinfo=timezone.utc).timestamp())
-        except ValueError:
-            continue
-    return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        tz = (cycle_timezone or "").strip()
+        if tz in ("", "UTC", "GMT", "Z"):
+            zone = timezone.utc
+        else:
+            match = re.fullmatch(r"(?:UTC|GMT)?\s*([+-])(\d{2}):?(\d{2})", tz)
+            if not match:
+                return None
+            sign, hours, minutes = match.groups()
+            if int(hours) > 23 or int(minutes) > 59:
+                return None
+            offset = (int(hours) * 60 + int(minutes)) * (1 if sign == "+" else -1)
+            zone = timezone(timedelta(minutes=offset))
+        dt = dt.replace(tzinfo=zone)
+    return int(dt.timestamp())
 
 
 def load_cycles(export_path: str) -> List[dict]:
@@ -263,10 +280,10 @@ def load_cycles(export_path: str) -> List[dict]:
         spo2 = _parse_float(row.get("blood_oxygen_pct", ""))
         if spo2 is None:
             continue  # incomplete night / nap without SpO₂ — not a validation target
-        sleep0 = _parse_export_ts(row.get("sleep_onset", ""))
-        sleep1 = _parse_export_ts(row.get("wake_onset", ""))
-        cyc0 = _parse_export_ts(row.get("cycle_start_time", ""))
-        cyc1 = _parse_export_ts(row.get("cycle_end_time", ""))
+        sleep0 = _parse_export_ts(row.get("sleep_onset", ""), row.get("cycle_timezone", ""))
+        sleep1 = _parse_export_ts(row.get("wake_onset", ""), row.get("cycle_timezone", ""))
+        cyc0 = _parse_export_ts(row.get("cycle_start_time", ""), row.get("cycle_timezone", ""))
+        cyc1 = _parse_export_ts(row.get("cycle_end_time", ""), row.get("cycle_timezone", ""))
         # Prefer sleep window; fall back to cycle span.
         t0 = sleep0 if sleep0 is not None else cyc0
         t1 = sleep1 if sleep1 is not None else cyc1
@@ -415,7 +432,7 @@ def load_app_db_records(path: str, *, device_id: Optional[str] = None) -> List[d
         rec = dict(fields)
         rec["unix"] = ts
         rec["sleep_state"] = state
-        rec["aux_byte_82"] = raw82 if raw82 is not None else 0
+        rec["aux_byte_82"] = raw82  # missing/undecodable is not an observed zero
         rec["spo2_candidate_82"] = raw82 if raw82 in INBAND else None
         out.append(rec)
     if not out:
@@ -497,7 +514,7 @@ def iter_v18_records(capture_records: Sequence[dict]) -> Iterable[dict]:
         if d is None:
             continue
         d = dict(d)
-        raw82 = frame[OFF_SPO2_CANDIDATE] if len(frame) > OFF_SPO2_CANDIDATE else d.get("aux_byte_82", 0)
+        raw82 = frame[OFF_SPO2_CANDIDATE] if len(frame) > OFF_SPO2_CANDIDATE else d.get("aux_byte_82")
         d["aux_byte_82"] = raw82
         d["spo2_candidate_82"] = raw82 if raw82 in INBAND else None
         # Neighbor bytes for specificity scan (absolute offsets).
@@ -544,7 +561,8 @@ def detect_duty_cycle(records: Sequence[dict], *, gap_tolerance_s: Optional[floa
     """Measure @82's on/off schedule from the capture itself. Nothing about it is hard-coded.
 
     Returns a dict whose `mode` is one of:
-      absent       — @82 is 0x00 on every record (the feature never fired, or is not present)
+      unknown      — no record contains an observed @82 value
+      absent       — every observed @82 value is 0x00 (does not itself prove feature absence)
       continuous   — @82 is nonzero on most records (no duty cycle to correct for)
       duty_cycled  — nonzero only in a repeating, phase-locked window; period/phase/length measured
       irregular    — nonzero sometimes, but with no period the harness is willing to claim
@@ -552,14 +570,18 @@ def detect_duty_cycle(records: Sequence[dict], *, gap_tolerance_s: Optional[floa
     Only `duty_cycled` changes how nights are aggregated; the other modes fall through to the
     per-sample behaviour, so a capture this cannot characterise is never silently reweighted.
     """
+    total_records = len(records)
+    records = [r for r in records if r.get("aux_byte_82") is not None]
     n = len(records)
     nonzero = [r for r in records if r.get("aux_byte_82")]
     interval = _median_record_interval(records)
     tol = gap_tolerance_s if gap_tolerance_s is not None else max(2.0 * interval, 2.0)
 
     info = {
-        "mode": "absent",
+        "mode": "absent" if n else "unknown",
         "n_records": n,
+        "n_records_total": total_records,
+        "n_missing": total_records - n,
         "n_nonzero": len(nonzero),
         "nonzero_fraction": (len(nonzero) / n) if n else 0.0,
         "distinct_values": len({r["aux_byte_82"] for r in nonzero}),
@@ -652,6 +674,7 @@ def night_window_coverage(
         window_index(r["unix"], duty)
         for r in records
         if t0 <= r["unix"] < t1 and in_duty_window(r["unix"], duty)
+        and r.get("aux_byte_82") is not None
     }
     return (len(sampled & expected), len(expected))
 
@@ -745,7 +768,16 @@ def mae(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
 
 # --- Per-device validation -------------------------------------------------------------------------
 
-def validate_device(
+def validate_device(capture_path: str, export_path: str, **kwargs) -> dict:
+    """Validate database/backup integrity before any physiological comparison."""
+    with snapshot_path(capture_path) as path:
+        if looks_like_sqlite(str(path)) or path.suffix.lower() in ('.sqlite', '.db', '.noopdb'):
+            db = open_verified_database(path)
+            db.close()
+        return _validate_device(str(path), export_path, **kwargs)
+
+
+def _validate_device(
     capture_path: str,
     export_path: str,
     *,
@@ -772,6 +804,18 @@ def validate_device(
 
     nights = []
     for c in cycles:
+        # Count observations in the reference interval before applying value/state gates.
+        # No overlapping records is different from recorded zeros or missing fields.
+        window_records = [r for r in records if c["t0"] <= r["unix"] < c["t1"]]
+        raw_values = [r.get("aux_byte_82") for r in window_records]
+        observations = {
+            "records": len(window_records),
+            "recorded_seconds": len({r["unix"] for r in window_records}),
+            "missing": sum(v is None for v in raw_values),
+            "zero": sum(v == 0 for v in raw_values),
+            "inband": sum(v in INBAND for v in raw_values),
+            "out_of_range": sum(v is not None and v != 0 and v not in INBAND for v in raw_values),
+        }
         covered, expected = night_window_coverage(records, c["t0"], c["t1"], duty)
         coverage = (covered / expected) if expected else None
         night = {
@@ -780,6 +824,8 @@ def validate_device(
             "candidate_mean": None,
             "n_samples": 0,
             "matched": False,
+            "observations": observations,
+            "no_overlap": not window_records,
             "windows_sampled": covered,
             "windows_expected": expected,
             "coverage": coverage,
@@ -806,6 +852,10 @@ def validate_device(
         statistics.fmean(c - e for c, e in zip(paired_cand, paired_export))
         if paired_cand else None
     )
+
+    paired_errors = [c - e for c, e in zip(paired_cand, paired_export)]
+    rmse = math.sqrt(statistics.fmean(e * e for e in paired_errors)) if paired_errors else None
+    median_absolute_error = statistics.median(abs(e) for e in paired_errors) if paired_errors else None
 
     # Offset specificity: among SPECIFICITY_SCAN, which offset maximises |r| on paired nights?
     # An offset must clear the variation floor first — see MIN_DISTINCT_INBAND. Without it a byte
@@ -855,13 +905,20 @@ def validate_device(
         # about the input format, not the data, and "@82 did not win" is exactly the wrong thing to
         # record about a strap whose byte was never ranked. n/a is the honest value; `specificity_scan`
         # below says which of the two happened so a reader cannot mistake one for the other.
-        "offset_82_wins": True if from_app_db else best_off == OFF_SPO2_CANDIDATE,
+        "offset_82_wins": None if from_app_db else best_off == OFF_SPO2_CANDIDATE,
         # A byte with a handful of distinct values cannot be a nightly SpO₂ however well it correlates.
         "value_variance": distinct_82 >= min_distinct and stdev_82 >= MIN_INBAND_STDEV,
-        # n/a (True) unless a duty cycle was detected and coverage could actually be measured.
-        "window_coverage": median_coverage is None or median_coverage >= min_window_coverage,
+        # Unknown coverage is not a measured pass. It is only REQUIRED when a duty cycle was detected.
+        "window_coverage": None if median_coverage is None else median_coverage >= min_window_coverage,
     }
-    checklist["pass"] = all(checklist.values())
+    # `pass` means every APPLICABLE check passed. Keep N/A explicit instead of inventing success/failure.
+    # `evidence_complete` is stricter: specificity is always required for a fully evaluable research set,
+    # while window coverage is required only when the candidate is actually duty-cycled.
+    checklist["pass"] = all(v for v in checklist.values() if v is not None)
+    checklist["evidence_complete"] = (
+        checklist["offset_82_wins"] is not None
+        and (duty["mode"] != "duty_cycled" or checklist["window_coverage"] is not None)
+    )
 
     # A strap that never emits @82 has not failed a correlation — it has no data to correlate. Say so
     # explicitly, but only once the capture actually WATCHED the strap long enough, and finely enough,
@@ -887,7 +944,8 @@ def validate_device(
     #   • Counting records rather than distinct seconds over-counts a capture that re-delivers the
     #     same historical rows — a resume/reconnect in whoop_sync.py does exactly that — so 200 s of
     #     sleep repeated twenty times scores as 4000 s of observation.
-    asleep_records = [r for r in records if r.get("sleep_state") == SLEEP_ASLEEP]
+    asleep_records = [r for r in records if r.get("sleep_state") == SLEEP_ASLEEP
+                      and r.get("aux_byte_82") is not None]
     asleep_stamps = sorted({r["unix"] for r in asleep_records})
     asleep_span = (asleep_stamps[-1] - asleep_stamps[0]) if len(asleep_stamps) >= 2 else 0
     asleep_interval = _median_record_interval(asleep_records) if len(asleep_stamps) >= 2 else None
@@ -897,13 +955,20 @@ def validate_device(
     )
     feature_absent = (
         duty["mode"] == "absent"
-        and len(records) >= ABSENT_MIN_RECORDS
+        and duty["n_records"] >= ABSENT_MIN_RECORDS
         and observed_asleep_s >= ABSENT_MIN_ASLEEP_SPAN_S
         and cadence_could_see_window
     )
-    classification = (
-        "feature_absent" if feature_absent else ("pass" if checklist["pass"] else "fail")
-    )
+    if feature_absent:
+        classification = "feature_absent"
+    elif not checklist["pass"]:
+        classification = "fail"
+    elif not checklist["evidence_complete"]:
+        classification = "incomplete"
+    else:
+        classification = "pass"
+    if nights and all(n["no_overlap"] for n in nights):
+        classification = "no_overlap"
 
     return {
         "device": device,
@@ -920,6 +985,8 @@ def validate_device(
         "r_at_82_specificity": r_at_82,
         "mae": err,
         "bias": bias,
+        "rmse": rmse,
+        "median_absolute_error": median_absolute_error,
         "best_specificity_offset": best_off,
         "specificity_top3": spec_scores[:3],
         "specificity_rejected_low_variance": rejected,
@@ -960,6 +1027,10 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
         f"MAE={'n/a' if mae_v is None else f'{mae_v:.3f}'}  "
         f"bias={'n/a' if bias is None else f'{bias:+.3f}'}"
     )
+    rmse = result.get("rmse")
+    medae = result.get("median_absolute_error")
+    lines.append(f"  RMSE={'n/a' if rmse is None else f'{rmse:.3f}'}  "
+                 f"median absolute error={'n/a' if medae is None else f'{medae:.3f}'}")
     lines.append(format_duty_line(result))
     cov = result.get("median_window_coverage")
     if cov is not None:
@@ -984,7 +1055,7 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
             + ", ".join(f"@{s['offset']}({s['distinct']}v)" for s in rejected)
         )
     flags = " ".join(
-        f"{k}={'PASS' if v else 'FAIL'}"
+        f"{k}={'N/A' if v is None else 'PASS' if v else 'FAIL'}"
         for k, v in cl.items()
         if k != "pass"
     )
@@ -1001,9 +1072,10 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
             )
             warn = "  !! LOW COVERAGE" if n["low_coverage"] else ""
             if not n["matched"]:
+                reason = "no overlapping records" if n.get("no_overlap") else "no eligible in-band samples"
                 lines.append(
                     f"    {n['cycle_start_time']}: export={n['export']:.2f}  candidate=—  "
-                    f"(no in-band samples){cov_s}{warn}"
+                    f"({reason}){cov_s}{warn}"
                 )
             else:
                 lines.append(
@@ -1015,7 +1087,9 @@ def format_summary(result: dict, *, show_nights: bool = False) -> str:
 
 
 OVERALL_TEXT = {
-    "pass": "PASS (candidate strengthens)",
+    "no_overlap": "NO OVERLAP (agreement unassessable; keep instrumentation-only)",
+    "incomplete": "INCOMPLETE (measured checks pass, but required evidence is unavailable; keep instrumentation-only)",
+    "pass": "PASS (candidate strengthens; still experimental)",
     "fail": "FAIL (keep instrumentation-only)",
     "feature_absent": (
         "FEATURE ABSENT (@82 flat 0x00 across the capture — neither a PASS nor a FAIL; "
@@ -1032,6 +1106,8 @@ def format_duty_line(result: dict) -> str:
         f"  @82 duty cycle: mode={mode}  nonzero={d.get('n_nonzero', 0)}/{d.get('n_records', 0)} "
         f"({d.get('nonzero_fraction', 0.0):.2%})  distinct_values={d.get('distinct_values', 0)}"
     )
+    if d.get("n_missing", 0):
+        head += f"  missing_field_records={d['n_missing']} (excluded from observation coverage)"
     if mode == "absent":
         # Say WHY an all-zero capture was not allowed to claim absence, rather than letting it read as
         # a plain FAIL for no stated reason. Same principle as reporting rejected offsets.
@@ -1067,7 +1143,20 @@ def format_duty_line(result: dict) -> str:
 def coverage_warnings(result: dict) -> List[str]:
     """Loud, quotable reasons a device's numbers should not be read at face value."""
     out = []
+    if result.get("classification") == "no_overlap":
+        out.append(f"{result['device']}: no sensor records overlap the exported sleep windows; "
+                   "agreement cannot be assessed, and this does not prove feature absence")
+    if result.get("classification") == "incomplete":
+        out.append(
+            f"{result['device']}: measured checks pass but required evidence is incomplete; "
+            "raw-frame offset specificity is required before this evidence set can be fully evaluated"
+        )
     d = result.get("duty") or {}
+    if d.get("n_missing", 0):
+        out.append(
+            f"{result['device']}: @82 is missing or undecodable in {d['n_missing']} record(s); "
+            "those records do not establish zero values or feature absence"
+        )
     cov = result.get("median_window_coverage")
     if cov is not None and cov < DEFAULT_MIN_WINDOW_COVERAGE:
         out.append(
@@ -1103,7 +1192,8 @@ def format_postable(results: Sequence[dict]) -> str:
     lines = [
         "spo2_candidate_82 multi-device validation (validate_spo2_candidate.py)",
         "device,classification,paired_nights,r,mae,bias,best_offset,"
-        "duty_mode,duty_period_s,duty_window_s,duty_phase_s,window_coverage,checklist_pass",
+        "duty_mode,duty_period_s,duty_window_s,duty_phase_s,window_coverage,"
+        "checklist_pass,evidence_complete",
     ]
     for res in results:
         r = res["r"]
@@ -1111,6 +1201,7 @@ def format_postable(results: Sequence[dict]) -> str:
         bias = res["bias"]
         d = res.get("duty") or {}
         cov = res.get("median_window_coverage")
+        checklist = res.get("checklist") or {}
         lines.append(
             f"{res['device']},{res.get('classification', 'fail')},{res['paired_nights']},"
             f"{'' if r is None else f'{r:.3f}'},"
@@ -1122,27 +1213,32 @@ def format_postable(results: Sequence[dict]) -> str:
             f"{d.get('window_len_s') or ''},"
             f"{'' if d.get('phase_s') is None else d['phase_s']},"
             f"{'' if cov is None else f'{cov:.2f}'},"
-            f"{res['checklist']['pass']}"
+            f"{checklist.get('pass', False)},"
+            f"{checklist.get('evidence_complete', False)}"
         )
-    # Multi-device aggregate: promote only if every device with ≥5 paired nights passes. A strap that
-    # never emits @82 is counted on neither side — it is not evidence for the candidate, and it is
-    # not evidence against it either.
+    # Multi-device aggregate is deliberately fail-closed. N/A may be honest for a per-device report,
+    # but an evidence set with an unmeasured required check must never be summarized as all-passing.
     absent = [res for res in results if res.get("classification") == "feature_absent"]
     eligible = [
         res for res in results
         if res["paired_nights"] >= 5 and res.get("classification") != "feature_absent"
     ]
     if eligible:
-        all_pass = all(res["checklist"]["pass"] for res in eligible)
+        all_pass = all(
+            res.get("checklist", {}).get("pass", False)
+            and res.get("checklist", {}).get("evidence_complete", False)
+            for res in eligible
+        )
         lines.append(
             f"multi_device_eligible={len(eligible)} all_pass={all_pass} "
             f"feature_absent={len(absent)} "
-            f"(promote spo2Pct only if all_pass and ≥2 devices)"
+            f"(candidate remains instrumentation-only; all_pass requires complete, measured research evidence "
+            f"across every eligible device)"
         )
     else:
         lines.append(
             f"multi_device_eligible=0 feature_absent={len(absent)} "
-            f"(need ≥5 paired nights per device)"
+            f"(need ≥5 paired nights per device; candidate remains instrumentation-only)"
         )
     for res in results:
         for w in coverage_warnings(res):

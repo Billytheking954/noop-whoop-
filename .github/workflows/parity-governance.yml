@@ -19,8 +19,8 @@
 # re-deriving is a two-minute maintainer action.
 #
 # Deliberately a schedule rather than an unfiltered push: this suite is pinned
-# NOT to run on product source (see test_core_tools_filter_covers_every_
-# governance_tool_path, which asserts both filters and forbids product globs),
+# NOT to run on product source (see test_core_tools_runs_for_product_changes_and_
+# governance_stays_scoped, which asserts this filter and forbids product globs),
 # and a periodic check keeps that true. See the history in #1534.
 
 name: Parity Governance CI
