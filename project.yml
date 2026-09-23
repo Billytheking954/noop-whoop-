@@ -56,6 +56,10 @@ packages:
     path: Packages/StrandImport
   StrandDesign:
     path: Packages/StrandDesign
+  StrandHealth:
+    path: Packages/StrandHealth
+  StrandHealthKit:
+    path: Packages/StrandHealthKit
   # Clean-room local Oura ring BLE protocol (framing, auth, decoders, driver). Pure value types,
   # zero CoreBluetooth, so it stays headless/JVM-testable; the app target imports it for OuraLiveSource.
   OuraProtocol:
@@ -70,7 +74,7 @@ packages:
   # Already resolved transitively via StrandImport; linked directly so the app target can
   # `import ZIPFoundation`. Same exact version as StrandImport's, so SPM resolves one copy.
   # Supply-chain: pinned EXACT (not `from:`) so a clean resolve can't auto-pull a newer —
-  # potentially compromised — upstream release. Bump deliberately, in lockstep with the
+  # potentially compromised — upstream release. Must match the same exact version in the
   # Packages/*/Package.swift exact constraints and the committed Package.resolved.
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
@@ -351,6 +355,8 @@ targets:
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign
+      - package: StrandHealth
+      - package: StrandHealthKit
       - package: MarkdownUI
       - package: ZIPFoundation
       - package: PolarProtocol
