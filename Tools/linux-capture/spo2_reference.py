@@ -23,8 +23,9 @@ import validate_spo2_candidate as candidate
 from backup_validation import open_verified_database, snapshot_path
 from capture_io import configure_utf8_stdio
 
-METHOD = "v18-at82-independent-exact-second-v1"
+METHOD = "v18-at82-independent-exact-second-v2"
 MIN_MATCHED_FRACTION = 0.80  # Research completeness policy, not physiological validity.
+MIN_PAIRED_SECONDS = 2  # Mathematical floor for a paired comparison; not a validation threshold.
 UINT32_MAX = 2**32 - 1
 
 
@@ -161,8 +162,21 @@ def analyze(records: Sequence[dict], start: int, end: int,
     # Every retained row witnesses one second, not the entire gap to the next row.
     gaps = [stamps[0] - start, end - stamps[-1] - 1] if stamps else [end - start]
     gaps.extend(right - left - 1 for left, right in zip(stamps, stamps[1:]))
-    candidates = {ts: raw for ts, (raw, state) in observed.items()
-                  if raw in candidate.INBAND and state == candidate.SLEEP_ASLEEP}
+
+    # IMPORTANT: do not pre-filter comparison evidence to the hypothesised 70..100
+    # range. A nonzero asleep value outside that range is evidence *against* the
+    # direct-percent interpretation and must remain in the denominator and pairs.
+    comparison_candidates = {
+        ts: raw for ts, (raw, state) in observed.items()
+        if raw is not None and raw != 0 and state == candidate.SLEEP_ASLEEP
+    }
+    inband_candidates = {
+        ts: raw for ts, raw in comparison_candidates.items() if raw in candidate.INBAND
+    }
+    asleep_out_of_band = {
+        ts: raw for ts, raw in comparison_candidates.items() if raw not in candidate.INBAND
+    }
+
     result = {
         "method": METHOD,
         "evidence_status": "experimental_unvalidated",
@@ -179,7 +193,9 @@ def analyze(records: Sequence[dict], start: int, end: int,
                                                for raw, _ in observed.values()),
             "in_band_seconds": sum(raw in candidate.INBAND for raw, _ in observed.values()),
             "unknown_sleep_state_seconds": sum(state is None for _, state in observed.values()),
-            "asleep_candidate_seconds": len(candidates),
+            "asleep_candidate_seconds": len(inband_candidates),
+            "asleep_nonzero_candidate_seconds": len(comparison_candidates),
+            "asleep_out_of_band_nonzero_seconds": len(asleep_out_of_band),
         },
         "comparison": None,
         "limitations": [
@@ -192,8 +208,10 @@ def analyze(records: Sequence[dict], start: int, end: int,
     }
     if not observed:
         result["availability"] = "no_retained_records"
-    elif not candidates:
-        result["availability"] = "no_asleep_in_band_candidate"
+    elif not comparison_candidates:
+        result["availability"] = "no_asleep_nonzero_candidate"
+    elif asleep_out_of_band:
+        result["availability"] = "candidate_range_violation"
     else:
         result["availability"] = "candidate_only"
     if reference is None:
@@ -202,12 +220,15 @@ def analyze(records: Sequence[dict], start: int, end: int,
         if (type(ts) is not int or not 0 <= ts <= UINT32_MAX or isinstance(value, bool)
                 or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= 100):
             raise ValueError("Invalid reference sample")
-    paired = {ts: (float(raw), float(reference[ts])) for ts, raw in candidates.items() if ts in reference}
-    fraction = len(paired) / len(candidates) if candidates else 0.0
+    paired = {
+        ts: (float(raw), float(reference[ts]))
+        for ts, raw in comparison_candidates.items() if ts in reference
+    }
+    fraction = len(paired) / len(comparison_candidates) if comparison_candidates else 0.0
     # Equal weighting of contiguous *observed* candidate runs avoids giving a dense
     # run more influence. This does not infer the strap's unknown duty-cycle schedule.
     runs: list[list[int]] = []
-    for ts in sorted(candidates):
+    for ts in sorted(comparison_candidates):
         if not runs or ts != runs[-1][-1] + 1:
             runs.append([])
         runs[-1].append(ts)
@@ -217,21 +238,31 @@ def analyze(records: Sequence[dict], start: int, end: int,
         if len(matches) / len(run) >= MIN_MATCHED_FRACTION:
             run_pairs.append((statistics.fmean(pair[0] for pair in matches),
                               statistics.fmean(pair[1] for pair in matches)))
-    complete = bool(paired) and fraction >= MIN_MATCHED_FRACTION
+    coverage_complete = bool(paired) and fraction >= MIN_MATCHED_FRACTION
+    sample_count_sufficient = len(paired) >= MIN_PAIRED_SECONDS
+    metrics_allowed = coverage_complete
     result["comparison"] = {
         "valid_reference_seconds_in_window": sum(start <= ts < end for ts in reference),
         "paired_seconds": len(paired),
-        "unpaired_candidate_seconds": len(candidates) - len(paired),
+        "unpaired_candidate_seconds": len(comparison_candidates) - len(paired),
         "matched_candidate_fraction": fraction,
         "minimum_matched_fraction": MIN_MATCHED_FRACTION,
+        "minimum_paired_seconds": MIN_PAIRED_SECONDS,
+        "paired_sample_count_sufficient": sample_count_sufficient,
+        "candidate_range_consistent": not asleep_out_of_band,
         "candidate_runs": len(runs),
         "sufficiently_paired_runs": len(run_pairs),
-        "matched_sample_differences": metrics(list(paired.values())) if complete else None,
-        "equal_run_differences": metrics(run_pairs) if complete else None,
+        "matched_sample_differences": metrics(list(paired.values())) if metrics_allowed else None,
+        "equal_run_differences": metrics(run_pairs) if metrics_allowed else None,
     }
-    if candidates:
-        result["availability"] = ("no_time_matched_pairs" if not paired else
-                                  "paired_research_only" if complete else "insufficient_reference_overlap")
+    if comparison_candidates:
+        result["availability"] = (
+            "candidate_range_violation" if asleep_out_of_band else
+            "no_time_matched_pairs" if not paired else
+            "insufficient_paired_samples" if not sample_count_sufficient else
+            "paired_research_only" if coverage_complete else
+            "insufficient_reference_overlap"
+        )
     return result
 
 
