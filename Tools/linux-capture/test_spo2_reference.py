@@ -97,7 +97,7 @@ class EvidenceTests(unittest.TestCase):
     def test_sparse_reference_cannot_emit_accuracy_like_statistics(self):
         records = [row(START+i, 97) for i in range(10)]
         result = research.analyze(records, START, START+10, {START: 97})
-        self.assertEqual(result["availability"], "insufficient_reference_overlap")
+        self.assertEqual(result["availability"], "insufficient_paired_samples")
         self.assertEqual(result["comparison"]["paired_seconds"], 1)
         self.assertIsNone(result["comparison"]["matched_sample_differences"])
 
