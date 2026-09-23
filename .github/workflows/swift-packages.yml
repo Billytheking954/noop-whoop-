@@ -69,6 +69,20 @@ jobs:
         run: swift test
         working-directory: Packages/${{ matrix.package }}
 
+      # `swift build` above targets the macOS host. StrandHealthKit deliberately compiles its HealthKit
+      # implementation only on iOS, so also type-check that branch against the iOS Simulator SDK. Without
+      # this gate the most important half of the adapter could rot behind `#if os(iOS)` while CI stayed green.
+      - name: Build StrandHealthKit for iOS Simulator
+        if: matrix.package == 'StrandHealthKit'
+        run: >-
+          xcodebuild
+          -scheme StrandHealthKit
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/StrandHealthKitDerivedData"
+          CODE_SIGNING_ALLOWED=NO
+          build
+        working-directory: Packages/StrandHealthKit
+
   # The Tools/ SwiftPM packages, which path-depend on Packages/ above and were built by nothing.
   #
   # SleepBench is the instrument the sleep work is argued with — #934's stage-fraction tables came out of
