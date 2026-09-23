@@ -56,17 +56,6 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Strand
-        excludes:
-          - "Resources/Info.plist"
-          - "Resources/Strand.entitlements"
-          - "Resources/Assets.xcassets"
-          - "App/StrandApp.swift"
-          - "App/RootView.swift"
-          - "App/ContentView.swift"
-          - "MenuBar"
-          - "Data/NotificationSettingsStore.swift"
-          - "Screens/NotificationSettingsView.swift"
-          - "System/NOOPAppIntents.swift"
       - path: StrandiOS
         excludes:
           - "Resources/Info.plist"
