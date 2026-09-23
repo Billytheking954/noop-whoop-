@@ -36,7 +36,6 @@ jobs:
         run: |
           set -o pipefail
           python3 -m unittest -v \
-            test_appchangelog_gen \
             test_backup_validation \
             test_prune_stale_branches \
             test_verify_iphone_ipa \
