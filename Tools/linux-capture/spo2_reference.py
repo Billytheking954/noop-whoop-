@@ -181,6 +181,7 @@ def analyze(records: Sequence[dict], start: int, end: int,
         "method": METHOD,
         "evidence_status": "experimental_unvalidated",
         "promotion_allowed": False,
+        "candidate_range_consistent": not asleep_out_of_band,
         "window": {"start_unix": start, "end_unix_exclusive": end},
         "observations": {
             "retained_seconds": len(observed),
@@ -210,9 +211,9 @@ def analyze(records: Sequence[dict], start: int, end: int,
         result["availability"] = "no_retained_records"
     elif not comparison_candidates:
         result["availability"] = "no_asleep_nonzero_candidate"
-    elif asleep_out_of_band:
-        result["availability"] = "candidate_range_violation"
     else:
+        # Capture-only inspection stays neutral; the explicit range-consistency fields
+        # above expose falsifying evidence without pretending a reference was present.
         result["availability"] = "candidate_only"
     if reference is None:
         return result
