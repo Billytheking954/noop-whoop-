@@ -1,44 +1,59 @@
-# NOOP fork final iPhone release policy
+# NOOP V2 final iPhone release policy
 
-This repository's final fork release is an **iPhone / iOS IPA built from the exact release commit**. Source-complete, simulator-only, macOS, watchOS and unsigned-placeholder builds are not final releases.
+The formal NOOP V2 release is a signed iPhone IPA built from the exact final `main` commit. Simulator builds, unsigned placeholders, macOS/watchOS products, old upstream IPAs and cached artifacts are not final releases.
 
 ## Canonical identity
 
-- Product: **NOOP**
+- Product: **NOOP V2**
 - Upstream baseline: **NOOP 11.8**
-- Recorded baseline commit: `ef0c0d72f2ece1a66c625a30e1076935e584b448` (`Release 11.8.0`)
-- Preferred release family: **NOOP V2 — based on NOOP 11.8**
-- Numeric Apple version fields remain valid numeric values; fork identity belongs in release metadata, filename, notes and embedded provenance.
+- Baseline commit: `ef0c0d72f2ece1a66c625a30e1076935e584b448`
+- App version: `11.8.0`
+- Build number: `400`
+- Platform: iOS
+- Device family: iPhone only
+- Configuration: Release
+
+Fork identity belongs in release metadata, provenance and artifact naming rather than invalid Apple version fields.
 
 ## Final artifact
 
-Only the verified iPhone IPA is the application release artifact. The final workflow must not publish separate Android, macOS, watchOS, tvOS, visionOS or simulator application artifacts.
+The user-facing application artifact is:
 
-The filename must include the real short Git SHA, for example:
+```text
+NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
+```
 
-`NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa`
-
-The workflow generates the name from `git rev-parse --short=7 HEAD`; documentation examples must never be substituted for a real SHA.
+The real short SHA is derived from the exact source commit. No Android, macOS, standalone watchOS, iPad-universal or simulator application artifact belongs in the formal V2 release.
 
 ## Source-to-IPA chain
 
-A release is complete only when this chain is demonstrated:
-
 ```text
-exact main commit
-    -> fresh Release archive
-    -> signed iPhone app
-    -> freshly packaged IPA
-    -> post-package metadata/provenance verification
-    -> SHA-256 + release manifest
-    -> immutable GitHub release targeting the same SHA
+exact current main SHA
+→ clean checkout
+→ XcodeGen generation
+→ release-critical tests
+→ fresh generic physical-iPhone Release archive
+→ profile validation
+→ widget signing
+→ app signing
+→ strict codesign verification
+→ fresh Payload/IPA
+→ IPA identity/provenance verification
+→ SHA-256 + manifest + notes
+→ immutable GitHub Release targeting the same SHA
 ```
 
-The workflow never searches old release assets, build folders or workflow artifacts for an IPA to reuse. It removes its release output directory before building and fails instead of falling back to an older binary.
+The workflow does not search old artifacts for an IPA to reuse.
+
+## Release scope lock
+
+`.github/release/iphone-v2-final.json` records the approved V2 scope, included PRs and remaining open PRs that are deliberately outside the freeze.
+
+The final workflow compares that file with GitHub's live open-PR set. Any unreviewed change in the open-PR set fails the release rather than silently expanding or shrinking V2.
 
 ## Required signing material
 
-The final release workflow is intentionally fail-closed. It requires real iOS signing/provisioning material in GitHub Actions secrets:
+The final workflow requires repository secrets equivalent to:
 
 - `IOS_SIGNING_CERTIFICATE_P12_BASE64`
 - `IOS_SIGNING_CERTIFICATE_PASSWORD`
@@ -48,75 +63,81 @@ The final release workflow is intentionally fail-closed. It requires real iOS si
 - `IOS_BUNDLE_ID_PREFIX`
 - `IOS_KEYCHAIN_PASSWORD`
 
-The app and widget provisioning profiles must match the configured bundle identifiers, team, App Group and HealthKit capability. Missing or incompatible signing material stops the release. An unsigned IPA may be useful for development/resigning experiments, but it is not this workflow's final release artifact and must not be presented as one.
+Secret values must never be committed or printed.
 
-## Release scope gate
+The profiles must match the expected Team ID, app/widget identifiers and App Group. The application profile must contain the HealthKit capability required by the app.
 
-The dispatch requires the full intended release SHA. It must equal the selected `main` HEAD and descend from the recorded NOOP 11.8 baseline.
+Missing or incompatible signing material fails the release. An unsigned IPA is not an acceptable fallback.
 
-Every still-open pull request must also be listed explicitly in the `reviewed_open_prs` dispatch input. The workflow compares that list with GitHub's live open-PR set and stops on any mismatch. This is deliberately awkward: it forces a human to confirm that work remaining on another branch is genuinely outside the release scope instead of silently forgetting it.
+## iPhone-only release invariants
+
+The source graph and final IPA must establish:
+
+- app and widget `TARGETED_DEVICE_FAMILY = 1`
+- no Android product tree or publishing workflow
+- no macOS application target or distribution workflow
+- no standalone watchOS target or embedded Watch payload
+- no universal iPad declaration
+- exactly one intended app under `Payload/`
+- exactly the intended widget extension
+- physical-device `arm64` executable
+- correct app/widget bundle identities
+- valid embedded profiles
+- matching Team ID and App Group
+- required HealthKit entitlement
+- valid strict app/widget code signatures
+
+An unexpected Watch payload is a release failure. The workflow does not repair the archive by deleting it after the fact.
 
 ## Required validation
 
-Before publication the final workflow runs or verifies:
+The release path reruns the release-relevant validation against the exact release SHA, including:
 
-- source hygiene and protocol-document examples
-- i18n coverage
-- portable Python regression suites on Linux and Windows
-- Swift package builds/tests
-- iOS Simulator compilation
-- shared app unit tests
-- a fresh generic-device **Release** archive
-- iPhone-only device-family metadata
-- removal of embedded watch payload from the final IPA
-- app and widget signing/provisioning
-- code-signature verification
-- IPA ZIP integrity
-- app/widget bundle identifier, version and build number
-- embedded exact Git SHA and NOOP 11.8 provenance
-- arm64 device architecture and rejection of simulator architectures
-- SHA-256 generation
-- final release manifest
-- release notes generated after the verified build from the source/merge history actually included
+- iPhone-only repository invariants
+- iPhone localisation checks
+- retained Python/repository verifier tests
+- required Swift package tests
+- iOS Release compilation
+- fresh generic-device archive
+- app/widget signing and strict signature verification
+- IPA ZIP and structural integrity
+- version/build/bundle/device-family identity
+- embedded source provenance
+- artifact SHA-256 and manifest generation
 
-A physical iPhone is not attached to a GitHub-hosted runner. The release notes must therefore state that physical install/launch smoke testing was **not performed** unless a real device test is separately added and succeeds.
+Normal pull-request CI separately provides broader iPhone-hosted app tests, source hygiene, Linux WHOOP capture/decoder regression tests and Windows decoder regression tests.
 
-## Release manifest
+## Provenance
 
-The manifest shipped alongside the IPA records at least:
+The app embeds `NOOPReleaseProvenance.json` before signing. The external release manifest records the same source identity plus artifact identity and checksums.
 
-- product and release family
-- upstream baseline and baseline SHA
-- repository and branch
-- full and short release SHA
-- app version and build number
-- Release configuration and Xcode target
-- platform and device family
-- included merged PR numbers
-- open PRs reviewed as outside scope
-- artifact filename
-- artifact SHA-256
-- build date
-- signing identity description
-- physical-device-test status
+Required provenance includes:
 
-A smaller provenance document containing the immutable source identity is also embedded inside the app **before signing**, allowing an extracted IPA to be traced back to its source even if the external manifest is separated from it.
+- repository and `main`
+- full and short source SHA
+- NOOP 11.8 baseline and baseline SHA
+- version and build
+- release family
+- iOS / iPhone / Release identity
+- included PRs and remaining out-of-scope PRs
+- artifact filename and SHA-256
+- app/widget bundle identifiers and App Group
+- relevant embedded-file checksums
 
-## Release notes
+If embedded provenance, external manifest, IPA identity and GitHub Release target disagree, publication fails.
 
-Notes are produced after the final IPA has passed verification. They include:
+## Experimental SpO₂
 
-- exact release identity
-- merged changes actually reachable from the 11.8 baseline
-- why the significant change groups exist
-- deliberately unchanged production behaviour where verified
-- experimental/research boundaries
-- genuine known limitations
-- the validation steps that actually passed
-- anything explicitly not performed
+The release may contain the intentionally retained research tooling, but experimental SpO₂ remains fail-closed and separate from production decisions. Candidate byte `@82` remains unverified unless genuine independent evidence proves otherwise.
 
-No validation item receives a check mark merely because it was intended to run.
+Synthetic or structural validation must not be represented as physiological validation.
 
-## Final completion rule
+## Physical-device validation
 
-Do not state that the final IPA is ready unless the signed `.ipa` exists, was freshly built from the recorded commit, passed post-package verification, has a recorded SHA-256, and is attached to the GitHub release targeting that same commit.
+GitHub-hosted CI does not establish real WHOOP radio behavior, HealthKit authorization prompts, background runtime behavior or physical installation success.
+
+A signed/verified IPA can therefore be release-built while the physical-device checklist is still `NOT YET RUN`. Never convert those items to PASS without real-device evidence.
+
+## Completion rule
+
+Do not describe the final IPA as built and verified unless the signed `.ipa` was freshly produced from the recorded final `main` SHA, passed strict signature and IPA verification, has a recorded SHA-256, and is attached to a GitHub Release targeting that same SHA.
