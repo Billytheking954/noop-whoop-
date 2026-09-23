@@ -241,7 +241,7 @@ def analyze(records: Sequence[dict], start: int, end: int,
                               statistics.fmean(pair[1] for pair in matches)))
     coverage_complete = bool(paired) and fraction >= MIN_MATCHED_FRACTION
     sample_count_sufficient = len(paired) >= MIN_PAIRED_SECONDS
-    metrics_allowed = coverage_complete
+    metrics_allowed = coverage_complete and sample_count_sufficient
     result["comparison"] = {
         "valid_reference_seconds_in_window": sum(start <= ts < end for ts in reference),
         "paired_seconds": len(paired),
