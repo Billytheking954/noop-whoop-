@@ -1,5 +1,93 @@
 import Foundation
 
+/// A factual availability verdict for one archived signal. These labels describe the captured rows only;
+/// they do not estimate physiological or sleep-staging accuracy.
+public enum NightSignalAvailability: String, Codable, Sendable, Equatable {
+    case complete
+    case partial
+    case unavailable
+    case completenessUnknown
+}
+
+public struct NightSignalQualitySummary: Codable, Sendable, Equatable {
+    public let kind: NightSignalKind
+    public let availability: NightSignalAvailability
+    public let sampleCount: Int
+    public let coverageFraction: Double?
+    public let gapCount: Int?
+    public let largestGapSeconds: Int?
+}
+
+/// How confidently Night Lab can describe the evidence behind a saved staging result. This is deliberately
+/// not an accuracy score: Night Lab has no ground truth here, and an intact archive can still contain gaps.
+public enum NightSavedResultEvidence: String, Codable, Sendable, Equatable {
+    case noSavedResult
+    case complete
+    case limited
+    case completenessUnknown
+}
+
+public struct NightDataQualitySummary: Codable, Sendable, Equatable {
+    public let archiveIntegrityVerified: Bool
+    public let signals: [NightSignalQualitySummary]
+    public let savedResultEvidence: NightSavedResultEvidence
+    public let limitingSignals: [NightSignalKind]
+    public let unknownCompletenessSignals: [NightSignalKind]
+
+    /// Summarize verified archive coverage without manufacturing an accuracy percentage. A sampled signal
+    /// is complete only when every expected timestamp is present and no gap was detected. Event-driven and
+    /// unknown-cadence streams remain `completenessUnknown` even when rows are present.
+    public init(coverage: [NightSignalCoverageReport],
+                archiveIntegrityVerified: Bool,
+                hasSavedSleepResult: Bool) {
+        let signals = coverage.map { report in
+            let availability: NightSignalAvailability
+            if report.sampleCount == 0 {
+                availability = .unavailable
+            } else if let fraction = report.coverageFraction, let gapCount = report.gapCount {
+                availability = fraction == 1.0 && gapCount == 0 ? .complete : .partial
+            } else {
+                availability = .completenessUnknown
+            }
+            return NightSignalQualitySummary(kind: report.kind,
+                                             availability: availability,
+                                             sampleCount: report.sampleCount,
+                                             coverageFraction: report.coverageFraction,
+                                             gapCount: report.gapCount,
+                                             largestGapSeconds: report.largestGapSeconds)
+        }
+
+        // SleepStagerV2 receives these streams, including honest empty arrays for absent assets.
+        let stagingKinds: [NightSignalKind] = [
+            .heartRate, .rrIntervals, .accelerometer, .respiration,
+        ]
+        let stagingSignals = signals.filter { stagingKinds.contains($0.kind) }
+        let limiting = stagingSignals
+            .filter { $0.availability == .partial || $0.availability == .unavailable }
+            .map(\.kind)
+        let unknown = stagingSignals
+            .filter { $0.availability == .completenessUnknown }
+            .map(\.kind)
+
+        let resultEvidence: NightSavedResultEvidence
+        if !hasSavedSleepResult {
+            resultEvidence = .noSavedResult
+        } else if !limiting.isEmpty {
+            resultEvidence = .limited
+        } else if !unknown.isEmpty || stagingSignals.count < stagingKinds.count {
+            resultEvidence = .completenessUnknown
+        } else {
+            resultEvidence = .complete
+        }
+
+        self.archiveIntegrityVerified = archiveIntegrityVerified
+        self.signals = signals
+        self.savedResultEvidence = resultEvidence
+        self.limitingSignals = limiting
+        self.unknownCompletenessSignals = unknown
+    }
+}
+
 public enum NightLabInspectionError: Error, Equatable {
     case unsupportedSchema(Int)
     case manifestIdentityMismatch
@@ -23,6 +111,7 @@ public struct NightLabInspectionReceipt: Sendable, Equatable {
 public struct NightLabInspection: Sendable, Equatable {
     public let manifest: NightRecordManifest
     public let coverage: [NightSignalCoverageReport]
+    public let dataQuality: NightDataQualitySummary?
     public let baseline: SleepStagerV2BaselineArtifact?
     public let baselineSHA256: String?
     public let baselineError: String?
@@ -36,7 +125,8 @@ public struct NightLabInspection: Sendable, Equatable {
     public static func load(archive: NightLabFileStore, nightID: String) async throws -> Self {
         let manifest = try await archive.inspectionManifest(nightID: nightID)
         guard manifest.state == .sealed else {
-            return Self(manifest: manifest, coverage: [], baseline: nil, baselineSHA256: nil,
+            return Self(manifest: manifest, coverage: [], dataQuality: nil,
+                        baseline: nil, baselineSHA256: nil,
                         baselineError: nil, receipts: [], receiptsError: nil,
                         spO2Diagnostics: nil, spO2DiagnosticsError: nil)
         }
@@ -89,7 +179,11 @@ public struct NightLabInspection: Sendable, Equatable {
             }
         }
 
-        return Self(manifest: manifest, coverage: coverage, baseline: baseline, baselineSHA256: sha,
+        let dataQuality = NightDataQualitySummary(coverage: coverage,
+                                                  archiveIntegrityVerified: true,
+                                                  hasSavedSleepResult: baseline != nil)
+        return Self(manifest: manifest, coverage: coverage, dataQuality: dataQuality,
+                    baseline: baseline, baselineSHA256: sha,
                     baselineError: baselineError, receipts: receipts, receiptsError: receiptsError,
                     spO2Diagnostics: spO2Diagnostics, spO2DiagnosticsError: spO2DiagnosticsError)
     }
