@@ -35,6 +35,8 @@ class FailClosedComparisonTests(unittest.TestCase):
         self.assertEqual(comparison["paired_seconds"], 1)
         self.assertEqual(comparison["minimum_paired_seconds"], research.MIN_PAIRED_SECONDS)
         self.assertFalse(comparison["paired_sample_count_sufficient"])
+        self.assertIsNone(comparison["matched_sample_differences"])
+        self.assertIsNone(comparison["equal_run_differences"])
         self.assertEqual(result["availability"], "insufficient_paired_samples")
         self.assertFalse(result["promotion_allowed"])
 
