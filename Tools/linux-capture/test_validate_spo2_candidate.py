@@ -18,7 +18,21 @@ from unittest import mock
 from datetime import datetime, timezone
 
 import validate_spo2_candidate as vs
-from test_whoop_activity import make_v18
+from test_whoop_activity import make_v18 as make_unframed_v18
+
+
+def seal_v18_frame(frame):
+    """Give constructed sensor fields a real WHOOP 5 envelope, including both CRCs."""
+    frame = bytearray(frame)
+    frame[0], frame[1], frame[8] = 0xAA, 1, 47
+    struct.pack_into("<H", frame, 2, len(frame) - 8)
+    struct.pack_into("<H", frame, 6, vs.wf.crc16_modbus(bytes(frame[:6])))
+    struct.pack_into("<I", frame, len(frame) - 4, vs.wf.crc32(bytes(frame[8:-4])))
+    return bytes(frame)
+
+
+def make_v18(*args, **kwargs):
+    return seal_v18_frame(make_unframed_v18(*args, **kwargs))
 
 
 class EncodingPortabilityTests(unittest.TestCase):
@@ -98,7 +112,7 @@ def _plant_night(
         )
         if neighbor_offset is not None and asleep:
             f[neighbor_offset] = neighbor_value & 0xFF
-        out.append({"hex": bytes(f).hex(), "dir": "rx"})
+        out.append({"hex": seal_v18_frame(f).hex(), "dir": "rx"})
     return out
 
 
@@ -135,7 +149,7 @@ def _plant_duty_night(
         )
         if neighbor_offset is not None and asleep:
             f[neighbor_offset] = neighbor_value & 0xFF
-        out.append({"hex": bytes(f).hex(), "dir": "rx"})
+        out.append({"hex": seal_v18_frame(f).hex(), "dir": "rx"})
     return out
 
 
@@ -226,7 +240,7 @@ class PlantedValidationTests(unittest.TestCase):
         for rec in frames:
             f = bytearray(bytes.fromhex(rec["hex"]))
             f[82] = 97
-            rec["hex"] = bytes(f).hex()
+            rec["hex"] = seal_v18_frame(f).hex()
         with tempfile.TemporaryDirectory() as td:
             cap = os.path.join(td, "capture.json")
             with open(cap, "w", encoding="utf-8") as f:
@@ -576,7 +590,7 @@ class VarianceFloorTests(unittest.TestCase):
             for rec in night:                    # a 2-valued byte that tracks export perfectly
                 f = bytearray(bytes.fromhex(rec["hex"]))
                 f[neighbor_offset] = neighbor_values[i]
-                rec["hex"] = bytes(f).hex()
+                rec["hex"] = seal_v18_frame(f).hex()
             frames.extend(night)
             start = datetime.fromtimestamp(t0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             exports.append((start, float(spo2), t0, t1))

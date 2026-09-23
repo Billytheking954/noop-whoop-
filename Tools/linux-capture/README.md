@@ -79,6 +79,7 @@ the Python capture side does not require Swift.
 
 | File | Role |
 |---|---|
+| `spo2_reference.py` | Inspect retained NOOP @82 evidence without a reference, or compare an independent time-stamped oximeter CSV. Read-only `.noopbak`/SQLite preflight, exact-second alignment, quality and provenance checks; always experimental. See [the independent-reference workflow](../../docs/SPO2_REFERENCE_WORKFLOW.md). |
 | `whoop_capture.py` | Scan → connect → bond → subscribe → reassemble → write `capture.json`. `--probe` drives the post-hello command sequence. The RE workbench (whoop5-focused). |
 | `whoop_sync.py` | **WHOOP 4.0 durable historical offload.** Connect → drain the on-device store (cmd 22 + `HISTORY_END` ack loop) into a device-scoped SQLite DB with **persist-before-ack** + auto-reconnect/resume. Subcommands: `sync` / `status` / `devices` / `export` / `label`. See [Historical sync](#historical-sync-whoop_syncpy). |
 | `whoop_buzz.py` | **Find a misplaced strap.** Connect → vibrate the strap on repeat (and `--locate` to home in by signal strength). See [Find a lost strap](#find-a-lost-strap-whoop_buzzpy). |
