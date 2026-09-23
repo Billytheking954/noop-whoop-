@@ -178,8 +178,8 @@ class ReferenceInputTests(TemporaryFiles):
                 self.reference(f"{START},{sample}\n")
 
     def test_low_reference_value_is_retained_to_expose_disagreement(self):
-        samples, _ = self.reference(f"{START},65,valid\n")
-        result = research.analyze([row(START, 97)], START, START+1, samples)
+        samples, _ = self.reference(f"{START},65,valid\n{START+1},65,valid\n")
+        result = research.analyze([row(START, 97), row(START+1, 97)], START, START+2, samples)
         self.assertEqual(result["comparison"]["matched_sample_differences"]["mean_absolute_difference"], 32)
 
     def test_missing_or_nonindependent_provenance_is_refused(self):
