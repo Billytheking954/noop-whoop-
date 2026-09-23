@@ -1,10 +1,10 @@
-name: Final iPhone release — provenance locked
+name: Final iPhone release - provenance locked
 
 on:
   workflow_dispatch:
     inputs:
       release_commit:
-        description: "Exact full SHA intended for release. Must equal the selected main HEAD."
+        description: "Exact full SHA intended for release. Must equal main HEAD."
         required: true
         type: string
       release_family:
@@ -12,9 +12,9 @@ on:
         required: true
         type: choice
         options:
-          - "NOOP V2 — based on NOOP 11.8"
+          - "NOOP V2 - based on NOOP 11.8"
           - "NOOP 11.8 Fork"
-        default: "NOOP V2 — based on NOOP 11.8"
+        default: "NOOP V2 - based on NOOP 11.8"
       reviewed_open_prs:
         description: "Comma-separated open PR numbers explicitly reviewed as out of scope. Must match every open PR exactly."
         required: false
@@ -34,7 +34,7 @@ env:
 
 jobs:
   preflight:
-    name: Release identity + scope gate
+    name: Release identity and scope gate
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.identity.outputs.sha }}
@@ -72,12 +72,11 @@ jobs:
             echo "::error::Selected source is $SHA, but release_commit requested $REQUESTED_SHA"
             exit 1
           fi
-          if ! git diff --quiet || ! git diff --cached --quiet; then
-            echo "::error::working tree is not clean before release"
-            exit 1
-          fi
+          git diff --quiet && git diff --cached --quiet || {
+            echo "::error::working tree is not clean before release"; exit 1;
+          }
           git merge-base --is-ancestor "$UPSTREAM_BASELINE_SHA" "$SHA" || {
-            echo "::error::release commit does not descend from the recorded NOOP 11.8 baseline $UPSTREAM_BASELINE_SHA"
+            echo "::error::release commit does not descend from NOOP 11.8 baseline $UPSTREAM_BASELINE_SHA"
             exit 1
           }
 
@@ -102,7 +101,6 @@ jobs:
             TAG="noop-v2-11.8-${SHORT}"
           fi
 
-          # Merged PRs actually reachable from the upstream baseline, not a hand-written wish list.
           INCLUDED_PRS=$(git log --first-parent --merges --format='%s' "$UPSTREAM_BASELINE_SHA..$SHA" \
             | grep -oE 'PR #[0-9]+' | sed 's/PR #//' | sort -n -u | paste -sd, - || true)
 
@@ -144,7 +142,7 @@ jobs:
           echo "Open PRs: ${OPEN:-none}"
           echo "Explicitly reviewed as out of scope: ${REVIEWED_NORM:-none}"
           if [ "$OPEN" != "$REVIEWED_NORM" ]; then
-            echo "::error::Every open PR must be explicitly reviewed before release. Pass exactly: ${OPEN:-<empty>}"
+            echo "::error::Every open PR must be explicitly reviewed before release. Expected exactly: ${OPEN:-<empty>}"
             exit 1
           fi
           echo "reviewed_open_prs=$REVIEWED_NORM" >> "$GITHUB_OUTPUT"
@@ -156,12 +154,12 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists. Final releases are immutable; do not clobber/reuse an old IPA."
+            echo "::error::Release $TAG already exists. Final releases are immutable."
             exit 1
           fi
 
   portable-validation:
-    name: Source + portable regression gates
+    name: Source and portable regression gates
     needs: preflight
     runs-on: ubuntu-latest
     steps:
@@ -223,7 +221,7 @@ jobs:
               sys.exit(1)
 
   swift-packages:
-    name: Swift package — ${{ matrix.package }}
+    name: Swift package - ${{ matrix.package }}
     needs: preflight
     runs-on: macos-15
     strategy:
@@ -260,7 +258,7 @@ jobs:
           CODE_SIGNING_ALLOWED=NO build
 
   app-validation:
-    name: Exact-head app validation — ${{ matrix.name }}
+    name: Exact-head app validation - ${{ matrix.name }}
     needs: preflight
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -293,7 +291,7 @@ jobs:
           ${{ matrix.action }}
 
   build-verify-publish:
-    name: Fresh signed iPhone IPA + immutable release
+    name: Fresh signed iPhone IPA and immutable release
     needs: [preflight, portable-validation, windows-regression, swift-packages, app-validation]
     runs-on: macos-26
     timeout-minutes: 60
@@ -356,9 +354,9 @@ jobs:
           APP_PROFILE="$RUNNER_TEMP/app.mobileprovision"
           WIDGET_PROFILE="$RUNNER_TEMP/widget.mobileprovision"
 
-          printf '%s' "$IOS_SIGNING_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT"
-          printf '%s' "$IOS_APP_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$APP_PROFILE"
-          printf '%s' "$IOS_WIDGET_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$WIDGET_PROFILE"
+          printf '%s' "$IOS_SIGNING_CERTIFICATE_P12_BASE64" | base64 -D > "$CERT"
+          printf '%s' "$IOS_APP_PROVISIONING_PROFILE_BASE64" | base64 -D > "$APP_PROFILE"
+          printf '%s' "$IOS_WIDGET_PROVISIONING_PROFILE_BASE64" | base64 -D > "$WIDGET_PROFILE"
 
           security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
@@ -374,16 +372,14 @@ jobs:
           security cms -D -i "$APP_PROFILE" > "$RUNNER_TEMP/app-profile.plist"
           security cms -D -i "$WIDGET_PROFILE" > "$RUNNER_TEMP/widget-profile.plist"
           python3 - <<'PY'
-          import os, plistlib, pathlib, sys
+          import os, plistlib, pathlib
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
           prefix = os.environ['IOS_BUNDLE_ID_PREFIX']
           team = os.environ['IOS_SIGNING_TEAM_ID']
-          expected = {
-              'app': f'{prefix}.noop',
-              'widget': f'{prefix}.noop.widgets',
-          }
+          expected = {'app': f'{prefix}.noop', 'widget': f'{prefix}.noop.widgets'}
           for kind in ('app', 'widget'):
-              p = plistlib.load(open(root / f'{kind}-profile.plist', 'rb'))
+              with open(root / f'{kind}-profile.plist', 'rb') as fh:
+                  p = plistlib.load(fh)
               ent = p.get('Entitlements', {})
               app_id = str(ent.get('application-identifier', ''))
               suffix = app_id.split('.', 1)[1] if '.' in app_id else ''
@@ -393,9 +389,8 @@ jobs:
               if suffix != expected[kind]:
                   raise SystemExit(f'{kind} profile application-identifier {app_id!r} does not match {team}.{expected[kind]}')
               if kind == 'app':
-                  groups = ent.get('com.apple.security.application-groups', [])
                   expected_group = f'group.{prefix}.noop.staging'
-                  if expected_group not in groups:
+                  if expected_group not in ent.get('com.apple.security.application-groups', []):
                       raise SystemExit(f'app profile does not authorize required App Group {expected_group}')
                   if not ent.get('com.apple.developer.healthkit'):
                       raise SystemExit('app profile does not authorize HealthKit')
@@ -427,7 +422,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf build/release build/Payload
+          rm -rf build/release
           mkdir -p build/release
           xcodebuild \
             -scheme NOOPiOS \
@@ -497,7 +492,6 @@ jobs:
           cp "$APP_PROFILE" "$APP/embedded.mobileprovision"
           cp "$WIDGET_PROFILE" "$WIDGET/embedded.mobileprovision"
 
-          # Sign deepest nested code first, then the widget, then the containing app.
           while IFS= read -r code; do
             codesign --force --sign "$SIGN_IDENTITY" --keychain "$SIGN_KEYCHAIN" --timestamp=none "$code"
           done < <(find "$APP" -type d -name '*.framework' -print | sort -r)
@@ -509,16 +503,16 @@ jobs:
             --entitlements "$RUNNER_TEMP/widget-entitlements.plist" "$WIDGET"
           codesign --force --sign "$SIGN_IDENTITY" --keychain "$SIGN_KEYCHAIN" --timestamp=none \
             --entitlements "$RUNNER_TEMP/app-entitlements.plist" "$APP"
-
           codesign --verify --deep --strict --verbose=2 "$APP"
 
+          rm -rf build/release/Payload
           mkdir -p build/release/Payload
           ditto "$APP" "build/release/Payload/$(basename "$APP")"
           (cd build/release && /usr/bin/zip -qry "$ARTIFACT_FILENAME" Payload)
           echo "app_path=$APP" >> "$GITHUB_OUTPUT"
           echo "ipa_path=$PWD/build/release/$ARTIFACT_FILENAME" >> "$GITHUB_OUTPUT"
 
-      - name: Verify exported IPA metadata, architecture, signature and provenance
+      - name: Verify IPA metadata, architecture, signature and provenance
         shell: bash
         env:
           APP_PATH: ${{ steps.package.outputs.app_path }}
@@ -539,15 +533,34 @@ jobs:
           ARCHS=$(lipo -archs "$APP_PATH/$EXEC")
           echo "iPhone executable architectures: $ARCHS"
           printf '%s\n' "$ARCHS" | grep -qw arm64 || { echo "::error::arm64 missing from device build"; exit 1; }
-          printf '%s\n' "$ARCHS" | grep -Eqw 'x86_64|i386' && { echo "::error::simulator architecture leaked into final IPA"; exit 1; } || true
+          if printf '%s\n' "$ARCHS" | grep -Eq '(^| )(x86_64|i386)( |$)'; then
+            echo "::error::simulator architecture leaked into final IPA"; exit 1
+          fi
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          codesign -dvvv "$APP_PATH" 2>&1 | grep -E 'Identifier=|Authority=|TeamIdentifier=' || true
 
-      - name: Calculate SHA-256 and final manifest
+          ACTUAL_APP_ENT="$RUNNER_TEMP/final-app-entitlements.plist"
+          ACTUAL_WIDGET_ENT="$RUNNER_TEMP/final-widget-entitlements.plist"
+          codesign -d --entitlements :- "$APP_PATH" > "$ACTUAL_APP_ENT" 2>/dev/null
+          codesign -d --entitlements :- "$APP_PATH/PlugIns/NOOPWidgets.appex" > "$ACTUAL_WIDGET_ENT" 2>/dev/null
+          python3 - <<'PY'
+          import os, plistlib, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          prefix = os.environ['IOS_BUNDLE_ID_PREFIX']
+          app = plistlib.load(open(root / 'final-app-entitlements.plist', 'rb'))
+          widget = plistlib.load(open(root / 'final-widget-entitlements.plist', 'rb'))
+          expected_group = f'group.{prefix}.noop.staging'
+          if not app.get('com.apple.developer.healthkit'):
+              raise SystemExit('signed app is missing HealthKit entitlement')
+          if expected_group not in app.get('com.apple.security.application-groups', []):
+              raise SystemExit('signed app is missing required App Group entitlement')
+          if expected_group not in widget.get('com.apple.security.application-groups', []):
+              raise SystemExit('signed widget is missing required App Group entitlement')
+          PY
+
+      - name: Calculate SHA-256 and release manifest
         id: manifest
         shell: bash
         env:
-          IPA_PATH: ${{ steps.package.outputs.ipa_path }}
           SIGNING_IDENTITY_NAME: ${{ steps.signing.outputs.identity_name }}
         run: |
           set -euo pipefail
@@ -604,7 +617,7 @@ jobs:
             echo "- Upstream baseline commit: \`$UPSTREAM_BASELINE_SHA\`"
             echo "- Repository: \`$GITHUB_REPOSITORY\`"
             echo "- Release commit: \`$RELEASE_SHA\`"
-            echo "- Platform: iPhone / iOS"
+            echo '- Platform: iPhone / iOS'
             echo "- App version: \`$APP_VERSION\`"
             echo "- Build number: \`$BUILD_NUMBER\`"
             echo "- Artifact: \`$ARTIFACT_FILENAME\`"
@@ -635,41 +648,35 @@ jobs:
               echo
             fi
             if grep -Eqi 'spo2|oxygen' "$FILES"; then
-              echo '**Experimental SpO₂ research safeguards**'
+              echo '**Experimental SpO2 research safeguards**'
               echo
-              echo 'SpO₂ decoding and evidence checks were kept in an instrumentation/research boundary so damaged or insufficient evidence cannot be mistaken for a production-validated health metric.'
+              echo 'SpO2 decoding and evidence checks remain inside a research/instrumentation boundary so damaged or insufficient evidence cannot be mistaken for a production-validated health metric.'
               echo
             fi
             if grep -Eq '^\.github/|^Tools/.*(audit|hygiene|parity|validation)' "$FILES"; then
               echo '**Repository reliability**'
               echo
-              echo 'Validation gates and evidence checks were tightened so release claims are backed by repeatable tests and source-state checks instead of by a stale or partially validated build.'
-              echo
-            fi
-            if grep -Eq '^Strand/Screens/|^StrandiOS/' "$FILES"; then
-              echo '**User and developer interface integration**'
-              echo
-              echo 'Fork capabilities were wired into the existing native app surfaces rather than published as disconnected research code, while debug-only validation controls remain explicitly separated from shipping behaviour.'
+              echo 'Validation gates and evidence checks were tightened so release claims are backed by repeatable tests and source-state checks instead of a stale or partially validated build.'
               echo
             fi
             echo '## What deliberately remains unchanged'
             echo
-            echo '- Existing production scoring coefficients and recovery calculation behaviour are not changed by the fork work in this release line.'
+            echo '- Existing production scoring coefficients and recovery calculation behaviour are unchanged by the currently merged fork work in this release line.'
             echo '- The current production SleepStagerV2 behaviour remains separate from Night Lab deterministic replay and research tooling.'
-            echo '- The existing shipping HealthKitBridge path remains in place; the canonical HealthKit ingestion lane is still opt-in/debug validation work.'
-            echo '- Experimental WHOOP SpO₂ work remains isolated from production recovery, health warnings and medical interpretation.'
+            echo '- The shipping HealthKitBridge path remains in place; canonical HealthKit ingestion is still an explicit validation lane rather than a production replacement.'
+            echo '- Experimental WHOOP SpO2 work remains isolated from production recovery, health warnings and medical interpretation.'
             echo
             echo '## Experimental / research features'
             echo
-            echo 'Experimental SpO₂ decoding remains research/instrumentation-only. Shipping it inside the app does not make it physiologically validated, and it is not used for production recovery or medical interpretation.'
+            echo 'Experimental SpO2 decoding remains research/instrumentation-only. Shipping research code inside the app does not make it physiologically validated, and it is not used for production recovery or medical interpretation.'
             echo
-            echo 'The canonical HealthKit ingestion path is still exercised through an explicit debug validation lane rather than replacing production HealthKit behaviour.'
+            echo 'Canonical HealthKit ingestion is still exercised through an explicit validation lane rather than replacing production HealthKit behaviour.'
             echo
             echo '## Known limitations'
             echo
             echo '- A physical iPhone install/launch smoke test is not available on the GitHub-hosted release runner, so no device-install claim is made by this workflow.'
-            echo '- HealthKit behaviour still depends on user-granted permissions and on capabilities present in the signing profile.'
-            echo '- Experimental algorithms and research decoders remain unvalidated where the source evidence does not support a production claim.'
+            echo '- HealthKit behaviour depends on user-granted permissions and capabilities present in the signing profile.'
+            echo '- Experimental algorithms and research decoders remain unvalidated where source evidence does not support a production claim.'
             if [ -n "${REVIEWED_OPEN_PRS:-}" ]; then
               echo "- Open PRs explicitly reviewed as outside this release scope: ${REVIEWED_OPEN_PRS}."
             fi
@@ -685,7 +692,7 @@ jobs:
             echo '✓ Fresh iPhone Release archive from the recorded SHA'
             echo '✓ Signed iPhone IPA packaging'
             echo '✓ IPA ZIP/metadata/provenance inspection'
-            echo '✓ App + widget code-signature verification'
+            echo '✓ App and widget code-signature/entitlement verification'
             echo '✓ SHA-256 recorded'
             echo
             echo 'Not performed:'
@@ -734,7 +741,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Re-check immediately before publication. Never refresh/clobber an existing final release.
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release $RELEASE_TAG appeared during the run; refusing to overwrite it."
             exit 1
@@ -745,11 +751,14 @@ jobs:
             "build/release/$CHECKSUM_FILENAME" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$RELEASE_SHA" \
-            --title "$RELEASE_FAMILY — $SHORT_SHA" \
+            --title "$RELEASE_FAMILY - $SHORT_SHA" \
             --notes-file build/release/RELEASE_NOTES.md \
             --latest
 
           TARGET=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')
+          test "$TARGET" = "$RELEASE_SHA" || {
+            echo "::error::Published release targets $TARGET instead of $RELEASE_SHA"; exit 1;
+          }
           echo "Published release target: $TARGET"
           echo "Final IPA: $ARTIFACT_FILENAME"
           echo "Final SHA-256: ${{ steps.manifest.outputs.sha256 }}"
