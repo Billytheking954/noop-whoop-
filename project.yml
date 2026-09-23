@@ -74,7 +74,7 @@ packages:
   # Already resolved transitively via StrandImport; linked directly so the app target can
   # `import ZIPFoundation`. Same exact version as StrandImport's, so SPM resolves one copy.
   # Supply-chain: pinned EXACT (not `from:`) so a clean resolve can't auto-pull a newer —
-  # potentially compromised — upstream release. Must match the same exact version in the
+  # potentially compromised — upstream release. Bump deliberately, in lockstep with the
   # Packages/*/Package.swift exact constraints and the committed Package.resolved.
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
