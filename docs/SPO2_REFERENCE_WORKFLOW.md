@@ -42,6 +42,14 @@ preflight, device selection and packed `V18AuxCodec` reader. It never indexes
 directly into the packed database blob at offset 82. Database URI encoding also
 preserves spaces, `#` and `%` in exported filenames.
 
+The independent comparison deliberately does **not** pre-filter asleep nonzero
+`@82` values to the exploratory 70–100 range. Doing that would censor evidence
+against the direct-percent hypothesis. Every nonzero asleep candidate second stays
+in the pairing denominator. A nonzero asleep value outside 70–100 is reported as a
+range inconsistency and, when a reference comparison is requested, the result is
+`candidate_range_violation` rather than `paired_research_only`. This is a
+falsification safeguard, not evidence that 70–100 is the true protocol range.
+
 ## First inspect the retained night
 
 Use a standalone exported NOOP database or `.noopbak`, not a live SQLite store.
@@ -65,11 +73,13 @@ straps. Mixed straps are refused unless one is selected. The report distinguishe
 | Recorded zero | An observed zero byte, not missing data and not zero oxygen |
 | Nonzero out-of-band | Retained raw codes outside the exploratory 70–100 range |
 | Unknown sleep state | No matching strap sleep-state row; excluded from asleep comparisons |
-| Asleep in-band candidate | An observation eligible for research pairing, not confirmed SpO2 |
+| Asleep in-band candidate | An observation inside the exploratory range; not confirmed SpO2 |
+| Asleep nonzero candidate | Any nonzero asleep @82 observation; this is the independent-comparison denominator |
 
-Each retained row witnesses only its own second. Gaps are not filled. Candidate
-filtering retains the existing strap sleep-state code 2 and 70–100 exploratory
-range; these are research choices, not new physiological claims.
+Each retained row witnesses only its own second. Gaps are not filled. Sleep-state
+code 2 remains the existing research selection. The exploratory 70–100 range is
+reported for diagnostics but is no longer used to remove nonzero evidence before
+independent pairing. These are research choices, not physiological claims.
 
 ## Independent reference input
 
@@ -136,21 +146,31 @@ local and include dates, source details and aggregate health observations; they
 are not automatically safe to post publicly. Raw samples and private captures
 must remain outside the repository.
 
-The method identifier is `v18-at82-independent-exact-second-v1`. At least 80% of
-eligible candidate seconds must pair before descriptive differences are emitted.
-This is an explicitly chosen research completeness threshold, not a clinically
-validated quality threshold. Counts remain visible when metrics are unavailable.
-Reports include both sample-weighted differences and equally weighted means of
-contiguous observed candidate runs with at least 80% pairing. A run is not a
-claim about the strap's true emission cycle. Repeated seconds and adjacent runs
-are not independent nights, and these metrics are not whole-night oxygen values.
+The method identifier is `v18-at82-independent-exact-second-v2`. At least 80% of
+nonzero asleep candidate seconds must pair before descriptive differences are
+emitted. A result also needs at least two exact-second pairs before availability
+can become `paired_research_only`; a single pair is explicitly
+`insufficient_paired_samples`. Two pairs are only the mathematical floor needed
+for a correlation-style paired comparison, **not** a physiological-validation
+sample requirement. Real validation must use substantially more prospectively
+specified evidence and independent sessions.
+
+The 80% completeness rule is an explicitly chosen research threshold, not a
+clinically validated quality threshold. Counts remain visible when metrics are
+unavailable. Reports include both sample-weighted differences and equally weighted
+means of contiguous observed candidate runs with at least 80% pairing. A run is
+not a claim about the strap's true emission cycle. Repeated seconds and adjacent
+runs are not independent nights, and these metrics are not whole-night oxygen
+values.
 
 Every result retains `evidence_status: experimental_unvalidated` and
 `promotion_allowed: false`, even for perfect correlation. Constant inputs have
 undefined correlation, represented by JSON `null`. Zero pairs never produce
 zero-valued error metrics. MAE-like differences, bias and RMSE describe agreement
 only on matched observations; an independent consumer sensor is not clinical
-ground truth. Firmware marked unknown limits reproducibility.
+ground truth. Firmware marked unknown limits reproducibility. Correlation is never
+identity proof and is especially vulnerable to shared trends; no lag search is
+performed to manufacture a better correlation after the fact.
 
 Further progress requires ordinary, time-aligned recordings over multiple nights
 and devices/firmware, raw-frame evidence for competing fields, and development
@@ -170,8 +190,9 @@ git diff --check
 Regression cases cover corrupt frames with plausible bytes, unknown layouts,
 timezone offsets, wrong-night data, missing versus zero values, gaps, conflicting
 duplicates, non-finite references, sample-density bias, input selection, read-only
-archive/SQLite analysis and refusing to overwrite reports. All fixtures are
-synthetic; these tests validate software behavior, not physiological identity.
+archive/SQLite analysis, refusing to overwrite reports, nonzero out-of-band
+candidate evidence and single-pair insufficiency. All fixtures are synthetic;
+these tests validate software behavior, not physiological identity.
 
 The change is based on PR #8 (`fix/repository-audit-20260918`) and preserves its
 validation fixes. It does not depend on PR #9's inspection UI work or replace the
