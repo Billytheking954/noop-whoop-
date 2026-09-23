@@ -12,7 +12,6 @@ public enum HealthKitQuantityKind: String, CaseIterable, Sendable {
     case heartRateVariabilitySDNN
     case oxygenSaturation
     case respiratoryRate
-    case bodyTemperature
     case activeEnergy
     case steps
     case walkingRunningDistance
@@ -26,7 +25,6 @@ public enum HealthKitQuantityKind: String, CaseIterable, Sendable {
         case .heartRateVariabilitySDNN: return .heartRateVariabilitySDNN
         case .oxygenSaturation: return .oxygenSaturation
         case .respiratoryRate: return .respiratoryRate
-        case .bodyTemperature: return .skinTemperature
         case .activeEnergy: return .activeEnergy
         case .steps: return .steps
         case .walkingRunningDistance: return .walkingRunningDistance
@@ -47,8 +45,6 @@ public enum HealthKitQuantityKind: String, CaseIterable, Sendable {
             return .fraction
         case .respiratoryRate:
             return .breathsPerMinute
-        case .bodyTemperature:
-            return .celsius
         case .activeEnergy:
             return .kilocalories
         case .steps:
@@ -145,8 +141,6 @@ public final class HealthKitObservationProvider: @unchecked Sendable, HealthObse
                 throw HealthKitObservationProviderError.invalidCursorArchive
             }
             return anchor
-        } catch is HealthKitObservationProviderError {
-            throw HealthKitObservationProviderError.invalidCursorArchive
         } catch {
             throw HealthKitObservationProviderError.invalidCursorArchive
         }
@@ -256,7 +250,6 @@ private extension HealthKitQuantityKind {
         case .heartRateVariabilitySDNN: return .heartRateVariabilitySDNN
         case .oxygenSaturation: return .oxygenSaturation
         case .respiratoryRate: return .respiratoryRate
-        case .bodyTemperature: return .bodyTemperature
         case .activeEnergy: return .activeEnergyBurned
         case .steps: return .stepCount
         case .walkingRunningDistance: return .distanceWalkingRunning
@@ -273,8 +266,6 @@ private extension HealthKitQuantityKind {
             return .secondUnit(with: .milli)
         case .oxygenSaturation:
             return .percent()
-        case .bodyTemperature:
-            return .degreeCelsius()
         case .activeEnergy:
             return .kilocalorie()
         case .steps:
