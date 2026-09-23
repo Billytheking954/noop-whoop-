@@ -2,7 +2,7 @@
 """Strict iPhone-only localisation gate for NOOP V2.
 
 This intentionally reuses the mature Apple scanners from i18n_audit.py while
-leaving retired Android catalog/parity checks out of the supported product CI.
+leaving retired Android/watch product catalog checks out of supported-product CI.
 """
 from __future__ import annotations
 
@@ -13,6 +13,19 @@ import i18n_audit as audit
 
 def main() -> int:
     failed = False
+
+    # The inherited audit module also knows about the retired watch products.
+    # Restrict its Apple scan to catalogs that actually remain in the iPhone
+    # product instead of treating deleted watch catalogs as missing files.
+    audit.CATALOGS = [
+        (dirs, catalog_path)
+        for dirs, catalog_path in audit.CATALOGS
+        if catalog_path.is_file()
+    ]
+    if not audit.CATALOGS:
+        print("FAIL no retained Apple localization catalogs found")
+        return 1
+
     baseline = audit.load_baseline()
 
     print("--- iPhone: no new un-extracted UI copy ---")
