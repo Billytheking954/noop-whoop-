@@ -56,6 +56,10 @@ packages:
     path: Packages/StrandImport
   StrandDesign:
     path: Packages/StrandDesign
+  StrandHealth:
+    path: Packages/StrandHealth
+  StrandHealthKit:
+    path: Packages/StrandHealthKit
   # Clean-room local Oura ring BLE protocol (framing, auth, decoders, driver). Pure value types,
   # zero CoreBluetooth, so it stays headless/JVM-testable; the app target imports it for OuraLiveSource.
   OuraProtocol:
@@ -351,6 +355,8 @@ targets:
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign
+      - package: StrandHealth
+      - package: StrandHealthKit
       - package: MarkdownUI
       - package: ZIPFoundation
       - package: PolarProtocol

@@ -86,6 +86,11 @@ public enum HealthKitObservationProviderError: Error, Sendable, Equatable {
 public final class HealthKitObservationProvider: @unchecked Sendable, HealthObservationProvider {
     public static let cursorFormatVersion = 1
 
+    /// Bound one transaction so a first-ever anchor cannot materialize an entire high-frequency HealthKit
+    /// history in memory. Repeated coordinator syncs advance the returned anchor and drain the stream in
+    /// deterministic chunks instead. This is a transaction bound, not a retention or history cutoff.
+    public static let maximumChangesPerBatch = 1_000
+
     public let kind: HealthKitQuantityKind
     private let healthStore: HKHealthStore
 
@@ -169,7 +174,7 @@ public final class HealthKitObservationProvider: @unchecked Sendable, HealthObse
                 type: type,
                 predicate: Self.notNoopAuthored,
                 anchor: anchor,
-                limit: HKObjectQueryNoLimit
+                limit: Self.maximumChangesPerBatch
             ) { _, samples, deleted, newAnchor, error in
                 if let error {
                     continuation.resume(throwing: error)
