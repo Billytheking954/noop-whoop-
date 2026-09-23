@@ -115,6 +115,7 @@ struct NightLabView: View {
             }
         }
         if m.state == .sealed {
+            dataQuality(value)
             coverage(value)
             NightLabSpO2DiagnosticsCard(inspection: value)
             NoopCard {
@@ -153,6 +154,52 @@ struct NightLabView: View {
                 }
             }
         }
+    }
+
+    private func dataQuality(_ value: NightLabInspection) -> some View {
+        NoopCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Signal coverage").font(.headline)
+                Text("Coverage describes data availability, not staging accuracy.")
+                if let quality = value.dataQuality {
+                    field("Archive integrity", quality.archiveIntegrityVerified ? "Verified" : "Not verified")
+                    field("Saved sleep result evidence", evidenceLabel(quality.savedResultEvidence))
+                    if !quality.limitingSignals.isEmpty {
+                        field("Limited signals", signalList(quality.limitingSignals))
+                    }
+                    if !quality.unknownCompletenessSignals.isEmpty {
+                        field("Completeness unknown", signalList(quality.unknownCompletenessSignals))
+                    }
+                    ForEach(quality.signals, id: \.kind) { signal in
+                        field(signal.kind.rawValue, availabilityLabel(signal.availability))
+                    }
+                } else {
+                    Text("Incomplete archive")
+                }
+            }
+        }
+    }
+
+    private func availabilityLabel(_ value: NightSignalAvailability) -> String {
+        switch value {
+        case .complete: "Complete"
+        case .partial: "Partial"
+        case .unavailable: "Unavailable"
+        case .completenessUnknown: "Available; completeness unknown"
+        }
+    }
+
+    private func evidenceLabel(_ value: NightSavedResultEvidence) -> String {
+        switch value {
+        case .noSavedResult: "No saved result"
+        case .complete: "Complete measured inputs"
+        case .limited: "Produced from limited evidence"
+        case .completenessUnknown: "Produced; some input completeness is unknown"
+        }
+    }
+
+    private func signalList(_ signals: [NightSignalKind]) -> String {
+        signals.map(\.rawValue).joined(separator: ", ")
     }
 
     private func coverage(_ value: NightLabInspection) -> some View {
