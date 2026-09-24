@@ -1,4 +1,5 @@
 import XCTest
+@testable import Strand
 
 /// Pins the widget cost counters. Twin of Android's `WidgetTelemetryTest`, minus the bitmap half,
 /// which has no analogue here.

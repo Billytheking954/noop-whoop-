@@ -1,4 +1,5 @@
 import XCTest
+@testable import Strand
 
 final class WidgetSnapshotTests: XCTestCase {
     func testAltStoreProvisionedGroupWinsOverBuildTimeIdentifier() {
