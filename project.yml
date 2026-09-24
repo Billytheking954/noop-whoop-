@@ -135,6 +135,7 @@ targets:
       - package: StrandHealthKit
       - package: MarkdownUI
       - package: ZIPFoundation
+      - package: OuraProtocol
       - package: PolarProtocol
       - target: NOOPiOSWidgets
 
