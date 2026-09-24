@@ -30,7 +30,7 @@ env:
 jobs:
   release:
     name: Build, sign, verify and publish iPhone IPA
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       IOS_SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12_BASE64 }}
       IOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
