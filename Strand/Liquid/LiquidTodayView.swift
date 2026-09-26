@@ -673,7 +673,7 @@ struct LiquidTodayView: View {
             // Size the score vessels from the actual content width. Three 96pt gauges fit larger phones;
             // this keeps their full ring and labels inside the card on compact iPhones as well.
             let diameter = min(HeroScoreCell.vesselDiameter,
-                               max(68, (proxy.size.width - NoopMetrics.space6 - NoopMetrics.space2) / 3))
+                               max(68, (proxy.size.width - NoopMetrics.space6 - NoopMetrics.space4) / 3))
             HStack(alignment: .top, spacing: NoopMetrics.space2) {
                 // #543 carry: an unscored today shows the last scored night's REAL Charge (labelled as prior by
                 // the state pill) rather than an empty vessel, matching the classic Today, widget/watch/Live

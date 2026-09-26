@@ -34,7 +34,7 @@ public enum NoopVisualStyle {
     public static let pagePadding: CGFloat = 16
     public static let cardPadding: CGFloat = 16
     public static let itemGap: CGFloat = 12
-    public static let sectionGap: CGFloat = 26
+    public static let sectionGap: CGFloat = 24
 }
 
 /// Shared card/panel treatment: a near-flat limestone surface, quiet hairline, and restrained depth.

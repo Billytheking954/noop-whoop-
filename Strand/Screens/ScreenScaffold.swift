@@ -49,7 +49,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             // Unified side margins matching the floating navigation bar so every page's cards + header line up
             // to the same edges (2026-07-02); macOS keeps the classic 28 in the #else branch.
             .padding(.horizontal, NoopMetrics.screenHPadding)
-            .padding(.top, 24)
+            .padding(.top, NoopMetrics.space6)
             // The tab bar floats over the scroll content, so the last card sat hidden behind it.
             // Reserve extra bottom scroll room so every screen's final card clears the floating bar.
             .padding(.bottom, NoopMetrics.tabBarClearance)
