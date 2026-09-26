@@ -102,12 +102,12 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// the previous layout. `@ViewBuilder` lets the two stack types resolve to one opaque return.
     @ViewBuilder private var column: some View {
         if lazy {
-            LazyVStack(alignment: .leading, spacing: 20) {
+            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 if title != nil || subtitle != nil { header }
                 content()
             }
         } else {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 if title != nil || subtitle != nil { header }
                 content()
             }

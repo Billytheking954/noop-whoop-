@@ -7,27 +7,29 @@ import SwiftUI
 // bindings, while cards, gauges, typography, and chrome share one maintainable source of truth.
 
 public enum NoopVisualStyle {
-    // Neutral, low-chroma surfaces sampled from the supplied dark-mode reference.
-    public static let canvas = Color(light: "#F3F4F6", dark: "#1D1E23")
-    public static let surface = Color(light: "#FFFFFF", dark: "#2A2C34")
+    // Chalk and limestone form the light foundation; graphite keeps contrast strong.
+    // The dark palette stays deliberately neutral so metric colours remain meaningful.
+    public static let canvas = Color(light: "#F2F0E9", dark: "#1D1E23")
+    public static let surface = Color(light: "#FFFEFA", dark: "#2A2C34")
     public static let surfaceTop = Color(light: "#FFFFFF", dark: "#30323B")
-    public static let surfaceBottom = Color(light: "#F4F5F7", dark: "#282A31")
-    public static let inset = Color(light: "#E8E9ED", dark: "#23252C")
+    public static let surfaceBottom = Color(light: "#FAF8F2", dark: "#282A31")
+    public static let inset = Color(light: "#EBE8DF", dark: "#23252C")
 
-    public static let border = Color(light: "#D8DAE0", dark: "#373A44")
+    public static let border = Color(light: "#E1DDD2", dark: "#373A44")
     public static let borderHighlight = Color(light: "#FFFFFF", dark: "#4B4E59")
-    public static let divider = Color(light: "#E4E5E9", dark: "#383A43")
+    public static let divider = Color(light: "#E9E5DC", dark: "#383A43")
 
-    public static let primaryText = Color(light: "#17181C", dark: "#F7F7FA")
-    public static let secondaryText = Color(light: "#555861", dark: "#C3C4CA")
-    public static let tertiaryText = Color(light: "#7D808A", dark: "#7D7F88")
+    public static let primaryText = Color(light: "#252621", dark: "#F7F7FA")
+    public static let secondaryText = Color(light: "#5E605A", dark: "#C3C4CA")
+    public static let tertiaryText = Color(light: "#81827B", dark: "#7D7F88")
 
-    public static let mint = Color(light: "#149A78", dark: "#69DDB8")
-    public static let mintDeep = Color(light: "#0D765C", dark: "#13A982")
-    public static let mintGlow = Color(light: "#38C99E", dark: "#54E6BD")
+    // Lichen green is the quiet chrome accent; domain scoring colours stay independent.
+    public static let mint = Color(light: "#52765B", dark: "#8CC79A")
+    public static let mintDeep = Color(light: "#3E6048", dark: "#5D9D6C")
+    public static let mintGlow = Color(light: "#79977A", dark: "#A5D2AB")
 
-    public static let cardRadius: CGFloat = 22
-    public static let compactRadius: CGFloat = 16
+    public static let cardRadius: CGFloat = 18
+    public static let compactRadius: CGFloat = 14
     public static let pillRadius: CGFloat = 999
     public static let pagePadding: CGFloat = 16
     public static let cardPadding: CGFloat = 16
@@ -35,7 +37,7 @@ public enum NoopVisualStyle {
     public static let sectionGap: CGFloat = 26
 }
 
-/// Shared card/panel treatment: a quiet vertical gradient, a top-lit rim, and deep soft elevation.
+/// Shared card/panel treatment: a near-flat limestone surface, quiet hairline, and restrained depth.
 /// `tint` is intentionally faint so metric identity never turns the whole card into a coloured tile.
 public struct NoopPanelSurface: View {
     public var tint: Color?
@@ -70,7 +72,7 @@ public struct NoopPanelSurface: View {
                 if let tint {
                     shape.fill(
                         LinearGradient(
-                            colors: [tint.opacity(0.055), tint.opacity(0.012), .clear],
+                            colors: [tint.opacity(0.045), tint.opacity(0.008), .clear],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -88,10 +90,10 @@ public struct NoopPanelSurface: View {
                 )
             )
             .shadow(
-                color: scheme == .dark ? .black.opacity(elevated ? 0.34 : 0.18) : .black.opacity(0.10),
-                radius: elevated ? 18 : 9,
+                color: scheme == .dark ? .black.opacity(elevated ? 0.30 : 0.12) : .black.opacity(elevated ? 0.075 : 0.035),
+                radius: elevated ? 16 : 10,
                 x: 0,
-                y: elevated ? 10 : 5
+                y: elevated ? 7 : 3
             )
             .opacity(surfaceOpacity)
     }
