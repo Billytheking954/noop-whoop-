@@ -41,10 +41,13 @@ final class RawDataCollectorParityTests: XCTestCase {
         }
     }
 
-    func testAndroidAndAppleOracleCopiesAreByteIdentical() throws {
-        let android = repoRoot.appendingPathComponent("android/app/src/test/resources/raw_data_collector_parity.json")
-        XCTAssertEqual(try oracleData(), try Data(contentsOf: android),
-                       "Raw-data collector parity oracle copies must change together")
+    func testAppleCollectorOracleHasDeclaredCapabilities() throws {
+        let oracle = try JSONDecoder().decode(Oracle.self, from: oracleData())
+        XCTAssertEqual(oracle.schemaVersion, 1)
+        XCTAssertFalse(oracle.capabilities.isEmpty)
+        for (name, capability) in oracle.capabilities {
+            XCTAssertFalse(capability.swift.isEmpty, "Missing Apple capability markers: \(name)")
+        }
     }
 
     func testAppleKeepsTheOffSessionRealtimeImuFailSafe() throws {

@@ -1,4 +1,5 @@
 import XCTest
+@testable import Strand
 
 /// Swift twin of the Kotlin `HrTraceTest` (#1957).
 ///

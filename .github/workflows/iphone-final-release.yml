@@ -1,28 +1,20 @@
-name: Final iPhone release - provenance locked
+name: Final iPhone IPA
 
 on:
   workflow_dispatch:
     inputs:
-      release_commit:
-        description: "Exact full SHA intended for release. Must equal main HEAD."
-        required: true
-        type: string
-      release_family:
-        description: "Human-readable fork identity"
-        required: true
-        type: choice
-        options:
-          - "NOOP V2 - based on NOOP 11.8"
-          - "NOOP 11.8 Fork"
-        default: "NOOP V2 - based on NOOP 11.8"
-      reviewed_open_prs:
-        description: "Comma-separated open PR numbers explicitly reviewed as out of scope. Must match every open PR exactly."
+      source_sha:
+        description: "Exact main SHA to release. Leave blank to use current main HEAD."
         required: false
         type: string
-        default: ""
+  push:
+    branches: [main]
+    paths:
+      - '.github/release/iphone-v2-final.json'
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: read
 
 concurrency:
   group: final-iphone-release
@@ -31,284 +23,15 @@ concurrency:
 env:
   UPSTREAM_BASELINE_SHA: ef0c0d72f2ece1a66c625a30e1076935e584b448
   UPSTREAM_BASELINE_LABEL: "NOOP 11.8"
+  RELEASE_FAMILY: "NOOP V2"
+  APP_VERSION: "11.8.0"
+  BUILD_NUMBER: "400"
 
 jobs:
-  preflight:
-    name: Release identity and scope gate
-    runs-on: ubuntu-latest
-    outputs:
-      sha: ${{ steps.identity.outputs.sha }}
-      short_sha: ${{ steps.identity.outputs.short_sha }}
-      app_version: ${{ steps.identity.outputs.app_version }}
-      build_number: ${{ steps.identity.outputs.build_number }}
-      artifact_filename: ${{ steps.identity.outputs.artifact_filename }}
-      manifest_filename: ${{ steps.identity.outputs.manifest_filename }}
-      checksum_filename: ${{ steps.identity.outputs.checksum_filename }}
-      release_tag: ${{ steps.identity.outputs.release_tag }}
-      release_family: ${{ steps.identity.outputs.release_family }}
-      included_prs: ${{ steps.identity.outputs.included_prs }}
-      reviewed_open_prs: ${{ steps.scope.outputs.reviewed_open_prs }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Require exact main commit and clean source tree
-        id: identity
-        shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.release_commit }}
-          RELEASE_FAMILY: ${{ inputs.release_family }}
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::error::Final release may only be dispatched from main; got $GITHUB_REF"
-            exit 1
-          fi
-
-          SHA=$(git rev-parse HEAD)
-          SHORT=$(git rev-parse --short=7 HEAD)
-          if [ "$SHA" != "$REQUESTED_SHA" ]; then
-            echo "::error::Selected source is $SHA, but release_commit requested $REQUESTED_SHA"
-            exit 1
-          fi
-          git diff --quiet && git diff --cached --quiet || {
-            echo "::error::working tree is not clean before release"; exit 1;
-          }
-          git merge-base --is-ancestor "$UPSTREAM_BASELINE_SHA" "$SHA" || {
-            echo "::error::release commit does not descend from NOOP 11.8 baseline $UPSTREAM_BASELINE_SHA"
-            exit 1
-          }
-
-          VERSION=$(sed -n -E 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"([^"]+)".*/\1/p' project.yml | head -1)
-          BUILD=$(sed -n -E 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*"([0-9]+)".*/\1/p' project.yml | head -1)
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            echo "::error::invalid MARKETING_VERSION: $VERSION"; exit 1;
-          }
-          [[ "$BUILD" =~ ^[0-9]+$ ]] || {
-            echo "::error::invalid CURRENT_PROJECT_VERSION: $BUILD"; exit 1;
-          }
-          if [[ "$VERSION" == 1.8 || "$VERSION" == 1.8.* ]]; then
-            echo "::error::stale/ambiguous 1.8 application version is forbidden for this fork release"
-            exit 1
-          fi
-
-          if [ "$RELEASE_FAMILY" = "NOOP 11.8 Fork" ]; then
-            BASE="NOOP-11.8-fork-${SHORT}-iphone"
-            TAG="noop-11.8-fork-${SHORT}"
-          else
-            BASE="NOOP-V2-11.8-base-${SHORT}-iphone"
-            TAG="noop-v2-11.8-${SHORT}"
-          fi
-
-          INCLUDED_PRS=$(git log --first-parent --merges --format='%s' "$UPSTREAM_BASELINE_SHA..$SHA" \
-            | grep -oE 'PR #[0-9]+' | sed 's/PR #//' | sort -n -u | paste -sd, - || true)
-
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT" >> "$GITHUB_OUTPUT"
-          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "build_number=$BUILD" >> "$GITHUB_OUTPUT"
-          echo "artifact_filename=${BASE}.ipa" >> "$GITHUB_OUTPUT"
-          echo "manifest_filename=${BASE}.manifest.json" >> "$GITHUB_OUTPUT"
-          echo "checksum_filename=${BASE}.sha256.txt" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "release_family=$RELEASE_FAMILY" >> "$GITHUB_OUTPUT"
-          echo "included_prs=$INCLUDED_PRS" >> "$GITHUB_OUTPUT"
-
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Branch: main"
-          echo "Release SHA: $SHA"
-          echo "Short SHA: $SHORT"
-          echo "App version: $VERSION"
-          echo "Build: $BUILD"
-          echo "Baseline: $UPSTREAM_BASELINE_LABEL ($UPSTREAM_BASELINE_SHA)"
-          echo "Included merged PRs: ${INCLUDED_PRS:-none}"
-          echo "Artifact: ${BASE}.ipa"
-
-      - name: Require explicit review of every still-open PR
-        id: scope
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REVIEWED: ${{ inputs.reviewed_open_prs }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          normalize() {
-            printf '%s' "$1" | tr ',' '\n' | sed -E 's/[[:space:]]+//g' | grep -E '^[0-9]+$' | sort -n -u | paste -sd, - || true
-          }
-          OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 200 --json number --jq '.[].number' \
-            | sort -n -u | paste -sd, - || true)
-          REVIEWED_NORM=$(normalize "$REVIEWED")
-          echo "Open PRs: ${OPEN:-none}"
-          echo "Explicitly reviewed as out of scope: ${REVIEWED_NORM:-none}"
-          if [ "$OPEN" != "$REVIEWED_NORM" ]; then
-            echo "::error::Every open PR must be explicitly reviewed before release. Expected exactly: ${OPEN:-<empty>}"
-            exit 1
-          fi
-          echo "reviewed_open_prs=$REVIEWED_NORM" >> "$GITHUB_OUTPUT"
-
-      - name: Reject an already-published release tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.identity.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists. Final releases are immutable."
-            exit 1
-          fi
-
-  portable-validation:
-    name: Source and portable regression gates
-    needs: preflight
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.preflight.outputs.sha }}
-          fetch-depth: 0
-      - name: Reconfirm exact source
-        run: test "$(git rev-parse HEAD)" = "${{ needs.preflight.outputs.sha }}"
-      - name: Source hygiene
-        run: |
-          python3 Tools/doc_comment_lint.py
-          python3 docs/protocol-examples/validate_examples.py
-      - name: i18n coverage
-        run: python3 Tools/i18n_audit.py --ci origin/main
-      - name: Tools/linux-capture regression suite
-        working-directory: Tools/linux-capture
-        run: |
-          set -euo pipefail
-          python3 -m unittest discover -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/linux-capture.txt"
-          ran=$(grep -oE '^Ran [0-9]+ test' "$RUNNER_TEMP/linux-capture.txt" | grep -oE '[0-9]+' | tail -1)
-          test "${ran:-0}" -ge 200 || { echo "::error::test discovery collected only ${ran:-0}"; exit 1; }
-      - name: Core Tools regression suite
-        working-directory: Tools
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(find . -maxdepth 1 -name 'test_*.py' -printf '%f\n' | sort)
-          modules=("${files[@]%.py}")
-          python3 -m unittest -v "${modules[@]}" 2>&1 | tee "$RUNNER_TEMP/core-tools.txt"
-          ran=$(grep -oE '^Ran [0-9]+ test' "$RUNNER_TEMP/core-tools.txt" | grep -oE '[0-9]+' | tail -1)
-          test "${ran:-0}" -ge 108 || { echo "::error::core test discovery collected only ${ran:-0}"; exit 1; }
-
-  windows-regression:
-    name: Windows decoder regression gate
-    needs: preflight
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.preflight.outputs.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Legacy Windows encoding suite
-        working-directory: Tools/linux-capture
-        env:
-          PYTHONUTF8: '0'
-          PYTHONIOENCODING: 'cp1252:strict'
-          PYTHONLEGACYWINDOWSSTDIO: '1'
-        shell: python
-        run: |
-          import sys
-          import unittest
-          suite = unittest.defaultTestLoader.discover('.', pattern='test_*.py')
-          count = suite.countTestCases()
-          print(f'collected {count} tests', flush=True)
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          if count < 200 or result.testsRun < 200 or not result.wasSuccessful():
-              sys.exit(1)
-
-  swift-packages:
-    name: Swift package - ${{ matrix.package }}
-    needs: preflight
-    runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - WhoopProtocol
-          - OuraProtocol
-          - PolarProtocol
-          - WhoopStore
-          - StrandAnalytics
-          - StrandImport
-          - StrandDesign
-          - NoopLocalAccess
-          - StrandHealth
-          - StrandHealthKit
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.preflight.outputs.sha }}
-      - name: Build
-        working-directory: Packages/${{ matrix.package }}
-        run: swift build
-      - name: Test
-        working-directory: Packages/${{ matrix.package }}
-        run: swift test
-      - name: Type-check StrandHealthKit against iOS Simulator SDK
-        if: matrix.package == 'StrandHealthKit'
-        working-directory: Packages/StrandHealthKit
-        run: >-
-          xcodebuild -scheme StrandHealthKit
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath "$RUNNER_TEMP/StrandHealthKitDerivedData"
-          CODE_SIGNING_ALLOWED=NO build
-
-  app-validation:
-    name: Exact-head app validation - ${{ matrix.name }}
-    needs: preflight
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: iOS simulator
-            runner: macos-26
-            scheme: NOOPiOS
-            destination: generic/platform=iOS Simulator
-            action: build
-          - name: shared macOS tests
-            runner: macos-15
-            scheme: Strand
-            destination: platform=macOS
-            action: test
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.preflight.outputs.sha }}
-      - name: Install XcodeGen
-        run: brew install xcodegen
-      - name: Generate project
-        run: xcodegen generate
-      - name: Build/test exact source
-        run: >-
-          xcodebuild -scheme '${{ matrix.scheme }}' -configuration Debug
-          -destination '${{ matrix.destination }}'
-          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          ${{ matrix.action }}
-
-  build-verify-publish:
-    name: Fresh signed iPhone IPA and immutable release
-    needs: [preflight, portable-validation, windows-regression, swift-packages, app-validation]
+  release:
+    name: Build, sign, verify and publish iPhone IPA
     runs-on: macos-26
-    timeout-minutes: 60
-    permissions:
-      contents: write
     env:
-      RELEASE_SHA: ${{ needs.preflight.outputs.sha }}
-      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
-      APP_VERSION: ${{ needs.preflight.outputs.app_version }}
-      BUILD_NUMBER: ${{ needs.preflight.outputs.build_number }}
-      ARTIFACT_FILENAME: ${{ needs.preflight.outputs.artifact_filename }}
-      MANIFEST_FILENAME: ${{ needs.preflight.outputs.manifest_filename }}
-      CHECKSUM_FILENAME: ${{ needs.preflight.outputs.checksum_filename }}
-      RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
-      RELEASE_FAMILY: ${{ needs.preflight.outputs.release_family }}
-      INCLUDED_PRS: ${{ needs.preflight.outputs.included_prs }}
-      REVIEWED_OPEN_PRS: ${{ needs.preflight.outputs.reviewed_open_prs }}
       IOS_SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_SIGNING_CERTIFICATE_P12_BASE64 }}
       IOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
       IOS_APP_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APP_PROVISIONING_PROFILE_BASE64 }}
@@ -316,13 +39,64 @@ jobs:
       IOS_SIGNING_TEAM_ID: ${{ secrets.IOS_SIGNING_TEAM_ID }}
       IOS_BUNDLE_ID_PREFIX: ${{ secrets.IOS_BUNDLE_ID_PREFIX }}
       IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v5
+      - name: Resolve exact source commit
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          INPUT_SHA='${{ inputs.source_sha }}'
+          if [[ -n "$INPUT_SHA" ]]; then
+            SOURCE_SHA="$INPUT_SHA"
+          else
+            SOURCE_SHA="${GITHUB_SHA}"
+          fi
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::source SHA must be a full 40-character Git SHA"
+            exit 1
+          fi
+          MAIN_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          if [[ "$SOURCE_SHA" != "$MAIN_SHA" ]]; then
+            echo "::error::release source $SOURCE_SHA is not current main HEAD $MAIN_SHA"
+            exit 1
+          fi
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "short=${SOURCE_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact source
+        uses: actions/checkout@v5
         with:
-          ref: ${{ needs.preflight.outputs.sha }}
+          ref: ${{ steps.source.outputs.sha }}
           fetch-depth: 0
 
-      - name: Refuse missing signing material
+      - name: Freeze identity and release scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ steps.source.outputs.sha }}'
+          git merge-base --is-ancestor "$UPSTREAM_BASELINE_SHA" HEAD
+          test -z "$(git status --porcelain)"
+          python3 Tools/verify_iphone_only_repo.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('.github/release/iphone-v2-final.json').read_text())
+          assert p['upstream_baseline_sha'] == 'ef0c0d72f2ece1a66c625a30e1076935e584b448'
+          assert p['version'] == '11.8.0'
+          assert str(p['build']) == '400'
+          assert p['platform'] == 'iOS'
+          assert p['device_family'] == 'iPhone'
+          assert p['included_prs'] == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+          assert sorted(p['remaining_open_prs']) == [2, 3, 4]
+          PY
+          OPEN_PRS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --jq '.[].number' | sort -n | paste -sd, -)"
+          if [[ "$OPEN_PRS" != "2,3,4" ]]; then
+            echo "::error::release scope changed; expected remaining open PRs 2,3,4, got ${OPEN_PRS:-none}"
+            exit 1
+          fi
+
+      - name: Validate signing material is present
         shell: bash
         run: |
           set -euo pipefail
@@ -334,431 +108,267 @@ jobs:
             IOS_SIGNING_TEAM_ID \
             IOS_BUNDLE_ID_PREFIX \
             IOS_KEYCHAIN_PASSWORD; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::Missing required final-release signing secret: $name"
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::missing required signing secret: $name"
               exit 1
             fi
           done
-          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
-          git diff --quiet && git diff --cached --quiet || {
-            echo "::error::source tree changed before build"; exit 1;
-          }
-
-      - name: Install signing certificate and validate provisioning profiles
-        id: signing
-        shell: bash
-        run: |
-          set -euo pipefail
-          KEYCHAIN="$RUNNER_TEMP/noop-release.keychain-db"
-          CERT="$RUNNER_TEMP/noop-release.p12"
-          APP_PROFILE="$RUNNER_TEMP/app.mobileprovision"
-          WIDGET_PROFILE="$RUNNER_TEMP/widget.mobileprovision"
-
-          printf '%s' "$IOS_SIGNING_CERTIFICATE_P12_BASE64" | base64 -D > "$CERT"
-          printf '%s' "$IOS_APP_PROVISIONING_PROFILE_BASE64" | base64 -D > "$APP_PROFILE"
-          printf '%s' "$IOS_WIDGET_PROVISIONING_PROFILE_BASE64" | base64 -D > "$WIDGET_PROFILE"
-
-          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$CERT" -k "$KEYCHAIN" -P "$IOS_SIGNING_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN"
-
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk 'NR==1{print $2}')
-          [ -n "$IDENTITY" ] || { echo "::error::No usable code-signing identity imported"; exit 1; }
-          IDENTITY_NAME=$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n '1s/.*"\(.*\)".*/\1/p')
-
-          security cms -D -i "$APP_PROFILE" > "$RUNNER_TEMP/app-profile.plist"
-          security cms -D -i "$WIDGET_PROFILE" > "$RUNNER_TEMP/widget-profile.plist"
-          python3 - <<'PY'
-          import os, plistlib, pathlib
-          root = pathlib.Path(os.environ['RUNNER_TEMP'])
-          prefix = os.environ['IOS_BUNDLE_ID_PREFIX']
-          team = os.environ['IOS_SIGNING_TEAM_ID']
-          expected = {'app': f'{prefix}.noop', 'widget': f'{prefix}.noop.widgets'}
-          for kind in ('app', 'widget'):
-              with open(root / f'{kind}-profile.plist', 'rb') as fh:
-                  p = plistlib.load(fh)
-              ent = p.get('Entitlements', {})
-              app_id = str(ent.get('application-identifier', ''))
-              suffix = app_id.split('.', 1)[1] if '.' in app_id else ''
-              teams = p.get('TeamIdentifier', [])
-              if team not in teams:
-                  raise SystemExit(f'{kind} profile TeamIdentifier {teams!r} does not contain expected {team}')
-              if suffix != expected[kind]:
-                  raise SystemExit(f'{kind} profile application-identifier {app_id!r} does not match {team}.{expected[kind]}')
-              if kind == 'app':
-                  expected_group = f'group.{prefix}.noop.staging'
-                  if expected_group not in ent.get('com.apple.security.application-groups', []):
-                      raise SystemExit(f'app profile does not authorize required App Group {expected_group}')
-                  if not ent.get('com.apple.developer.healthkit'):
-                      raise SystemExit('app profile does not authorize HealthKit')
-              with open(root / f'{kind}-entitlements.plist', 'wb') as out:
-                  plistlib.dump(ent, out, fmt=plistlib.FMT_XML)
-              print(f'{kind} profile UUID: {p.get("UUID")}')
-          PY
-
-          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
-          echo "identity_name=$IDENTITY_NAME" >> "$GITHUB_OUTPUT"
-          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
-          echo "app_profile=$APP_PROFILE" >> "$GITHUB_OUTPUT"
-          echo "widget_profile=$WIDGET_PROFILE" >> "$GITHUB_OUTPUT"
-
-      - name: Configure fork bundle identity
-        run: |
-          cat > Config/BundleIdSecrets.xcconfig <<EOF
-          BUNDLE_ID_PREFIX = $IOS_BUNDLE_ID_PREFIX
-          DEVELOPMENT_TEAM = $IOS_SIGNING_TEAM_ID
-          EOF
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate Xcode project
-        run: xcodegen generate
+      - name: Generate fresh iPhone project
+        run: |
+          rm -rf Strand.xcodeproj build release-out
+          xcodegen generate
+          xcodebuild -project Strand.xcodeproj -scheme NOOPiOS -showBuildSettings >/dev/null
 
-      - name: Fresh Release archive for generic iPhone device
+      - name: Run release-critical validation
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf build/release
-          mkdir -p build/release
+          python3 Tools/i18n_ios_ci.py
+          python3 -m unittest -v Tools.test_verify_iphone_ipa
+          for package in WhoopProtocol WhoopStore StrandAnalytics StrandImport StrandDesign StrandHealth StrandHealthKit OuraProtocol PolarProtocol; do
+            swift test --package-path "Packages/$package"
+          done
           xcodebuild \
+            -project Strand.xcodeproj \
+            -scheme NOOPiOS \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            BUNDLE_ID_PREFIX="$IOS_BUNDLE_ID_PREFIX" \
+            build
+
+      - name: Import certificate and decode provisioning profiles
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/noop-signing"
+          python3 - <<'PY'
+          import base64, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'noop-signing'
+          root.mkdir(parents=True, exist_ok=True)
+          (root/'signing.p12').write_bytes(base64.b64decode(os.environ['IOS_SIGNING_CERTIFICATE_P12_BASE64']))
+          (root/'app.mobileprovision').write_bytes(base64.b64decode(os.environ['IOS_APP_PROVISIONING_PROFILE_BASE64']))
+          (root/'widget.mobileprovision').write_bytes(base64.b64decode(os.environ['IOS_WIDGET_PROVISIONING_PROFILE_BASE64']))
+          PY
+          KEYCHAIN="$RUNNER_TEMP/noop-signing/release.keychain-db"
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/noop-signing/signing.p12" -k "$KEYCHAIN" -P "$IOS_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/[0-9A-F]{40}/ {print $2; exit}')"
+          test -n "$IDENTITY"
+          security cms -D -i "$RUNNER_TEMP/noop-signing/app.mobileprovision" > "$RUNNER_TEMP/noop-signing/app-profile.plist"
+          security cms -D -i "$RUNNER_TEMP/noop-signing/widget.mobileprovision" > "$RUNNER_TEMP/noop-signing/widget-profile.plist"
+          python3 - <<'PY'
+          import os, plistlib, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])/'noop-signing'
+          team = os.environ['IOS_SIGNING_TEAM_ID']
+          prefix = os.environ['IOS_BUNDLE_ID_PREFIX']
+          expected_group = f'group.{prefix}.noop.staging'
+          specs = [
+              ('app-profile.plist', f'{prefix}.noop', True, 'app-entitlements.plist'),
+              ('widget-profile.plist', f'{prefix}.noop.widgets', False, 'widget-entitlements.plist'),
+          ]
+          for profile_name, bundle_id, needs_healthkit, ent_name in specs:
+              profile = plistlib.load(open(root/profile_name, 'rb'))
+              ent = profile['Entitlements']
+              teams = profile.get('TeamIdentifier', [])
+              if team not in teams:
+                  raise SystemExit(f'{profile_name}: Team ID mismatch')
+              if ent.get('application-identifier') != f'{team}.{bundle_id}':
+                  raise SystemExit(f'{profile_name}: application identifier mismatch')
+              if expected_group not in ent.get('com.apple.security.application-groups', []):
+                  raise SystemExit(f'{profile_name}: App Group mismatch')
+              if needs_healthkit and not ent.get('com.apple.developer.healthkit'):
+                  raise SystemExit(f'{profile_name}: HealthKit entitlement missing')
+              plistlib.dump(ent, open(root/ent_name, 'wb'))
+          PY
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Create fresh unsigned physical-iPhone archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build/NOOP-V2.xcarchive
+          xcodebuild \
+            -project Strand.xcodeproj \
             -scheme NOOPiOS \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "$PWD/build/release/NOOP.xcarchive" \
-            TARGETED_DEVICE_FAMILY=1 \
+            -archivePath "$PWD/build/NOOP-V2.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            clean archive
-          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+            BUNDLE_ID_PREFIX="$IOS_BUNDLE_ID_PREFIX" \
+            archive
+          APP="$PWD/build/NOOP-V2.xcarchive/Products/Applications/NOOP.app"
+          WIDGET="$APP/PlugIns/NOOPWidgets.appex"
+          test -d "$APP"
+          test -d "$WIDGET"
+          test ! -d "$APP/Watch"
+          [[ "$(find "$APP/PlugIns" -maxdepth 1 -type d -name '*.appex' | wc -l | tr -d ' ')" = "1" ]]
+          ARCHS="$(lipo -archs "$APP/NOOP")"
+          grep -qw arm64 <<<"$ARCHS"
+          ! grep -Eq 'x86_64|i386' <<<"$ARCHS"
 
-      - name: Inject exact source provenance, strip watch payload, and sign
-        id: package
+      - name: Embed immutable release provenance
         shell: bash
-        env:
-          SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
-          SIGN_KEYCHAIN: ${{ steps.signing.outputs.keychain }}
-          APP_PROFILE: ${{ steps.signing.outputs.app_profile }}
-          WIDGET_PROFILE: ${{ steps.signing.outputs.widget_profile }}
         run: |
           set -euo pipefail
-          APP=$(find build/release/NOOP.xcarchive/Products/Applications -maxdepth 1 -name '*.app' -type d | head -1)
-          test -n "$APP" || { echo "::error::archived iPhone .app not found"; exit 1; }
-          WIDGET="$APP/PlugIns/NOOPWidgets.appex"
-          test -d "$WIDGET" || { echo "::error::NOOPWidgets.appex missing from archive"; exit 1; }
-
-          rm -rf "$APP/Watch"
-          if find "$APP/PlugIns" -mindepth 1 -maxdepth 1 -type d ! -name 'NOOPWidgets.appex' | grep -q .; then
-            echo "::error::unexpected extra iOS extension in final payload"
-            find "$APP/PlugIns" -mindepth 1 -maxdepth 1 -type d -print
-            exit 1
-          fi
-
-          INFO="$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c "Delete :NOOPReleaseGitSHA" "$INFO" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Delete :NOOPReleaseBaseline" "$INFO" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Delete :NOOPReleaseFamily" "$INFO" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Add :NOOPReleaseGitSHA string $RELEASE_SHA" "$INFO"
-          /usr/libexec/PlistBuddy -c "Add :NOOPReleaseBaseline string $UPSTREAM_BASELINE_LABEL" "$INFO"
-          /usr/libexec/PlistBuddy -c "Add :NOOPReleaseFamily string $RELEASE_FAMILY" "$INFO"
-
-          python3 - <<'PY' > "$APP/NOOPReleaseProvenance.json"
-          import json, os
-          prs = [int(x) for x in os.environ.get('INCLUDED_PRS', '').split(',') if x]
-          print(json.dumps({
-              'product': 'NOOP',
-              'release_family': os.environ['RELEASE_FAMILY'],
-              'upstream_baseline': os.environ['UPSTREAM_BASELINE_LABEL'],
-              'upstream_baseline_sha': os.environ['UPSTREAM_BASELINE_SHA'],
-              'repository': os.environ['GITHUB_REPOSITORY'],
-              'git_branch': 'main',
-              'git_sha': os.environ['RELEASE_SHA'],
-              'git_short_sha': os.environ['SHORT_SHA'],
-              'app_version': os.environ['APP_VERSION'],
-              'build_number': os.environ['BUILD_NUMBER'],
-              'build_configuration': 'Release',
-              'target': 'NOOPiOS',
-              'platform': 'iOS',
-              'device_family': 'iPhone',
-              'included_prs': prs,
-          }, indent=2, sort_keys=True))
+          SHA='${{ steps.source.outputs.sha }}'
+          SHORT='${{ steps.source.outputs.short }}'
+          APP="$PWD/build/NOOP-V2.xcarchive/Products/Applications/NOOP.app"
+          /usr/libexec/PlistBuddy -c "Set :UIDeviceFamily:0 1" "$APP/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UIDeviceFamily:1" "$APP/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NOOPReleaseGitSHA string $SHA" "$APP/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NOOPReleaseGitSHA $SHA" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NOOPReleaseBaseline string $UPSTREAM_BASELINE_LABEL" "$APP/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NOOPReleaseBaseline $UPSTREAM_BASELINE_LABEL" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NOOPReleaseFamily string $RELEASE_FAMILY" "$APP/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NOOPReleaseFamily $RELEASE_FAMILY" "$APP/Info.plist"
+          SOURCE_SHA="$SHA" SHORT_SHA="$SHORT" python3 - <<'PY'
+          import json, os, pathlib
+          app = pathlib.Path.cwd()/'build/NOOP-V2.xcarchive/Products/Applications/NOOP.app'
+          payload = {
+            'product':'NOOP', 'release_family':'NOOP V2',
+            'repository':os.environ['GITHUB_REPOSITORY'], 'branch':'main',
+            'git_sha':os.environ['SOURCE_SHA'], 'short_sha':os.environ['SHORT_SHA'],
+            'upstream_baseline':'NOOP 11.8',
+            'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
+            'app_version':'11.8.0', 'build_number':'400',
+            'platform':'iOS', 'device_family':'iPhone', 'configuration':'Release',
+            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19],
+            'remaining_open_prs':[2,3,4],
+          }
+          (app/'NOOPReleaseProvenance.json').write_text(json.dumps(payload, indent=2, sort_keys=True)+'\n')
           PY
 
-          rm -rf "$APP/_CodeSignature" "$WIDGET/_CodeSignature"
-          cp "$APP_PROFILE" "$APP/embedded.mobileprovision"
-          cp "$WIDGET_PROFILE" "$WIDGET/embedded.mobileprovision"
-
-          while IFS= read -r code; do
-            codesign --force --sign "$SIGN_IDENTITY" --keychain "$SIGN_KEYCHAIN" --timestamp=none "$code"
-          done < <(find "$APP" -type d -name '*.framework' -print | sort -r)
-          while IFS= read -r dylib; do
-            codesign --force --sign "$SIGN_IDENTITY" --keychain "$SIGN_KEYCHAIN" --timestamp=none "$dylib"
-          done < <(find "$APP" -type f -name '*.dylib' -print | sort -r)
-
-          codesign --force --sign "$SIGN_IDENTITY" --keychain "$SIGN_KEYCHAIN" --timestamp=none \
-            --entitlements "$RUNNER_TEMP/widget-entitlements.plist" "$WIDGET"
-          codesign --force --sign "$SIGN_IDENTITY" --keychain "$SIGN_KEYCHAIN" --timestamp=none \
-            --entitlements "$RUNNER_TEMP/app-entitlements.plist" "$APP"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-
-          rm -rf build/release/Payload
-          mkdir -p build/release/Payload
-          ditto "$APP" "build/release/Payload/$(basename "$APP")"
-          (cd build/release && /usr/bin/zip -qry "$ARTIFACT_FILENAME" Payload)
-          echo "app_path=$APP" >> "$GITHUB_OUTPUT"
-          echo "ipa_path=$PWD/build/release/$ARTIFACT_FILENAME" >> "$GITHUB_OUTPUT"
-
-      - name: Verify IPA metadata, architecture, signature and provenance
+      - name: Sign widget and app from approved profiles
         shell: bash
-        env:
-          APP_PATH: ${{ steps.package.outputs.app_path }}
-          IPA_PATH: ${{ steps.package.outputs.ipa_path }}
         run: |
           set -euo pipefail
-          unzip -t "$IPA_PATH"
-          python3 Tools/verify_iphone_ipa.py "$IPA_PATH" \
+          ROOT="$RUNNER_TEMP/noop-signing"
+          APP="$PWD/build/NOOP-V2.xcarchive/Products/Applications/NOOP.app"
+          WIDGET="$APP/PlugIns/NOOPWidgets.appex"
+          cp "$ROOT/app.mobileprovision" "$APP/embedded.mobileprovision"
+          cp "$ROOT/widget.mobileprovision" "$WIDGET/embedded.mobileprovision"
+          codesign --force --sign '${{ steps.signing.outputs.identity }}' --entitlements "$ROOT/widget-entitlements.plist" --timestamp=none "$WIDGET"
+          codesign --force --sign '${{ steps.signing.outputs.identity }}' --entitlements "$ROOT/app-entitlements.plist" --timestamp=none "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --verify --strict --verbose=2 "$WIDGET"
+
+      - name: Package and verify final IPA
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA='${{ steps.source.outputs.sha }}'
+          SHORT='${{ steps.source.outputs.short }}'
+          APP="$PWD/build/NOOP-V2.xcarchive/Products/Applications/NOOP.app"
+          OUT="$PWD/release-out"
+          NAME="NOOP-V2-11.8-base-${SHORT}-iphone.ipa"
+          rm -rf "$OUT" "$PWD/Payload"
+          mkdir -p "$OUT" "$PWD/Payload"
+          ditto "$APP" "$PWD/Payload/NOOP.app"
+          ditto -c -k --sequesterRsrc --keepParent "$PWD/Payload" "$OUT/$NAME"
+          python3 Tools/verify_iphone_ipa.py "$OUT/$NAME" \
             --bundle-id "$IOS_BUNDLE_ID_PREFIX.noop" \
             --version "$APP_VERSION" \
             --build "$BUILD_NUMBER" \
-            --git-sha "$RELEASE_SHA" \
+            --git-sha "$SHA" \
             --baseline "$UPSTREAM_BASELINE_LABEL" \
             --release-family "$RELEASE_FAMILY" \
-            --expected-filename "$ARTIFACT_FILENAME"
-
-          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")
-          ARCHS=$(lipo -archs "$APP_PATH/$EXEC")
-          echo "iPhone executable architectures: $ARCHS"
-          printf '%s\n' "$ARCHS" | grep -qw arm64 || { echo "::error::arm64 missing from device build"; exit 1; }
-          if printf '%s\n' "$ARCHS" | grep -Eq '(^| )(x86_64|i386)( |$)'; then
-            echo "::error::simulator architecture leaked into final IPA"; exit 1
-          fi
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-
-          ACTUAL_APP_ENT="$RUNNER_TEMP/final-app-entitlements.plist"
-          ACTUAL_WIDGET_ENT="$RUNNER_TEMP/final-widget-entitlements.plist"
-          codesign -d --entitlements :- "$APP_PATH" > "$ACTUAL_APP_ENT" 2>/dev/null
-          codesign -d --entitlements :- "$APP_PATH/PlugIns/NOOPWidgets.appex" > "$ACTUAL_WIDGET_ENT" 2>/dev/null
-          python3 - <<'PY'
-          import os, plistlib, pathlib
-          root = pathlib.Path(os.environ['RUNNER_TEMP'])
-          prefix = os.environ['IOS_BUNDLE_ID_PREFIX']
-          app = plistlib.load(open(root / 'final-app-entitlements.plist', 'rb'))
-          widget = plistlib.load(open(root / 'final-widget-entitlements.plist', 'rb'))
-          expected_group = f'group.{prefix}.noop.staging'
-          if not app.get('com.apple.developer.healthkit'):
-              raise SystemExit('signed app is missing HealthKit entitlement')
-          if expected_group not in app.get('com.apple.security.application-groups', []):
-              raise SystemExit('signed app is missing required App Group entitlement')
-          if expected_group not in widget.get('com.apple.security.application-groups', []):
-              raise SystemExit('signed widget is missing required App Group entitlement')
+            --expected-filename "$NAME" > "$OUT/ipa-verification.json"
+          shasum -a 256 "$OUT/$NAME" | awk '{print $1"  "FILENAME}' FILENAME="$NAME" > "$OUT/$NAME.sha256.txt"
+          IPA_SHA="$(shasum -a 256 "$OUT/$NAME" | awk '{print $1}')"
+          IPA_SIZE="$(stat -f%z "$OUT/$NAME")"
+          INFO_SHA="$(shasum -a 256 "$APP/Info.plist" | awk '{print $1}')"
+          PROV_SHA="$(shasum -a 256 "$APP/NOOPReleaseProvenance.json" | awk '{print $1}')"
+          SOURCE_SHA="$SHA" SHORT_SHA="$SHORT" IPA_NAME="$NAME" IPA_SHA="$IPA_SHA" IPA_SIZE="$IPA_SIZE" INFO_SHA="$INFO_SHA" PROV_SHA="$PROV_SHA" python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path('release-out')
+          manifest = {
+            'repository':os.environ['GITHUB_REPOSITORY'], 'branch':'main',
+            'source_sha':os.environ['SOURCE_SHA'], 'short_sha':os.environ['SHORT_SHA'],
+            'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
+            'release_family':'NOOP V2', 'configuration':'Release',
+            'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64',
+            'version':'11.8.0', 'build':'400',
+            'bundle_identifier':os.environ['IOS_BUNDLE_ID_PREFIX']+'.noop',
+            'widget_bundle_identifier':os.environ['IOS_BUNDLE_ID_PREFIX']+'.noop.widgets',
+            'app_group':'group.'+os.environ['IOS_BUNDLE_ID_PREFIX']+'.noop.staging',
+            'artifact':os.environ['IPA_NAME'], 'artifact_sha256':os.environ['IPA_SHA'],
+            'artifact_size_bytes':int(os.environ['IPA_SIZE']),
+            'embedded_info_plist_sha256':os.environ['INFO_SHA'],
+            'embedded_provenance_sha256':os.environ['PROV_SHA'],
+            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19],
+            'remaining_open_prs':[2,3,4],
+            'experimental_spo2':True, 'spo2_candidate_82_verified':False,
+          }
+          (out/'release-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True)+'\n')
           PY
+          MANIFEST_SHA="$(shasum -a 256 "$OUT/release-manifest.json" | awk '{print $1}')"
+          printf '%s  release-manifest.json\n' "$MANIFEST_SHA" > "$OUT/release-manifest.sha256.txt"
+          cat > "$OUT/release-notes.md" <<EOF
+          # NOOP V2 for iPhone
 
-      - name: Calculate SHA-256 and release manifest
-        id: manifest
-        shell: bash
-        env:
-          SIGNING_IDENTITY_NAME: ${{ steps.signing.outputs.identity_name }}
-        run: |
-          set -euo pipefail
-          cd build/release
-          SHA256=$(shasum -a 256 "$ARTIFACT_FILENAME" | awk '{print $1}')
-          printf '%s  %s\n' "$SHA256" "$ARTIFACT_FILENAME" > "$CHECKSUM_FILENAME"
-          export ARTIFACT_SHA256="$SHA256"
-          export BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          python3 - <<'PY' > "$MANIFEST_FILENAME"
-          import json, os
-          prs = [int(x) for x in os.environ.get('INCLUDED_PRS', '').split(',') if x]
-          open_prs = [int(x) for x in os.environ.get('REVIEWED_OPEN_PRS', '').split(',') if x]
-          print(json.dumps({
-              'product': 'NOOP',
-              'release_family': os.environ['RELEASE_FAMILY'],
-              'upstream_baseline': os.environ['UPSTREAM_BASELINE_LABEL'],
-              'upstream_baseline_sha': os.environ['UPSTREAM_BASELINE_SHA'],
-              'repository': os.environ['GITHUB_REPOSITORY'],
-              'git_branch': 'main',
-              'git_sha': os.environ['RELEASE_SHA'],
-              'git_short_sha': os.environ['SHORT_SHA'],
-              'app_version': os.environ['APP_VERSION'],
-              'build_number': os.environ['BUILD_NUMBER'],
-              'build_configuration': 'Release',
-              'target': 'NOOPiOS',
-              'platform': 'iOS',
-              'device_family': 'iPhone',
-              'artifact_filename': os.environ['ARTIFACT_FILENAME'],
-              'artifact_sha256': os.environ['ARTIFACT_SHA256'],
-              'build_date': os.environ['BUILD_DATE'],
-              'included_prs': prs,
-              'open_prs_reviewed_out_of_scope': open_prs,
-              'signing_identity': os.environ.get('SIGNING_IDENTITY_NAME', ''),
-              'physical_device_install_smoke_test': 'not performed on GitHub-hosted runner',
-          }, indent=2, sort_keys=True))
-          PY
-          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          Offline iPhone WHOOP companion based on NOOP 11.8.
 
-      - name: Generate release notes from the source actually built
-        shell: bash
-        env:
-          ARTIFACT_SHA256: ${{ steps.manifest.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          NOTES=build/release/RELEASE_NOTES.md
-          FILES=$(mktemp)
-          git diff --name-only "$UPSTREAM_BASELINE_SHA..$RELEASE_SHA" > "$FILES"
-          {
-            echo '## NOOP'
-            echo
-            echo '### Release identity'
-            echo
-            echo "- Based on: $UPSTREAM_BASELINE_LABEL"
-            echo "- Upstream baseline commit: \`$UPSTREAM_BASELINE_SHA\`"
-            echo "- Repository: \`$GITHUB_REPOSITORY\`"
-            echo "- Release commit: \`$RELEASE_SHA\`"
-            echo '- Platform: iPhone / iOS'
-            echo "- App version: \`$APP_VERSION\`"
-            echo "- Build number: \`$BUILD_NUMBER\`"
-            echo "- Artifact: \`$ARTIFACT_FILENAME\`"
-            echo "- SHA-256: \`$ARTIFACT_SHA256\`"
-            echo
-            echo '### What changed'
-            echo
-            git log --first-parent --merges --format='- %s' "$UPSTREAM_BASELINE_SHA..$RELEASE_SHA"
-            echo
-            echo '### Why these changes were made'
-            echo
-            if grep -Eq 'NightLab|NIGHT_LAB|night.?lab' "$FILES"; then
-              echo '**Night Lab evidence and replay**'
-              echo
-              echo 'Night Lab was added and hardened so captured evidence can be inspected, validated and replayed deterministically without silently changing the production sleep algorithm.'
-              echo
-            fi
-            if grep -q '^Packages/StrandHealth/' "$FILES"; then
-              echo '**Canonical provenance and data contracts**'
-              echo
-              echo 'Provider-independent observations, provenance, cursors and atomic ingestion were introduced so future WHOOP, HealthKit and other evidence can coexist without losing source identity or committing partial updates.'
-              echo
-            fi
-            if grep -Eq '^Packages/StrandHealthKit/|^StrandiOS/Health/' "$FILES"; then
-              echo '**HealthKit canonical ingestion**'
-              echo
-              echo 'A bounded, deletion-aware HealthKit adapter and explicit debug validation lane were added to exercise the canonical pipeline while keeping the existing shipping HealthKit bridge unchanged.'
-              echo
-            fi
-            if grep -Eqi 'spo2|oxygen' "$FILES"; then
-              echo '**Experimental SpO2 research safeguards**'
-              echo
-              echo 'SpO2 decoding and evidence checks remain inside a research/instrumentation boundary so damaged or insufficient evidence cannot be mistaken for a production-validated health metric.'
-              echo
-            fi
-            if grep -Eq '^\.github/|^Tools/.*(audit|hygiene|parity|validation)' "$FILES"; then
-              echo '**Repository reliability**'
-              echo
-              echo 'Validation gates and evidence checks were tightened so release claims are backed by repeatable tests and source-state checks instead of a stale or partially validated build.'
-              echo
-            fi
-            echo '## What deliberately remains unchanged'
-            echo
-            echo '- Existing production scoring coefficients and recovery calculation behaviour are unchanged by the currently merged fork work in this release line.'
-            echo '- The current production SleepStagerV2 behaviour remains separate from Night Lab deterministic replay and research tooling.'
-            echo '- The shipping HealthKitBridge path remains in place; canonical HealthKit ingestion is still an explicit validation lane rather than a production replacement.'
-            echo '- Experimental WHOOP SpO2 work remains isolated from production recovery, health warnings and medical interpretation.'
-            echo
-            echo '## Experimental / research features'
-            echo
-            echo 'Experimental SpO2 decoding remains research/instrumentation-only. Shipping research code inside the app does not make it physiologically validated, and it is not used for production recovery or medical interpretation.'
-            echo
-            echo 'Canonical HealthKit ingestion is still exercised through an explicit validation lane rather than replacing production HealthKit behaviour.'
-            echo
-            echo '## Known limitations'
-            echo
-            echo '- A physical iPhone install/launch smoke test is not available on the GitHub-hosted release runner, so no device-install claim is made by this workflow.'
-            echo '- HealthKit behaviour depends on user-granted permissions and capabilities present in the signing profile.'
-            echo '- Experimental algorithms and research decoders remain unvalidated where source evidence does not support a production claim.'
-            if [ -n "${REVIEWED_OPEN_PRS:-}" ]; then
-              echo "- Open PRs explicitly reviewed as outside this release scope: ${REVIEWED_OPEN_PRS}."
-            fi
-            echo
-            echo '## Validation'
-            echo
-            echo '✓ Source hygiene'
-            echo '✓ i18n coverage'
-            echo '✓ Portable Python/regression tests (Linux and Windows)'
-            echo '✓ Swift package build/tests'
-            echo '✓ Relevant shared app unit tests'
-            echo '✓ iOS Simulator build'
-            echo '✓ Fresh iPhone Release archive from the recorded SHA'
-            echo '✓ Signed iPhone IPA packaging'
-            echo '✓ IPA ZIP/metadata/provenance inspection'
-            echo '✓ App and widget code-signature/entitlement verification'
-            echo '✓ SHA-256 recorded'
-            echo
-            echo 'Not performed:'
-            echo '- Physical iPhone installation/launch smoke test on the hosted runner.'
-          } > "$NOTES"
-          cat "$NOTES"
+          Source: $SHA
+          Version: $APP_VERSION ($BUILD_NUMBER)
+          Device family: iPhone only
+          Architecture: arm64
 
-      - name: FINAL RELEASE CHECK
+          Night Lab and approved V2 reliability/HealthKit work are included. Experimental SpO2 remains instrumentation-only; candidate byte @82 is not physiologically verified and is excluded from production scoring, HealthKit writes, and health recommendations.
+          EOF
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$IPA_SHA" >> "$GITHUB_OUTPUT"
+          echo "size=$IPA_SIZE" >> "$GITHUB_OUTPUT"
+          echo "manifest_sha256=$MANIFEST_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-v2-iphone-${{ steps.source.outputs.short }}
+          path: release-out/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish immutable GitHub Release
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
-          IPA="build/release/$ARTIFACT_FILENAME"
-          MANIFEST="build/release/$MANIFEST_FILENAME"
-          CHECKSUM="build/release/$CHECKSUM_FILENAME"
-          NOTES="build/release/RELEASE_NOTES.md"
-          test -f "$IPA"
-          test -f "$MANIFEST"
-          test -f "$CHECKSUM"
-          test -f "$NOTES"
-          grep -Fq "$RELEASE_SHA" "$MANIFEST"
-          grep -Fq "$ARTIFACT_FILENAME" "$MANIFEST"
-          grep -Fq '"device_family": "iPhone"' "$MANIFEST"
-          grep -Fq "$RELEASE_SHA" "$NOTES"
-          grep -Fq "$ARTIFACT_FILENAME" "$NOTES"
-          echo '[x] Built from final intended Git SHA'
-          echo '[x] Contains changes reachable from the recorded NOOP 11.8 baseline'
-          echo '[x] Based on the correct NOOP 11.8 code line'
-          echo '[x] Not an old 1.8 IPA'
-          echo '[x] Fresh release archive/build'
-          echo '[x] iPhone/iOS target only'
-          echo '[x] No separate macOS artifact'
-          echo '[x] No separate watchOS artifact'
-          echo '[x] Correct bundle identifier verified'
-          echo '[x] Correct version/build verified'
-          echo '[x] Required tests passed'
-          echo '[x] IPA packaged and inspected after build'
-          echo '[x] SHA-256 generated'
-          echo '[x] Release manifest generated'
-          echo '[x] Notes generated from included code/merge history'
-          echo '[x] Experimental systems clearly labelled'
-          echo '[x] Known limitations documented'
-
-      - name: Publish verified IPA, manifest and checksum as one immutable GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $RELEASE_TAG appeared during the run; refusing to overwrite it."
+          SHA='${{ steps.source.outputs.sha }}'
+          SHORT='${{ steps.source.outputs.short }}'
+          TAG="noop-v2-11.8-iphone-${SHORT}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::release tag already exists; immutable releases are never overwritten: $TAG"
             exit 1
           fi
-          gh release create "$RELEASE_TAG" \
-            "build/release/$ARTIFACT_FILENAME" \
-            "build/release/$MANIFEST_FILENAME" \
-            "build/release/$CHECKSUM_FILENAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$RELEASE_SHA" \
-            --title "$RELEASE_FAMILY - $SHORT_SHA" \
-            --notes-file build/release/RELEASE_NOTES.md \
-            --latest
+          gh release create "$TAG" release-out/* \
+            --target "$SHA" \
+            --title "NOOP V2 iPhone 11.8.0 (${SHORT})" \
+            --notes-file release-out/release-notes.md
+          TARGET="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '.target_commitish')"
+          test "$TARGET" = "$SHA"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-          TARGET=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')
-          test "$TARGET" = "$RELEASE_SHA" || {
-            echo "::error::Published release targets $TARGET instead of $RELEASE_SHA"; exit 1;
-          }
-          echo "Published release target: $TARGET"
-          echo "Final IPA: $ARTIFACT_FILENAME"
-          echo "Final SHA-256: ${{ steps.manifest.outputs.sha256 }}"
+      - name: Final release summary
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## NOOP V2 iPhone release
+          - Source SHA: `${{ steps.source.outputs.sha }}`
+          - IPA: `${{ steps.artifact.outputs.name }}`
+          - IPA SHA-256: `${{ steps.artifact.outputs.sha256 }}`
+          - IPA size: `${{ steps.artifact.outputs.size }}` bytes
+          - Manifest SHA-256: `${{ steps.artifact.outputs.manifest_sha256 }}`
+          - Release tag: `${{ steps.publish.outputs.tag }}`
+          - Device family: iPhone only
+          - Architecture: arm64
+          - Cryptographic codesign verification: PASS
+          - Archive/provenance verifier: PASS
+          EOF

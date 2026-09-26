@@ -100,11 +100,11 @@ final class WatchScoreSnapshotTests: XCTestCase {
     }
 
     func testStorageContractMatchesWatchSideExpectation() {
-        // storageKey is a fixed string all sides hard-agree on. appGroupId is dynamic (resolved from
-        // the running bundle's AppGroupIdentifier Info.plist key — see WatchScoreSnapshot.swift); this
-        // test process carries no such key (StrandTests hosts inside the macOS Strand target, which
-        // has none), so this only pins the canonical UPSTREAM fallback, not the real cross-target value.
-        XCTAssertEqual(WatchScoreSnapshot.appGroupId, "group.com.noopapp.noop")
+        // The iPhone app and widget must resolve the same configured App Group.
+        let configured = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String
+        XCTAssertNotNil(configured)
+        XCTAssertTrue(configured?.hasPrefix("group.") == true)
+        XCTAssertEqual(WatchScoreSnapshot.appGroupId, configured)
         XCTAssertEqual(WatchScoreSnapshot.storageKey, "latestWatchSnapshot")
     }
 }

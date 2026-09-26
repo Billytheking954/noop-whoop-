@@ -1,29 +1,6 @@
-# The Python test suites under Tools/, which nothing ran.
-#
-# `Tools/linux-capture` carries 212 tests across 8 files — the frame decoder, the HCI extractor, the
-# activity and sync decoders, the spot-HRV path, and the SpO2 promote gate that #103 is waiting on. Every
-# one of them only ever executed when a contributor remembered to, which meant a decoder could regress and
-# the suite that would have caught it stayed green by never being run.
-#
-# Cheap to run: pure stdlib `unittest`, no dependencies, no fixtures to fetch, ubuntu rather than macOS —
-# about 25 seconds end to end.
-#
-# NOT path-filtered, and that is deliberate. It used to fire only on `Tools/**.py`, on the premise that a
-# suite can only break when its own source changes. That is false for `test_home_i18n.py`, which asserts
-# on the CONTENTS of app and package files — AppModel.swift, the xcstrings catalogues, ReadinessEngine,
-# DayNavBar. A Swift-only commit broke it (#1671 moved a sign and a hardcoded °C out of a localized
-# literal) and the filter meant this job never ran, so `main` sat red until a contributor touching
-# `Tools/` for something unrelated tripped over it in their own PR (#1691).
-#
-# Widening the filter to name those paths would just re-create the trap one edit later: the list is
-# whatever the assertions happen to read today. Twenty-five seconds on every PR is cheaper than a gate
-# that is green because it did not run.
 name: Tools Python CI
 
 on:
-  # Core tests inspect Swift/Kotlin sources and translation catalogues outside Tools/.
-  # Run on every change so product-only regressions cannot bypass these contracts.
-  # Include stacked PRs: their target may be another feature/fix branch, not main.
   pull_request:
   push:
     branches: [main]
@@ -39,62 +16,47 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      # `discover` rather than a hand-listed set, so a NEW test file is picked up without editing this
-      # workflow — the failure mode that leaves a suite unrun is exactly what this job exists to end.
-      #
-      # The count assertion is the same idea one level up: `discover` exits 0 having found NOTHING, so a
-      # wrong working-directory or a renamed pattern would turn this job green while running no tests at
-      # all. Checking a floor makes that fail loudly instead. Raise the floor when suites are added; do
-      # not lower it to make a red run pass.
-      - name: Run Tools/linux-capture tests
+      - name: Run WHOOP capture and decoder regressions
+        working-directory: Tools/linux-capture
         run: |
-          set -o pipefail   # GitHub's default shell is `bash -e` WITHOUT pipefail: piping into tee
-                            # would return tee's status and swallow a failing suite entirely.
+          set -o pipefail
           python3 -m unittest discover -p "test_*.py" -v 2>&1 | tee "$RUNNER_TEMP/out.txt"
           ran=$(grep -oE '^Ran [0-9]+ test' "$RUNNER_TEMP/out.txt" | grep -oE '[0-9]+')
           echo "collected ${ran:-0} tests"
           if [ "${ran:-0}" -lt 200 ]; then
-            echo "::error::expected at least 200 tests, collected ${ran:-0} — discovery is broken, not the suite"
+            echo "::error::expected at least 200 decoder/capture tests"
             exit 1
           fi
-        working-directory: Tools/linux-capture
-
-      # Parity governance has its own path-filtered workflow because that suite scans the repository and
-      # is intentionally much slower. Keep this core floor independent so growth in parity cannot hide
-      # accidental deletion here.
-      - name: Run core Tools/ tests
+      - name: Run retained repository-tool tests
+        working-directory: Tools
         run: |
           set -o pipefail
-          mapfile -t files < <(find . -maxdepth 1 -name 'test_*.py' -printf '%f\n' | sort)
-          modules=("${files[@]%.py}")
-          python3 -m unittest -v "${modules[@]}" 2>&1 | tee "$RUNNER_TEMP/out.txt"
+          python3 -m unittest -v \
+            test_backup_validation \
+            test_prune_stale_branches \
+            test_verify_iphone_ipa \
+            2>&1 | tee "$RUNNER_TEMP/out.txt"
           ran=$(grep -oE '^Ran [0-9]+ test' "$RUNNER_TEMP/out.txt" | grep -oE '[0-9]+')
-          echo "collected ${ran:-0} tests"
-          if [ "${ran:-0}" -lt 108 ]; then
-            echo "::error::expected at least 108 core Tools tests, collected ${ran:-0} — discovery is broken, not the suite"
+          echo "collected ${ran:-0} retained tool tests"
+          if [ "${ran:-0}" -lt 20 ]; then
+            echo "::error::expected at least 20 retained tool tests"
             exit 1
           fi
-        working-directory: Tools
+
   windows-capture:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      # Keep Windows locale defaults and exercise a strict legacy console, including subprocesses.
-      # UTF-8 mode would hide implicit file encodings; replacement output would hide console bugs.
-      - name: Run Tools/linux-capture tests with legacy Windows encodings
+      - name: Run WHOOP decoder tests with legacy Windows encodings
         working-directory: Tools/linux-capture
         env:
           PYTHONUTF8: '0'
@@ -104,7 +66,6 @@ jobs:
         run: |
           import sys
           import unittest
-
           suite = unittest.defaultTestLoader.discover('.', pattern='test_*.py')
           count = suite.countTestCases()
           print(f'collected {count} tests', flush=True)

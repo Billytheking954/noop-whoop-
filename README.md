@@ -2,516 +2,240 @@
   <img src="docs/assets/logo-v3.png" alt="NOOP" width="72">
 </p>
 
-<h1 align="center">NOOP V2 — Personal WHOOP Companion Fork</h1>
+<h1 align="center">NOOP V2 for iPhone</h1>
 
-<p align="center"><b>NOOP 11.8 base · iPhone-first · local data · Night Lab · HealthKit provenance · experimental WHOOP research</b></p>
-
-<p align="center">
-  <img alt="Base" src="https://img.shields.io/badge/base-NOOP%2011.8-E8B84B?style=flat-square">
-  <img alt="Primary platform" src="https://img.shields.io/badge/primary-iPhone%20%2F%20iOS-E8B84B?style=flat-square">
-  <img alt="Local first" src="https://img.shields.io/badge/data-local--first-C8902F?style=flat-square">
-  <img alt="WHOOP" src="https://img.shields.io/badge/focus-WHOOP%205.0%20%2F%204.0-6B737B?style=flat-square">
-  <img alt="Experimental" src="https://img.shields.io/badge/research-experimental-6B737B?style=flat-square">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-6B737B?style=flat-square"></a>
-</p>
+<p align="center"><b>Offline iPhone WHOOP companion based on NOOP 11.8 · Night Lab · HealthKit · local data · evidence-first research</b></p>
 
 > [!IMPORTANT]
-> This is a **personal development fork of NOOP**, based on the NOOP 11.8 code line. It is not the
-> canonical upstream repository and it is not affiliated with WHOOP, Inc.
->
-> The fork is being developed primarily as an **iPhone/WHOOP companion and research build** with a
-> strong emphasis on local data ownership, sleep evidence, Apple Health interoperability, provenance,
-> validation, and release traceability.
+> **NOOP V2 is an iPhone-only personal development fork of NOOP 11.8.** It is not the canonical upstream repository and is not affiliated with WHOOP, Inc. The supported end-user product in this repository is the iPhone app. Android, macOS, iPad-universal and standalone watchOS products are not release targets.
 
----
+## Product scope
 
-## What this fork is for
+NOOP V2 keeps the mature NOOP iPhone functionality and adds the fork's approved V2 work while making evidence, provenance and release identity explicit.
 
-This fork exists to turn the already-capable NOOP project into a more inspectable and trustworthy
-personal wearable companion.
+The supported product includes:
 
-The main priorities are:
+- iPhone UI and required iPhone widget extension
+- direct WHOOP BLE scanning, pairing, reconnect, live data and history sync
+- local persistence and established production analytics
+- Recovery, Strain, Sleep, Stress and workouts
+- HealthKit integration and the canonical health-evidence architecture
+- Night Lab capture, sealed archives, deterministic replay, inspection, import/export and evidence-quality summaries
+- developer/diagnostic surfaces intentionally retained on iPhone
+- experimental SpO₂ instrumentation kept separate from production decisions
+- provenance-locked iPhone release tooling
 
-- **Use the WHOOP strap directly** without depending on the WHOOP cloud for the fork's local workflows.
-- Make **iPhone/iOS the primary release target** for this fork.
-- Keep health and wearable data **local-first** and source-aware.
-- Make sleep analysis easier to investigate rather than treating an algorithm result as magic.
-- Preserve the distinction between **raw evidence, derived metrics and experimental hypotheses**.
-- Improve Apple Health ingestion without silently replacing the existing production path before it is validated.
-- Explore WHOOP 5 data such as SpO₂ without pretending an experimental decoder is medically or physiologically proven.
-- Make every formal IPA traceable to the **exact Git commit that created it**.
+The repository intentionally does **not** ship an Android app, macOS app, standalone watchOS app or universal iPhone+iPad product.
 
-This is deliberately not a "change everything at once" fork. Production scoring and mature behaviour
-stay stable while new architecture and research paths are built beside them and validated.
+## Current V2 status
 
----
-
-## Fork status
-
-| Area | Current status |
+| Area | Status |
 |---|---|
-| **Upstream base** | ✅ NOOP 11.8 (`11.8.0` application version line) |
-| **Primary fork platform** | ✅ iPhone / iOS |
-| **WHOOP 4.0** | ✅ Existing NOOP support retained |
-| **WHOOP 5.0 / MG** | 🧪 Active focus; existing support retained while deeper evidence remains experimental |
-| **Night Lab foundation** | ✅ Merged |
-| **Deterministic Night Lab replay** | ✅ Merged |
-| **Night Lab archive integrity / provenance** | ✅ Merged |
-| **Canonical health evidence model** | ✅ Merged |
-| **Atomic canonical observation store** | ✅ Merged |
-| **Incremental observation coordinator** | ✅ Merged |
-| **HealthKit canonical quantity provider** | ✅ Merged |
-| **Real-app canonical HealthKit debug lane** | ✅ Merged, DEBUG-only |
-| **All canonical HealthKit quantity debug exercise** | ✅ Merged, DEBUG-only |
-| **Experimental SpO₂ research tooling** | 🧪 Present, research/instrumentation only |
-| **Production scoring changes** | ⛔ Deliberately not part of the current V2 fork work |
-| **Production SleepStagerV2 changes** | ⛔ Deliberately not part of the current V2 fork work |
-| **Formal V2 iPhone IPA** | 🚧 Not published until the provenance-locked release workflow completes successfully |
+| Upstream baseline | NOOP 11.8 |
+| App version | 11.8.0 |
+| Build number | 400 |
+| Supported device family | iPhone only |
+| iPhone widget | Retained |
+| Night Lab foundation/replay/archive validation | Integrated |
+| Night Lab evidence-quality summaries | Integrated |
+| Canonical health evidence/store/coordinator | Integrated |
+| Canonical HealthKit provider/debug validation lane | Integrated |
+| Experimental SpO₂ tooling | Integrated as research/instrumentation only |
+| Candidate SpO₂ byte `@82` | **Unverified** |
+| Production SpO₂ use | **None** |
+| Final signed IPA | Valid only when the final-release workflow succeeds for the exact `main` SHA |
 
----
+## Night Lab
 
-# What has been added in this fork
+Night Lab is the V2 evidence and replay environment for investigating overnight data without quietly changing the production sleep algorithm to make an experiment look better.
 
-## 1. Night Lab
+V2 includes, as applicable to the merged code:
 
-Night Lab is the fork's evidence and replay environment for investigating sleep and overnight data
-without changing the production sleep algorithm simply to make a test look better.
-
-The merged foundation includes:
-
-- schema-versioned sealed Night Lab archives
-- strict time boundaries for captured evidence
-- per-asset SHA-256 integrity checks
-- decoded row-count verification
-- write-once raw and derived evidence
-- source, device, firmware and algorithm provenance
-- deterministic replay through the existing production `SleepStagerV2` adapter
-- stored hypnogram / replay inspection
-- signal coverage and gap inspection
-- deterministic `.nightlab` bundle export/import
+- schema-versioned sealed archives
+- strict evidence windows
+- raw evidence preservation
+- SHA-256 asset validation
+- decoded sample/row counts
+- device, firmware, application and algorithm provenance
+- deterministic replay through the production staging adapter
+- saved baseline/hypnogram evidence
+- execution receipts
+- signal coverage and missing-data inspection
+- evidence-quality summaries
+- archive-integrity versus physiological-accuracy separation
+- deterministic `.nightlab` import/export
 - corruption, overwrite, rollback and path-traversal protections
-- idempotent import of identical evidence
-- developer-facing inspection UI
-
-### Why it exists
-
-Sleep research is easy to fool accidentally. A graph can look convincing while its source data is
-missing, sparse, shifted or from the wrong device. Night Lab is designed to keep the evidence attached
-to the result so future changes can be tested against the same night reproducibly.
+- developer inspection UI
 
 See [`docs/NIGHT_LAB.md`](docs/NIGHT_LAB.md).
 
----
+## HealthKit and canonical health evidence
 
-## 2. Canonical health evidence and provenance
+`Packages/StrandHealth` and `Packages/StrandHealthKit` provide the V2 canonical evidence architecture and HealthKit provider work.
 
-The fork adds a provider-independent health evidence layer in `Packages/StrandHealth`.
+Important invariants include:
 
-It introduces explicit structures for:
-
-- observations
-- measurement source/provenance
-- metric semantics
-- units and quality state
-- algorithm identity
-- derived-metric traceability
-- provider cursors
+- explicit source/provenance and metric semantics
+- atomic observation/deletion/cursor commits
+- incremental anchored HealthKit reads
 - first-class deletions
-- atomic change batches
+- provider cursor handling
+- app-authored sample exclusion where configured
+- SDNN kept distinct from RMSSD
+- oxygen-saturation source units handled semantically rather than by guesswork
+- debug validation lanes kept separate from production behavior unless deliberately promoted
 
-This is meant to stop one of the nastier classes of health-app bugs: two values looking identical after
-the system has forgotten **where they came from, what they meant, or how they were derived**.
+The canonical work does not silently replace established production HealthKit behavior merely because a cleaner abstraction exists.
 
-### Atomic observation store
-
-The canonical store commits observations, deletions and the provider's next cursor as one transaction.
-A stale cursor cannot quietly overwrite newer state.
-
-### Incremental ingestion coordinator
-
-The coordinator:
-
-1. loads the currently committed provider cursor,
-2. asks that provider for the next bounded set of changes,
-3. verifies provider identity,
-4. commits the changes and next cursor atomically.
-
-That creates a clean seam for HealthKit now and other sources later.
-
----
-
-## 3. Canonical HealthKit ingestion work
-
-`Packages/StrandHealthKit` adds a read-only, anchored HealthKit quantity provider that feeds the new
-canonical evidence architecture.
-
-Important properties of the current implementation:
-
-- incremental anchored reads
-- deletion-aware ingestion
-- bounded batches
-- explicit metric semantics
-- preserved source/provenance
-- HealthKit oxygen saturation retains its source fraction semantics before canonical conversion
-- SDNN is not silently relabelled as RMSSD
-- NOOP-authored samples can be excluded from read-back
-- ambiguous body-vs-skin temperature mapping is deliberately not guessed
-
-### Real iOS debug validation lane
-
-The iOS application now contains an explicit **DEBUG-only** path that exercises the canonical pipeline
-from the real app.
-
-Two launch arguments exist:
-
-```text
---canonical-healthkit-sync
---canonical-healthkit-sync-all
-```
-
-The first performs a bounded heart-rate transaction. The second exercises every currently defined
-canonical HealthKit quantity stream sequentially, with an independent cursor for each stream.
-
-Failures are isolated per stream and the debug logging reports stream identity and counts rather than
-printing private health values.
-
-### What this does NOT mean
-
-The existing production `HealthKitBridge` has **not** been replaced. Production HealthKit observers,
-write-back, scoring and background behaviour stay on the established path while the canonical path is
-validated.
-
-That separation is intentional.
-
----
-
-## 4. Experimental WHOOP SpO₂ research
-
-This fork contains experimental SpO₂ decoding and evidence-quality work for investigating WHOOP data.
-
-Current work includes areas such as:
-
-- candidate frame decoding
-- frame/shape checks
-- quality filtering
-- experimental aggregation
-- evidence completeness checks
-- Night Lab diagnostics
-- explicit missing/no-overlap handling
-- regression tests around malformed or insufficient evidence
+## Experimental SpO₂
 
 > [!CAUTION]
-> **Experimental SpO₂ is not a production health metric.**
->
-> It is not used as a medical measurement, health warning, or validated production recovery input.
-> A plausible-looking oxygen percentage is not enough evidence to promote a decoder. Real validation
-> requires appropriately aligned independent reference recordings and sufficient overlap.
+> SpO₂ in this fork is **experimental research/instrumentation only**.
 
-Some later SpO₂ validation work remains in separate/open research branches and must not be described as
-released merely because the branch exists.
+The historical v18 candidate byte `@82` is not treated as physiologically verified. Synthetic or structural validation is not independent physiological validation.
 
----
+Experimental SpO₂ is excluded from:
 
-## 5. Release provenance and IPA safety
+- Recovery
+- Strain
+- production sleep scoring/staging decisions
+- production HealthKit writes
+- health recommendations or warnings
+- clinical claims
 
-The fork now has a separate final iPhone release workflow designed around one rule:
+A plausible number is not evidence. Wearable telemetry has already supplied humanity with enough confident decimals.
 
-> **The downloadable IPA must prove which exact source commit produced it.**
+## Production-safety boundary
 
-The legacy fork workflow that could publish Android, macOS and an unsigned iOS payload as one release is
-blocked for final-release use.
+Unless an explicitly reviewed release change states otherwise, V2 preserves the established production behavior for:
 
-The new final path is iPhone-only and fail-closed.
+- Recovery and Strain coefficients
+- Sleep score and production `SleepStagerV2`
+- Stress scoring
+- HRV and resting heart rate semantics
+- respiration
+- workouts
+- WHOOP BLE protocol operation/history sync
+- database semantics
+- production HealthKit behavior
+- production SpO₂, which remains absent
 
-### A formal release must record
+Open experimental or production-changing PRs are not release content merely because they exist.
 
-- repository
-- branch
-- full Git SHA
-- short Git SHA
-- upstream NOOP baseline
-- included merged PRs
-- application version
-- build number
-- Release configuration
-- iOS/iPhone target
-- IPA filename
-- SHA-256 checksum
-- build date
-
-### The workflow refuses to continue when
-
-- the requested SHA is not the exact selected `main` HEAD
-- the commit does not descend from the recorded NOOP 11.8 baseline
-- the source tree is dirty
-- an ambiguous old `1.8` version is being released
-- open PRs have not been explicitly reviewed for release scope
-- a release tag already exists
-- required tests fail
-- required signing material is missing
-- provisioning profiles do not match the expected app/widget identities
-- the final payload is not an iPhone device build
-- expected provenance does not match the IPA
-
-### Final artifact naming
-
-A formal V2 build uses the real Git SHA in the filename, for example:
+## iPhone-only repository layout
 
 ```text
-NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
+NOOP V2
+├── Strand/                  Shared Swift application/core code required by iPhone
+├── StrandiOS/               iPhone application shell and iOS integrations
+├── StrandiOSShared/         Components shared by the iPhone app and its widget
+├── StrandiOSWidgets/        Required iPhone widget / Live Activity extension
+├── Packages/                Swift packages required by the iPhone product
+├── StrandTests/             iPhone-hosted regression tests
+├── Tools/                   Validation, capture/research and release tooling
+├── docs/                    iPhone/product/protocol documentation
+└── .github/workflows/       iPhone CI, package/tool tests and final IPA release
 ```
 
-or:
-
-```text
-NOOP-11.8-fork-<real-short-sha>-iphone.ipa
-```
-
-The workflow also produces a release manifest and SHA-256 checksum.
-
-See [`docs/IPHONE_RELEASE_POLICY.md`](docs/IPHONE_RELEASE_POLICY.md).
-
----
-
-# Download / install status
-
-## Final V2 IPA
-
-**There is deliberately no claim here that the final V2 IPA is ready yet.**
-
-A release is only considered complete when the provenance-locked workflow has actually produced and
-verified the signed iPhone IPA from the stated final commit.
-
-A source-complete branch, simulator build, old IPA, unsigned placeholder or upstream-only NOOP package
-is **not** treated as the final fork release.
-
-When a verified release exists, it will appear in this fork's own Releases page:
-
-**[`Billytheking954/noop-whoop-` Releases](https://github.com/Billytheking954/noop-whoop-/releases)**
-
-Do not assume an upstream `ryanbr/noop` IPA contains this fork's V2 changes.
+Some tools are host-agnostic and run on Linux or Windows because that is a cheap way to regression-test WHOOP frame/capture logic. Those runner operating systems are **test environments**, not supported NOOP products.
 
 ## Build from source
 
-For development/testing on Apple platforms:
+Requirements:
+
+- macOS with Xcode capable of the configured iOS deployment target
+- XcodeGen
+- your own valid Apple development signing setup for physical devices
 
 ```bash
 git clone https://github.com/Billytheking954/noop-whoop-.git
 cd noop-whoop-
-
 brew install xcodegen
 xcodegen generate
 open Strand.xcodeproj
 ```
 
-For iPhone work, use the `NOOPiOS` scheme and your own valid Apple signing configuration.
+Use the `NOOPiOS` scheme. The generated project declares `TARGETED_DEVICE_FAMILY = 1` for both the app and widget.
 
-The tracked `Config/BundleId.xcconfig` supports a local, gitignored
-`Config/BundleIdSecrets.xcconfig` for your own bundle prefix and development team.
+`Config/BundleId.xcconfig` supports the repository's bundle settings. Do not commit private certificates, provisioning profiles or secret values.
 
----
+## Final signed IPA policy
 
-# What deliberately remains unchanged
-
-The fork has added a lot of validation and research infrastructure without silently redefining the
-mature production algorithms underneath it.
-
-Unless a future reviewed change says otherwise, the current V2 work preserves:
-
-- existing production recovery/scoring coefficients
-- current production `SleepStagerV2` behaviour
-- normal BLE collection behaviour
-- established production HealthKit behaviour
-- Night Lab deterministic replay boundaries
-- existing user-data compatibility expectations
-- the separation between experimental SpO₂ work and production scoring
-
-This is important because architecture work and research tooling should not be mistaken for an
-unannounced physiological-model change.
-
----
-
-# Development philosophy
-
-## Evidence before confidence
-
-For wearable data, "the number looks right" is not enough.
-
-The fork favours:
-
-- reproducible evidence
-- source provenance
-- explicit uncertainty
-- deterministic tests
-- corruption detection
-- no-overlap / insufficient-evidence states instead of invented statistics
-- keeping experimental hypotheses labelled as experimental
-
-## Keep production and research separate
-
-Research code can ship inside the repository without being wired into production scoring.
-That lets the experimental path be tested without turning unfinished work into a health claim.
-
-## Fail closed on releases
-
-If the final source-to-IPA chain cannot be demonstrated, the release is not complete.
-
-No fallback to an older IPA. No random cached artifact. No pretending a simulator build is an iPhone
-release because the filename ended in `.ipa` after enough shell scripting.
-
----
-
-# Repository map
+The only user-facing application artifact for a formal V2 release is:
 
 ```text
-Strand/                         Shared/macOS application code
-StrandiOS/                      iPhone application code
-StrandiOSShared/                Shared iOS/widget components
-StrandiOSWidgets/               iOS widgets + Live Activity extension
-Packages/
-  WhoopProtocol/                WHOOP protocol parsing and experimental sensor research
-  WhoopStore/                   Local persistence
-  StrandAnalytics/              Recovery/strain/sleep analytics + Night Lab
-  StrandImport/                 Import pipelines
-  StrandDesign/                 Shared design system
-  StrandHealth/                 Canonical evidence/provenance + ingestion contracts
-  StrandHealthKit/              Canonical HealthKit provider
-Tools/                          Validation, research and repository tooling
-docs/
-  NIGHT_LAB.md                  Night Lab architecture and behaviour
-  IPHONE_RELEASE_POLICY.md      Fork release/provenance contract
-.github/workflows/
-  iphone-final-release.yml      Provenance-locked final iPhone release path
+NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
 ```
 
----
+The authoritative workflow is [`.github/workflows/iphone-final-release.yml`](.github/workflows/iphone-final-release.yml).
 
-# Validation
+A formal release is fail-closed. It must:
 
-The repository contains multiple independent validation lanes rather than one enormous CI job whose
-success means nobody quite remembers what was tested.
+1. use the exact current `main` SHA,
+2. prove ancestry from the recorded NOOP 11.8 baseline,
+3. regenerate the Xcode project,
+4. rerun release-critical validation,
+5. create a fresh generic physical-iPhone Release archive,
+6. use the app and widget provisioning profiles plus signing certificate,
+7. sign the widget then the app,
+8. pass strict cryptographic signature verification,
+9. contain exactly one iPhone app and the expected widget,
+10. contain no Watch payload,
+11. report `UIDeviceFamily = [1]`,
+12. contain an arm64 executable,
+13. embed source/provenance metadata,
+14. pass `Tools/verify_iphone_ipa.py`,
+15. generate an IPA SHA-256, release manifest and release notes,
+16. publish an immutable GitHub Release whose target is the same SHA.
 
-Current gates include:
+An unsigned `.app`, simulator build, stale archive, upstream IPA or old cached artifact is not the V2 release.
 
-- Swift package build/tests
-- iOS Simulator compile validation
-- shared macOS app tests
-- source hygiene checks
-- i18n coverage checks
-- Linux Python/tooling regression suites
-- Windows decoder/tooling regression suites
-- parity/governance checks where applicable
-- dedicated final iPhone IPA verification
+See [`docs/IPHONE_RELEASE_POLICY.md`](docs/IPHONE_RELEASE_POLICY.md).
 
-The final release workflow reruns the relevant validation against the **exact release SHA** rather than
-trusting an unrelated earlier workflow run.
+## CI and validation
 
----
+Current supported validation lanes include:
 
-# Current research / roadmap boundaries
+- iPhone Simulator build and iPhone-hosted app tests
+- Swift package tests used by the iPhone application
+- iPhone localisation coverage
+- source/repository hygiene, including iPhone-only invariants
+- Linux WHOOP capture/decoder regression tests
+- Windows decoder regression tests where encoding/platform behavior is useful to the tooling
+- final signed IPA identity, provenance and structure verification
 
-The repo intentionally still contains open and historical PRs. An open branch is not automatically
-part of the release.
+CI runners do not redefine the supported product platform.
 
-Examples of work that may remain separate until it earns promotion include:
+## Release scope
 
-- further Night Lab Phase 2 sleep-detection research
-- richer Night Lab evidence-quality summaries
-- additional SpO₂ independent-reference validation
-- deeper WHOOP 5 protocol work
-- eventual migration of production HealthKit reads to the canonical architecture after real validation
+The release scope lock is stored in [`.github/release/iphone-v2-final.json`](.github/release/iphone-v2-final.json). Open work that changes production stress behavior or advances experimental Night Lab Phase 2 remains outside the V2 freeze unless separately reviewed and merged.
 
-The release workflow therefore requires open PRs to be reviewed explicitly rather than assuming every
-unfinished experiment belongs in V2.
+## Privacy and safety
 
----
+NOOP V2 is local-first. Night Lab and canonical evidence work are intended to improve traceability, not create a cloud dependency.
 
-# Original NOOP project
+NOOP V2 is **not a medical device**. Heart rate, HRV, recovery, strain, sleep stages, respiratory metrics, temperature-derived values and experimental SpO₂ outputs must not be treated as clinical measurements or used to diagnose or treat a medical condition.
 
-This fork is built on the work of the NOOP project and its contributors.
+See [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md) and [`DISCLAIMER.md`](DISCLAIMER.md).
 
-Canonical upstream repository:
+## Upstream and attribution
+
+This fork is based on the NOOP project and its contributors. Canonical upstream repository:
 
 **https://github.com/ryanbr/noop**
 
-The upstream project provides the broad NOOP application, including its existing WHOOP protocol support,
-UI, analytics, storage, imports, platform implementations and wider feature set. This fork adds the
-personal V2 work described above rather than claiming those upstream features as newly created here.
+Important credits include:
 
-If you are looking for the general NOOP community, upstream documentation or upstream multi-platform
-releases, use the canonical repository.
+- `ryanbr/noop`, the canonical NOOP project and base for this fork
+- `johnmiddleton12/my-whoop`, WHOOP interoperability work
+- `b-nnett/goose`, WHOOP protocol documentation used by NOOP
+- `groue/GRDB.swift`, SQLite persistence
+- `weichsel/ZIPFoundation`, archive support
 
----
+See [`ATTRIBUTION.md`](ATTRIBUTION.md) and [`NOTICE`](NOTICE). Existing license, copyright, attribution and third-party obligations remain in force.
 
-# Privacy
-
-The core goal remains local-first operation.
-
-Wearable evidence, imports and derived metrics should stay on the device unless a feature is explicitly
-configured to send something elsewhere.
-
-The fork's new Night Lab and canonical evidence work is designed to improve **traceability**, not to add
-a cloud dependency.
-
-Read [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md) for the broader NOOP privacy model.
-
----
-
-# Safety / health disclaimer
-
-NOOP and this fork are **not medical devices**.
-
-Heart rate, HRV, recovery, strain, sleep stages, SpO₂, respiratory metrics, temperature-derived values
-and experimental research outputs must not be treated as clinical measurements simply because they are
-shown in a polished interface.
-
-Experimental decoders in particular can be wrong while still producing plausible numbers.
-
-Do not use this software to diagnose or treat a medical condition. See [`DISCLAIMER.md`](DISCLAIMER.md).
-
----
-
-# Attribution
-
-NOOP stands on community interoperability and protocol-documentation work. Important upstream credits
-include:
-
-- [`ryanbr/noop`](https://github.com/ryanbr/noop) — canonical NOOP project and the base for this fork
-- `johnmiddleton12/my-whoop` — WHOOP 4.0 interoperability work
-- `b-nnett/goose` — WHOOP 5.0 / MG protocol documentation used by NOOP
-- `groue/GRDB.swift` — SQLite persistence
-- `weichsel/ZIPFoundation` — archive support
-
-See [`ATTRIBUTION.md`](ATTRIBUTION.md) and [`NOTICE`](NOTICE) for the repository's full attribution and
-third-party notices.
-
-This fork does not claim affiliation with WHOOP, Inc., Apple, Oura, or the upstream NOOP maintainers.
-
----
-
-# License
+## License
 
 NOOP is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 
-The existing license, copyright notices, upstream attribution and third-party license requirements remain
-in force in this fork.
-
-This is a personal/non-commercial development fork, not a commercial redistribution of NOOP.
-
----
-
-# Useful docs
-
-- [`docs/NIGHT_LAB.md`](docs/NIGHT_LAB.md) — Night Lab capture, replay and evidence model
-- [`docs/IPHONE_RELEASE_POLICY.md`](docs/IPHONE_RELEASE_POLICY.md) — exact-source iPhone release rules
-- [`docs/BUILD.md`](docs/BUILD.md) — build information
-- [`docs/IOS.md`](docs/IOS.md) — upstream iOS/sideloading documentation
-- [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md) — privacy/security model
-- [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — protocol documentation
-- [`docs/RAW_DATA_CAPTURE.md`](docs/RAW_DATA_CAPTURE.md) — raw capture information
-- [`ATTRIBUTION.md`](ATTRIBUTION.md) — credits and licensing details
-- [`DISCLAIMER.md`](DISCLAIMER.md) — legal/medical disclaimer
-
----
-
-<p align="center"><b>NOOP V2 fork: build carefully, measure honestly, and never let a convincing-looking number outrun its evidence.</b></p>
+This repository is a personal/non-commercial development fork. It does not claim affiliation with WHOOP, Inc., Apple, Oura, or the upstream NOOP maintainers.

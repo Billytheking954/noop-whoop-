@@ -1,0 +1,25 @@
+{
+  "product": "NOOP V2",
+  "release_family": "NOOP V2",
+  "upstream_baseline": "NOOP 11.8",
+  "upstream_baseline_sha": "ef0c0d72f2ece1a66c625a30e1076935e584b448",
+  "version": "11.8.0",
+  "build": 400,
+  "platform": "iOS",
+  "device_family": "iPhone",
+  "configuration": "Release",
+  "included_prs": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+  "remaining_open_prs": [2, 3, 4],
+  "remaining_open_pr_classification": {
+    "2": "OUT OF IPHONE V2 RELEASE SCOPE - production stress-scoring change",
+    "3": "OUT OF IPHONE V2 RELEASE SCOPE - ScoreBench/stress baseline stack",
+    "4": "OUT OF IPHONE V2 RELEASE SCOPE - experimental Night Lab Phase 2A"
+  },
+  "spo2": {
+    "status": "experimental instrumentation only",
+    "candidate_byte_82_verified": false,
+    "production_scoring": false,
+    "production_healthkit_write": false,
+    "clinical_claims": false
+  }
+}
