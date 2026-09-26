@@ -7,26 +7,26 @@ import SwiftUI
 // bindings, while cards, gauges, typography, and chrome share one maintainable source of truth.
 
 public enum NoopVisualStyle {
-    // Chalk and limestone form the light foundation; graphite keeps contrast strong.
-    // The dark palette stays deliberately neutral so metric colours remain meaningful.
-    public static let canvas = Color(light: "#F2F0E9", dark: "#1D1E23")
-    public static let surface = Color(light: "#FFFEFA", dark: "#2A2C34")
-    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#30323B")
-    public static let surfaceBottom = Color(light: "#FAF8F2", dark: "#282A31")
-    public static let inset = Color(light: "#EBE8DF", dark: "#23252C")
+    // NOOP's cool mineral canvas and midnight ink give the metrics room to lead.
+    // CRUX contributes spacing discipline, while the colour and atmosphere remain NOOP's own.
+    public static let canvas = Color(light: "#F4F7FA", dark: "#10151E")
+    public static let surface = Color(light: "#FFFFFF", dark: "#1C2531")
+    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#243141")
+    public static let surfaceBottom = Color(light: "#FAFCFE", dark: "#1B2633")
+    public static let inset = Color(light: "#E9EFF4", dark: "#141D28")
 
-    public static let border = Color(light: "#E1DDD2", dark: "#373A44")
-    public static let borderHighlight = Color(light: "#FFFFFF", dark: "#4B4E59")
-    public static let divider = Color(light: "#E9E5DC", dark: "#383A43")
+    public static let border = Color(light: "#DCE4EB", dark: "#2C3948")
+    public static let borderHighlight = Color(light: "#FFFFFF", dark: "#4B5C70")
+    public static let divider = Color(light: "#E3EAF0", dark: "#334153")
 
-    public static let primaryText = Color(light: "#252621", dark: "#F7F7FA")
-    public static let secondaryText = Color(light: "#5E605A", dark: "#C3C4CA")
-    public static let tertiaryText = Color(light: "#81827B", dark: "#7D7F88")
+    public static let primaryText = Color(light: "#18212C", dark: "#F4F8FC")
+    public static let secondaryText = Color(light: "#536170", dark: "#BAC7D5")
+    public static let tertiaryText = Color(light: "#6E7C8A", dark: "#8F9EB0")
 
-    // Lichen green is the quiet chrome accent; domain scoring colours stay independent.
-    public static let mint = Color(light: "#52765B", dark: "#8CC79A")
-    public static let mintDeep = Color(light: "#3E6048", dark: "#5D9D6C")
-    public static let mintGlow = Color(light: "#79977A", dark: "#A5D2AB")
+    // Tide green anchors navigation and controls; domain scoring colours stay independent.
+    public static let mint = Color(light: "#147D6C", dark: "#6AD9B8")
+    public static let mintDeep = Color(light: "#0D655B", dark: "#36B994")
+    public static let mintGlow = Color(light: "#42A995", dark: "#A3E4D4")
 
     public static let cardRadius: CGFloat = 18
     public static let compactRadius: CGFloat = 14
@@ -37,7 +37,7 @@ public enum NoopVisualStyle {
     public static let sectionGap: CGFloat = 24
 }
 
-/// Shared card/panel treatment: a near-flat limestone surface, quiet hairline, and restrained depth.
+/// Shared card/panel treatment: a cool surface, quiet hairline, and restrained depth.
 /// `tint` is intentionally faint so metric identity never turns the whole card into a coloured tile.
 public struct NoopPanelSurface: View {
     public var tint: Color?
