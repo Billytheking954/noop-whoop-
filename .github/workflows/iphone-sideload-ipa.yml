@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/iphone-sideload-ipa.yml'
+      - '.github/workflows/app-build.yml'
       - 'Tools/prepare_iphone_sideload.sh'
       - 'project.yml'
       - 'Config/**'
@@ -17,6 +18,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/iphone-sideload-ipa.yml'
+      - '.github/workflows/app-build.yml'
       - 'Tools/prepare_iphone_sideload.sh'
       - 'project.yml'
       - 'Config/**'
