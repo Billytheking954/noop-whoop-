@@ -107,8 +107,13 @@ jobs:
               xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
               # `--demo-seed` uses the app's DEBUG-only synthetic dataset; no values are presented as live data.
               xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
-              # Allow the local repository and screen-specific queries to finish before capture.
-              sleep 18
+              # The Sleep model decodes a full night and can take longer on cold light-mode launches.
+              # Give that path 45s so the screenshot cannot capture a blank launch frame.
+              if [[ "$SCREEN" == "sleep" && "$APPEARANCE" == "light" ]]; then
+                sleep 45
+              else
+                sleep 18
+              fi
               xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/$SCREEN-$APPEARANCE.png"
             done
           done
