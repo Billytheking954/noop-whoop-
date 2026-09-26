@@ -107,7 +107,8 @@ jobs:
               xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
               # `--demo-seed` uses the app's DEBUG-only synthetic dataset; no values are presented as live data.
               xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
-              sleep 6
+              # Allow the local repository and screen-specific queries to finish before capture.
+              sleep 18
               xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/$SCREEN-$APPEARANCE.png"
             done
           done
