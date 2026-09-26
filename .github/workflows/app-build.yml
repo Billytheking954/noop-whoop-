@@ -84,19 +84,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DERIVED_DATA="$RUNNER_TEMP/ui-review-derived-data"
           CAPTURE_DIR="$RUNNER_TEMP/noop-ui-review"
           mkdir -p "$CAPTURE_DIR"
           UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; phones=[x for runtime in d.values() for x in runtime if x.get("isAvailable") and x.get("name", "").startswith("iPhone")]; mini=next((x for x in phones if "mini" in x["name"].lower()), None); print((mini or phones[0])["udid"])')"
-          xcodebuild \
+          BUILT_PRODUCTS_DIR="$(xcodebuild \
             -project Strand.xcodeproj \
             -scheme NOOPiOS \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$UDID" \
-            -derivedDataPath "$DERIVED_DATA" \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-          APP="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/NOOP.app"
+            -showBuildSettings \
+            CODE_SIGNING_ALLOWED=NO 2>/dev/null | awk -F ' = ' '/^[[:space:]]*BUILT_PRODUCTS_DIR = / { print $2; exit }')"
+          APP="$BUILT_PRODUCTS_DIR/NOOP.app"
           test -d "$APP"
           BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
           xcrun simctl boot "$UDID" >/dev/null 2>&1 || true
