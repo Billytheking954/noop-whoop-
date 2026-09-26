@@ -28,6 +28,7 @@ import UIKit
 
 struct SleepView: View {
     @EnvironmentObject var repo: Repository
+    @Environment(\.colorScheme) private var colorScheme
     // NOTE: SleepView itself deliberately does NOT observe `LiveState` OR `AppModel`. A connected strap
     // publishes at ~1 Hz, and `AppModel` itself publishes `bpm` at that same ~1 Hz (AppModel.swift:202) —
     // `@EnvironmentObject` subscribes to the WHOLE object's `objectWillChange` regardless of which
@@ -489,8 +490,10 @@ struct SleepView: View {
                         diameter: 184,
                         animated: true,
                         captionText: String(localized: "of 100"),
-                        numberColor: Color.white.opacity(0.98),
-                        captionColor: Color.white.opacity(0.52)
+                        // The vessel is pale in light mode and graphite in dark mode.
+                        // Keep the score legible on the actual center fill in each appearance.
+                        numberColor: colorScheme == .dark ? .white : StrandPalette.textPrimary,
+                        captionColor: colorScheme == .dark ? .white.opacity(0.68) : StrandPalette.textSecondary
                     )
                     Text(sleepScoreWord(score))
                         .font(StrandFont.subhead.weight(.semibold))
@@ -2524,9 +2527,9 @@ struct SleepMarkCard: View {
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: NoopMetrics.gap) {
-                        // Routed through the unified NoopButton system so the two marks sit identically
-                        // (sentence-case label, leading icon at 8pt, controlHeight=48, no glow).
+                    VStack(spacing: NoopMetrics.gap) {
+                        // Full-width rows keep the complete labels readable on small iPhones and with
+                        // larger text. Both actions still use the same 48-point button treatment.
                         NoopButton("Going to sleep", systemImage: "moon.zzz.fill",
                                    kind: .secondary, fullWidth: true) { logMark(.bedtime) }
                             .accessibilityLabel("Log going to sleep")
