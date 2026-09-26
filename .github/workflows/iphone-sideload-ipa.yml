@@ -49,7 +49,7 @@ jobs:
           import json
           p = json.load(open('.github/release/iphone-v2-final.json'))
           assert (p['version'], p['build'], p['device_family']) == ('11.8.0', 400, 'iPhone')
-          assert p['included_prs'] == list(range(7, 22))
+          assert p['included_prs'] == list(range(7, 23)) + [24]
           assert p['spo2']['production_scoring'] is False
           PY
       - name: Build fresh physical-iPhone app
@@ -93,7 +93,7 @@ jobs:
             'git_sha':sha, 'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
             'product':'NOOP', 'release_family':'NOOP V2', 'app_version':'11.8.0', 'build_number':'400',
             'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64', 'signing':'ad-hoc; sideloader must re-sign',
-            'included_prs':list(range(7,22)), 'experimental_spo2_production_scoring':False,
+            'included_prs':list(range(7,23)) + [24], 'experimental_spo2_production_scoring':False,
           }, indent=2, sort_keys=True)+'\n')
           PY
           bash Tools/prepare_iphone_sideload.sh "$APP"

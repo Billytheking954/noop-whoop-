@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - NOOP card surface + StrandCard
 //
-// Cards share the limestone/graphite surface, continuous corners, fine outline,
+// Cards share the cool NOOP surface, continuous corners, fine outline,
 // and restrained lift. The shared surface keeps screens consistent; domain tint
 // stays faint so metric identity comes from the chart and its labels.
 

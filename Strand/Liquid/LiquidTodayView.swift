@@ -2023,8 +2023,15 @@ struct LiquidTodayView: View {
         // #1013: localize the sub-header date. The old en_US_POSIX "EEEE, d MMMM" formatter forced English
         // weekday + month names regardless of the UI language. A locale-aware field template localizes both
         // the names AND the field order (e.g. fr "mercredi 4 juillet") in the user's locale.
+        #if os(iOS)
+        // The four circular controls share the compact phone header; abbreviating this secondary line
+        // keeps the complete date readable without changing the title or reducing control hit areas.
+        return selectedLogicalDay.formatted(
+            .dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(AppLanguage.activeLocale))
+        #else
         return selectedLogicalDay.formatted(
             .dateTime.weekday(.wide).day().month(.wide).locale(AppLanguage.activeLocale))
+        #endif
     }
 
     /// Provenance caption for the recovery-vitals card, keyed on the row a vital actually came from — NOT a
