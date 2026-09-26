@@ -96,8 +96,8 @@ public enum AccentColor: String, CaseIterable, Identifiable, Sendable {
     public static let storageKey = "accent.color"
     /// The custom colour's hex, kept separate so switching away from `.custom` and back keeps the choice.
     public static let customHexKey = "accent.customHex"
-    /// Seeds the custom picker (lichen) so a fresh `.custom` selection is not black.
-    public static let defaultCustomHex = "#52765B"
+    /// Seeds the custom picker from NOOP's tide-green accent.
+    public static let defaultCustomHex = "#147D6C"
 
     public var label: String {
         switch self {
