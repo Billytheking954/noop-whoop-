@@ -1,0 +1,131 @@
+name: Unsigned iPhone sideload IPA
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/iphone-sideload-ipa.yml', 'Tools/prepare_iphone_sideload.sh']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/iphone-sideload-ipa.yml', 'Tools/prepare_iphone_sideload.sh']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Check source and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor ef0c0d72f2ece1a66c625a30e1076935e584b448 HEAD
+          python3 Tools/verify_iphone_only_repo.py
+          python3 - <<'PY'
+          import json
+          p = json.load(open('.github/release/iphone-v2-final.json'))
+          assert (p['version'], p['build'], p['device_family']) == ('11.8.0', 400, 'iPhone')
+          assert p['included_prs'] == list(range(7, 20))
+          assert p['spo2']['production_scoring'] is False
+          PY
+      - name: Build fresh physical-iPhone app
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project Strand.xcodeproj -scheme NOOPiOS -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/sideload" \
+            CODE_SIGNING_ALLOWED=NO BUNDLE_ID_PREFIX=com.noopapp build
+      - name: Package and verify sideload IPA
+        id: ipa
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          SHORT="${SHA:0:12}"
+          APP="$PWD/build/sideload/Build/Products/Release-iphoneos/NOOP.app"
+          test -d "$APP/PlugIns/NOOPWidgets.appex"
+          test ! -d "$APP/Watch"
+          test "$(find "$APP/PlugIns" -maxdepth 1 -name '*.appex' -type d | wc -l | tr -d ' ')" = 1
+          ARCHS="$(lipo -archs "$APP/NOOP")"
+          grep -qw arm64 <<< "$ARCHS"
+          ! grep -Eq 'x86_64|i386' <<< "$ARCHS"
+          python3 - "$APP" "$SHA" <<'PY'
+          import json, pathlib, plistlib, sys
+          app, sha = pathlib.Path(sys.argv[1]), sys.argv[2]
+          with (app/'Info.plist').open('rb') as f: info = plistlib.load(f)
+          with (app/'PlugIns/NOOPWidgets.appex/Info.plist').open('rb') as f: widget = plistlib.load(f)
+          assert info['CFBundleIdentifier'] == 'com.noopapp.noop'
+          assert widget['CFBundleIdentifier'] == 'com.noopapp.noop.widgets'
+          assert info['UIDeviceFamily'] == widget['UIDeviceFamily'] == [1]
+          assert info['CFBundleShortVersionString'] == widget['CFBundleShortVersionString'] == '11.8.0'
+          assert info['CFBundleVersion'] == widget['CFBundleVersion'] == '400'
+          assert info['AppGroupIdentifier'] == widget['AppGroupIdentifier']
+          info.update(NOOPReleaseGitSHA=sha, NOOPReleaseBaseline='NOOP 11.8', NOOPReleaseFamily='NOOP V2')
+          with (app/'Info.plist').open('wb') as f: plistlib.dump(info, f)
+          (app/'NOOPReleaseProvenance.json').write_text(json.dumps({
+            'repository':'Billytheking954/noop-whoop-', 'branch':'main' if __import__('os').environ['GITHUB_REF']=='refs/heads/main' else 'pull_request',
+            'git_sha':sha, 'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
+            'product':'NOOP', 'release_family':'NOOP V2', 'app_version':'11.8.0', 'build_number':'400',
+            'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64', 'signing':'ad-hoc; sideloader must re-sign',
+            'included_prs':list(range(7,20)), 'experimental_spo2_production_scoring':False,
+          }, indent=2, sort_keys=True)+'\n')
+          PY
+          bash Tools/prepare_iphone_sideload.sh "$APP"
+          NAME="NOOP-V2-11.8-base-${SHORT}-iphone-unsigned.ipa"
+          mkdir -p release-out Payload
+          ditto "$APP" "$PWD/Payload/NOOP.app"
+          ditto -c -k --sequesterRsrc --keepParent "$PWD/Payload" "$PWD/release-out/$NAME"
+          IPA_NAME="$NAME" SOURCE_SHA="$SHA" python3 - <<'PY'
+          import json, os, plistlib, zipfile
+          name, sha = os.environ['IPA_NAME'], os.environ['SOURCE_SHA']
+          with zipfile.ZipFile('release-out/'+name) as z:
+            assert z.testzip() is None
+            entries = z.namelist()
+            assert len([n for n in entries if n.endswith('.app/Info.plist') and n.count('/') == 2]) == 1
+            info = plistlib.loads(z.read('Payload/NOOP.app/Info.plist'))
+            prov = json.loads(z.read('Payload/NOOP.app/NOOPReleaseProvenance.json'))
+            assert info['NOOPReleaseGitSHA'] == prov['git_sha'] == sha
+            assert info['CFBundleIdentifier'] == 'com.noopapp.noop' and info['UIDeviceFamily'] == [1]
+            assert any(n.startswith('Payload/NOOP.app/_CodeSignature/') for n in entries)
+            assert any(n.startswith('Payload/NOOP.app/PlugIns/NOOPWidgets.appex/_CodeSignature/') for n in entries)
+            assert not any('/Watch/' in n or '/MacOS/' in n for n in entries)
+          PY
+          shasum -a 256 "release-out/$NAME" > "release-out/$NAME.sha256.txt"
+          python3 - "$NAME" "$SHA" <<'PY'
+          import hashlib, json, pathlib, sys
+          name, sha = sys.argv[1:]
+          ipa = pathlib.Path('release-out')/name
+          (ipa.parent/'sideload-manifest.json').write_text(json.dumps({
+            'source_sha':sha, 'artifact':name, 'sha256':hashlib.sha256(ipa.read_bytes()).hexdigest(),
+            'version':'11.8.0', 'build':'400', 'platform':'iPhone',
+            'signing':'ad-hoc capability template; AltStore/SideStore must re-sign',
+          }, indent=2, sort_keys=True)+'\n')
+          PY
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noop-v2-iphone-sideload-${{ steps.ipa.outputs.sha }}
+          path: release-out/*
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish clearly labelled unsigned sideload build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="${{ steps.ipa.outputs.sha }}"
+          test "$SHA" = "$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          TAG="noop-v2-iphone-sideload-${SHA:0:12}"
+          ! gh release view "$TAG" >/dev/null 2>&1
+          gh release create "$TAG" release-out/* --target "$SHA" \
+            --title "NOOP V2 iPhone 11.8.0 (unsigned sideload IPA)" \
+            --notes "Built fresh from main commit $SHA. iPhone arm64 only. This IPA carries ad-hoc capability templates and must be re-signed by AltStore or SideStore before installation. It is distinct from the signed final-release workflow. Experimental SpO2 is instrumentation only."
