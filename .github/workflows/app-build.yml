@@ -105,6 +105,16 @@ jobs:
             xcrun simctl ui "$UDID" appearance "$APPEARANCE"
             for SCREEN in liquidtoday trends sleep workouts health settings; do
               xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+              # Warm the DEBUG-only seeded route once before the review capture. Some screens perform
+              # first-launch repository work that can legitimately outlive the original fixed capture
+              # delay; capturing that cold-start frame produced a blank light-mode Sleep screenshot even
+              # though the same screen rendered on the following dark-mode launch. The warm pass changes
+              # no production behavior and lets the actual capture exercise a stable, already-initialized
+              # seeded repository rather than CI timing.
+              xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN" >/dev/null
+              sleep 20
+              xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+              sleep 1
               # `--demo-seed` uses the app's DEBUG-only synthetic dataset; no values are presented as live data.
               xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
               # Allow the local repository and screen-specific queries to finish before capture.
