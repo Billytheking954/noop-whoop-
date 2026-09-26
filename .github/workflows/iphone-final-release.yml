@@ -87,7 +87,7 @@ jobs:
           assert str(p['build']) == '400'
           assert p['platform'] == 'iOS'
           assert p['device_family'] == 'iPhone'
-          assert p['included_prs'] == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+          assert p['included_prs'] == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
           assert sorted(p['remaining_open_prs']) == [2, 3, 4]
           PY
           OPEN_PRS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --jq '.[].number' | sort -n | paste -sd, -)"
@@ -239,7 +239,7 @@ jobs:
             'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
             'app_version':'11.8.0', 'build_number':'400',
             'platform':'iOS', 'device_family':'iPhone', 'configuration':'Release',
-            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19],
+            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21],
             'remaining_open_prs':[2,3,4],
           }
           (app/'NOOPReleaseProvenance.json').write_text(json.dumps(payload, indent=2, sort_keys=True)+'\n')
@@ -303,7 +303,7 @@ jobs:
             'artifact_size_bytes':int(os.environ['IPA_SIZE']),
             'embedded_info_plist_sha256':os.environ['INFO_SHA'],
             'embedded_provenance_sha256':os.environ['PROV_SHA'],
-            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19],
+            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21],
             'remaining_open_prs':[2,3,4],
             'experimental_spo2':True, 'spo2_candidate_82_verified':False,
           }
