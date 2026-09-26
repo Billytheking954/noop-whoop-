@@ -87,6 +87,17 @@ jobs:
           CAPTURE_DIR="$RUNNER_TEMP/noop-ui-review"
           mkdir -p "$CAPTURE_DIR"
           UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; phones=[x for runtime in d.values() for x in runtime if x.get("isAvailable") and x.get("name", "").startswith("iPhone")]; mini=next((x for x in phones if "mini" in x["name"].lower()), None); print((mini or phones[0])["udid"])')"
+          # Hosted images may ship only a large iPhone. Create a mini when its device type is
+          # installed, so the review catches narrow-screen clipping rather than silently skipping it.
+          MINI_TYPE="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; print(next((d["identifier"] for d in json.load(sys.stdin)["devicetypes"] if d["name"] == "iPhone 13 mini"), ""))')"
+          IOS_RUNTIME="$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; print(next((r["identifier"] for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS")), ""))')"
+          if [[ -n "$MINI_TYPE" && -n "$IOS_RUNTIME" ]]; then
+            CREATED_MINI="$(xcrun simctl create 'NOOP UI review iPhone 13 mini' "$MINI_TYPE" "$IOS_RUNTIME" 2>/dev/null || true)"
+            if [[ -n "$CREATED_MINI" ]] && xcrun simctl boot "$CREATED_MINI" >/dev/null 2>&1; then
+              UDID="$CREATED_MINI"
+            fi
+          fi
+          echo "UI review simulator: $UDID"
           BUILT_PRODUCTS_DIR="$(xcodebuild \
             -project Strand.xcodeproj \
             -scheme NOOPiOS \
