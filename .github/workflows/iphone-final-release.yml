@@ -1,16 +1,14 @@
 name: Final iPhone IPA
 
 on:
+  # Signed publication is explicitly dispatched after signing material is confirmed. The
+  # automatically published AltStore/SideStore sideload build has its own workflow.
   workflow_dispatch:
     inputs:
       source_sha:
         description: "Exact main SHA to release. Leave blank to use current main HEAD."
         required: false
         type: string
-  push:
-    branches: [main]
-    paths:
-      - '.github/release/iphone-v2-final.json'
 
 permissions:
   contents: write
