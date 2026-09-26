@@ -679,20 +679,21 @@ struct LiquidTodayView: View {
                 // the state pill) rather than an empty vessel, matching the classic Today, widget/watch/Live
                 // Activity (`Repository.widgetAnchor`) and Android. Effort deliberately does NOT carry.
                 HeroScoreCell(label: String(localized: "Charge"), score: chargeDisplay.pct,
-                              tint: StrandPalette.chargeColor, animated: dataLoaded, diameter: diameter,
-                              onGuide: { guideSection = .charge },
+                              tint: StrandPalette.chargeColor, animated: dataLoaded,
+                              onGuide: { guideSection = .charge }, diameter: diameter,
                               detailRoute: .metric(HeroRingMetric.charge))
                 // The user's selected Effort scale and its precision remain unchanged.
                 HeroScoreCell(label: String(localized: "Effort"),
                               score: effortStrain(displayDay).map { UnitFormatter.effortValue($0, scale: effortScale) },
-                              tint: StrandPalette.effortColor, animated: dataLoaded, diameter: diameter,
+                              tint: StrandPalette.effortColor, animated: dataLoaded,
                               onGuide: { guideSection = .effort },
                               maxValue: effortScale == .whoop ? 21 : 100,
+                              diameter: diameter,
                               decimals: effortScale == .whoop ? 1 : 0,
                               detailRoute: .metric(HeroRingMetric.effort))
                 HeroScoreCell(label: String(localized: "Rest"), score: restScore,
-                              tint: StrandPalette.restColor, animated: dataLoaded, diameter: diameter,
-                              onGuide: { guideSection = .rest },
+                              tint: StrandPalette.restColor, animated: dataLoaded,
+                              onGuide: { guideSection = .rest }, diameter: diameter,
                               detailRoute: .metric(HeroRingMetric.rest))
                     .overlay(alignment: .top) {
                         if let sourceLabel = heroSourceLabel {
