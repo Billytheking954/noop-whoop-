@@ -1113,7 +1113,10 @@ final class HealthKitBridge: ObservableObject {
         ])
         // A query failure is not "there was no prior data". Capture the exact NOOP-authored
         // objects before writing so a later retirement can never sweep the replacement samples.
-        let previous = try await ownSamples(type: type, predicate: pred)
+        let previous = try await ownSamples(type: type, predicate: pred).filter { sample in
+            guard let key = sample.metadata?[HKMetadataKeyExternalUUID] as? String else { return false }
+            return HealthWriteback.isCurrentHeartRateKey(key)
+        }
 
         let unit = HKUnit.count().unitDivided(by: .minute())
         var samples: [HKQuantitySample] = []
@@ -1193,7 +1196,7 @@ final class HealthKitBridge: ObservableObject {
     /// does not let an app ask whether it may read. With write granted and read withheld the query
     /// returns nothing rather than failing, so reconciliation quietly does nothing and the duplicates
     /// stay. That fails safe, but it fails silent.
-    private func deleteOrphanedWorkouts(fromTs: Int, toTs: Int, keeping: Set<String>) async {
+    private func deleteOrphanedWorkouts(fromTs: Int, toTs: Int, keeping: Set<String>) async throws {
         let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForObjects(from: HKSource.default()),
             // `.strictStartDate`, and it is load-bearing. A workout is an INTERVAL, and the default
@@ -1210,21 +1213,16 @@ final class HealthKitBridge: ObservableObject {
                                         end: Date(timeIntervalSince1970: TimeInterval(toTs)),
                                         options: [.strictStartDate]),
         ])
-        let orphans: [HKWorkout] = await withCheckedContinuation { (cont: CheckedContinuation<[HKWorkout], Never>) in
-            let q = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: pred,
-                                  limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
-                var out: [HKWorkout] = []
-                for case let workout as HKWorkout in samples ?? [] {
-                    guard let uuid = workout.metadata?[HKMetadataKeyExternalUUID] as? String,
-                          uuid.hasPrefix(HealthWriteback.appleHealthWorkoutKeyPrefix) else { continue }
-                    if !keeping.contains(uuid) { out.append(workout) }
-                }
-                cont.resume(returning: out)
-            }
-            store.execute(q)
+        // A failed HealthKit read must abort reconciliation instead of looking like an empty window.
+        let observed = try await ownSamples(type: HKObjectType.workoutType(), predicate: pred)
+        let orphans = observed.compactMap { sample -> HKWorkout? in
+            guard let workout = sample as? HKWorkout,
+                  let uuid = workout.metadata?[HKMetadataKeyExternalUUID] as? String,
+                  HealthWriteback.isCurrentWorkoutKey(uuid), !keeping.contains(uuid) else { return nil }
+            return workout
         }
         guard !orphans.isEmpty else { return }
-        _ = try? await store.delete(orphans)
+        try await store.delete(orphans)
     }
 
     private func writeWorkouts(mine: [WorkoutRow], computed: [WorkoutRow],
@@ -1262,7 +1260,7 @@ final class HealthKitBridge: ObservableObject {
         // Runs BEFORE the empty-rows return: a window whose last workout was deleted in the app is the
         // case where every Health copy is an orphan, and returning early would leave all of them.
         if mine.count < Self.workoutReadLimit, computed.count < Self.workoutReadLimit {
-            await deleteOrphanedWorkouts(fromTs: fromTs, toTs: toTs, keeping: Set(rows.map(key)))
+            try await deleteOrphanedWorkouts(fromTs: fromTs, toTs: toTs, keeping: Set(rows.map(key)))
         }
 
         guard !rows.isEmpty else { return }

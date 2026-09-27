@@ -325,7 +325,9 @@ public enum CanonicalFitExporter {
         case "cycle": return 2
         case "swim": return 5
         case "walk": return 11
-        case "hike": return 15
+        case "hike": return 17
+        case "strength", "strength training", "weight training", "lifting": return 10
+        case "climbing", "rock climbing", "bouldering": return 31
         default: return 0
         }
     }

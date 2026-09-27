@@ -115,6 +115,8 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         XCTAssertEqual(activity.hrSamples.map(\.bpm), [110, 130])
         let records = try FitInspector(export.data).messages().filter { $0.global == 20 }
         XCTAssertTrue(records.allSatisfy { $0.fields[0] == nil && $0.fields[1] == nil })
+        let session = try XCTUnwrap(FitInspector(export.data).messages().first { $0.global == 18 })
+        XCTAssertEqual(session.u8(5), 10) // Training, rather than an unidentified generic sport.
     }
 
     func testSummaryOnlyWorkoutDoesNotFabricateTimeSeries() throws {
@@ -191,6 +193,7 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         let messages = try FitInspector(export.data).messages()
         XCTAssertTrue(messages.filter { $0.global == 20 }.allSatisfy { $0.fields[3] == nil })
         let session = try XCTUnwrap(messages.first { $0.global == 18 })
+        XCTAssertEqual(session.u8(5), 17) // Official FIT Sport.hiking; 15 is rowing.
         XCTAssertNil(session.fields[16])
         XCTAssertNil(session.fields[17])
     }

@@ -1,6 +1,23 @@
 import Foundation
 
 public extension HealthWriteback {
+    /// Only current, minute-bucket HR records written by NOOP are eligible for replacement.
+    /// Source alone is insufficient: older and unrelated app-authored HR samples can coexist.
+    static func isCurrentHeartRateKey(_ key: String) -> Bool {
+        let prefix = "noop:heart-rate:"
+        guard key.hasPrefix(prefix) else { return false }
+        let identity = key.dropFirst(prefix.count)
+        return !identity.isEmpty && identity.utf8.allSatisfy { (48...57).contains($0) }
+    }
+
+    /// Match the current timestamp-keyed workout scheme, excluding any future key formats.
+    static func isCurrentWorkoutKey(_ key: String) -> Bool {
+        let prefix = appleHealthWorkoutKeyPrefix
+        guard key.hasPrefix(prefix) else { return false }
+        let identity = key.dropFirst(prefix.count)
+        return !identity.isEmpty && identity.utf8.allSatisfy { (48...57).contains($0) }
+    }
+
     /// True only for the retired device-scoped key shape:
     /// `noop:<deviceId>:<kind>:<identity>`.
     ///

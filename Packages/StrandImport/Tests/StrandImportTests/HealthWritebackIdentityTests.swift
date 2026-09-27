@@ -2,6 +2,16 @@ import XCTest
 @testable import StrandImport
 
 final class HealthWritebackIdentityTests: XCTestCase {
+    func testReplacementKeysExcludeUnrelatedAppAuthoredHealthSamples() {
+        XCTAssertTrue(HealthWriteback.isCurrentHeartRateKey("noop:heart-rate:1800000060"))
+        XCTAssertFalse(HealthWriteback.isCurrentHeartRateKey("noop:heart-rate:other"))
+        XCTAssertFalse(HealthWriteback.isCurrentHeartRateKey("noop:sleep:1800000060"))
+        XCTAssertFalse(HealthWriteback.isCurrentHeartRateKey("noop:device:heart-rate:1800000060"))
+        XCTAssertTrue(HealthWriteback.isCurrentWorkoutKey("noop:workout:1800000060"))
+        XCTAssertFalse(HealthWriteback.isCurrentWorkoutKey("noop:workout:new-format:1800000060"))
+        XCTAssertFalse(HealthWriteback.isCurrentWorkoutKey("foreign:workout:1800000060"))
+    }
+
     func testHeartRateExternalUUIDIsStablePerMinuteBucket() {
         let a = HealthWriteback.appleHealthExternalUUID(kind: "heart-rate", identity: "1800000060")
         let same = HealthWriteback.appleHealthExternalUUID(kind: "heart-rate", identity: "1800000060")
