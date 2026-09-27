@@ -1455,7 +1455,7 @@ struct TodayView: View {
                        // second offscreen pass DOUBLED its cost and re-rasterised it on every TodayView
                        // body re-eval (the masked image is itself one offscreen pass). That was a v7.0.2
                        // lag regression; removing the flatten restores native layer caching.
-                       topBackground: showDayCycleBackground
+                       topBackground: showDayCycleBackground && !usesEditorialToday
                            ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 #if os(iOS)
@@ -2082,47 +2082,58 @@ struct TodayView: View {
             SectionHeader("Sleep summary", overline: "Sleep")
             NavigationLink(value: TabRoute.sleep) {
                 NoopCard(tint: StrandPalette.restColor) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                            Text("Asleep").font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                            if let minutes = displayDay?.totalSleepMin, minutes > 0 {
-                                Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
-                                    .font(StrandFont.title1.monospacedDigit())
-                                if selectedDayOffset == 0, let model = hostedSleepModel {
-                                    HStack(spacing: NoopMetrics.space2) {
-                                        Image(systemName: "moon.stars")
-                                            .accessibilityHidden(true)
-                                        Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs)),
-                                             style: .time)
-                                        Image(systemName: "arrow.right")
-                                            .accessibilityHidden(true)
-                                        Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs)),
-                                             style: .time)
-                                    }
-                                    .font(StrandFont.footnote)
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                                Text("Asleep").font(StrandFont.footnote)
                                     .foregroundStyle(StrandPalette.textSecondary)
+                                if let minutes = displayDay?.totalSleepMin, minutes > 0 {
+                                    Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
+                                        .font(StrandFont.title1.monospacedDigit())
+                                } else {
+                                    Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
+                                        .font(StrandFont.subhead)
                                 }
-                            } else {
-                                Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
-                                    .font(StrandFont.subhead)
                             }
+                            Spacer(minLength: NoopMetrics.space2)
+                            if let restScore {
+                                Text(String(format: String(localized: "Rest: %d%%"), Int(restScore.rounded())))
+                                    .font(StrandFont.subhead)
+                                    .foregroundStyle(StrandPalette.restColor)
+                            }
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .accessibilityHidden(true)
                         }
-                        Spacer(minLength: NoopMetrics.space2)
-                        if let restScore {
-                            Text(String(format: String(localized: "Rest: %d%%"), Int(restScore.rounded())))
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.restColor)
-                        }
-                        Image(systemName: "chevron.right")
+                        if selectedDayOffset == 0, (displayDay?.totalSleepMin ?? 0) > 0,
+                           let model = hostedSleepModel {
+                            let start = Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs))
+                            let end = Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: NoopMetrics.space2) {
+                                    Image(systemName: "moon.stars").accessibilityHidden(true)
+                                    Text(start, style: .time).fixedSize()
+                                    Image(systemName: "arrow.right").accessibilityHidden(true)
+                                    Text(end, style: .time).fixedSize()
+                                }
+                                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                                    Text(start, style: .time)
+                                    Text(end, style: .time)
+                                }
+                            }
+                            .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textSecondary)
+                        }
                     }
                 }
             }
             .buttonStyle(.plain)
             if selectedDayOffset == 0, (displayDay?.totalSleepMin ?? 0) > 0,
-               let model = hostedSleepModel {
-                StagesCard(model: model)
+               let model = hostedSleepModel, model.night.stages.total > 0 {
+                NavigationLink(value: TabRoute.sleep) {
+                    TodayStagePreview(stages: model.night.stages)
+                }
+                .buttonStyle(.plain)
             } else if displayDay?.totalSleepMin != nil {
                 NavigationLink(value: TabRoute.sleep) {
                     NoopCard(tint: StrandPalette.restColor) {
@@ -6290,6 +6301,77 @@ private struct TodayMetricSummaryRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Compact daily glance over the Sleep tab's actual stage totals. The full editable night,
+/// detailed intervals, provenance, and coverage remain in the Sleep destination.
+private struct TodayStagePreview: View {
+    let stages: Stages
+
+    private struct Part: Identifiable {
+        let id: String
+        let title: LocalizedStringKey
+        let minutes: Double
+        let color: Color
+    }
+
+    private var parts: [Part] {
+        [Part(id: "awake", title: "Awake", minutes: stages.awake, color: StrandPalette.sleepAwake),
+         Part(id: "light", title: "Light", minutes: stages.light, color: StrandPalette.sleepLight),
+         Part(id: "deep", title: "Deep", minutes: stages.deep, color: StrandPalette.sleepDeep),
+         Part(id: "rem", title: "REM", minutes: stages.rem, color: StrandPalette.sleepREM)]
+            .filter { $0.minutes > 0 }
+    }
+
+    var body: some View {
+        let visibleParts = parts
+        NoopCard(tint: StrandPalette.restColor) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                HStack {
+                    Text("Stages").font(StrandFont.headline)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .accessibilityHidden(true)
+                }
+                GeometryReader { geometry in
+                    HStack(spacing: 2) {
+                        ForEach(visibleParts) { part in
+                            Capsule()
+                                .fill(part.color)
+                                .frame(width: max(0, (geometry.size.width - CGFloat(visibleParts.count - 1) * 2)
+                                                    * CGFloat(part.minutes / stages.total)))
+                        }
+                    }
+                }
+                .frame(height: 10)
+                .accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: NoopMetrics.space4) {
+                        ForEach(visibleParts.filter { $0.id != "awake" }) { part in stageValue(part) }
+                    }
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        ForEach(visibleParts.filter { $0.id != "awake" }) { part in stageValue(part) }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func stageValue(_ part: Part) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(part.title)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+            HStack(spacing: NoopMetrics.space1) {
+                Text(Int(part.minutes.rounded()).formatted())
+                    .font(StrandFont.bodyNumber)
+                Text("min").font(StrandFont.footnote)
+            }
+            .foregroundStyle(part.color)
+        }
     }
 }
 
