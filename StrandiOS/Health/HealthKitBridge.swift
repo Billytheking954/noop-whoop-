@@ -799,6 +799,9 @@ final class HealthKitBridge: ObservableObject {
                                                          limit: Self.workoutReadLimit)
         let computedWorkouts = try await whoopStore.workouts(deviceId: computedDeviceId, from: fromTs, to: nowTs,
                                                              limit: Self.workoutReadLimit)
+        // Snapshot only legacy device-scoped NOOP Health objects before ANY replacement writes.
+        // A failed query aborts the pass; an unread source is never treated as an empty source.
+        let stranded = try await captureStrandedHealthRecords(fromTs: fromTs, nowTs: nowTs)
         var sleepsByStart: [Int: CachedSleepSession] = [:]
         for s in computedSleeps { sleepsByStart[s.startTs] = s }
         for s in importedSleeps { sleepsByStart[s.startTs] = s }
@@ -808,14 +811,8 @@ final class HealthKitBridge: ObservableObject {
         func attempt(_ op: () async throws -> Void) async {
             do { try await op() } catch { if firstError == nil { firstError = error } }
         }
-        // #1503: one-off sweep to clear records stranded under the OLD device-id-keyed scheme.
-        // The old keys embedded the active strap id (`noop:<deviceId>:<kind>:<identity>`), which
-        // became unreachable after a re-pair. The new keys drop the id segment, so the normal
-        // delete-then-write can never find the old records. This sweep deletes ALL of our prior
-        // records in the write-back window by `HKSource.default()` + date range (the same pattern
-        // the HR path uses), then the normal writes re-add them under the new keys. Runs once,
-        // gated by a UserDefaults flag, BEFORE the new-key writes so nothing is lost.
-        await attempt { try await migrateStrandedHealthRecords(fromTs: fromTs, nowTs: nowTs) }
+        // #1503 legacy retirement is deferred until every current-key writer succeeds.
+        // `stranded` contains only exact pre-write objects with the retired key shape.
         await attempt { try await writeVitals(computed: computedDailies, imported: importedDailies, sessions: sessions) }
         await attempt { try await writeSleep(sessions: sessions) }
         await attempt { try await writeHeartRate(buckets: hrBuckets, windowStart: hrWindowStart,
@@ -823,6 +820,8 @@ final class HealthKitBridge: ObservableObject {
         await attempt { try await writeWorkouts(mine: mineWorkouts, computed: computedWorkouts,
                                                 fromTs: fromTs, toTs: nowTs) }
         if let firstError { throw firstError }
+        // All current-key writes succeeded. Retire only the exact legacy objects captured above.
+        try await retireStrandedHealthRecords(stranded)
     }
 
     /// UserDefaults key for the #1503 stranded-records sweep completion set. Stores the set of
@@ -851,46 +850,57 @@ final class HealthKitBridge: ObservableObject {
     /// that was unauthorized or whose delete threw is left un-swept, so a later authorization grant
     /// or a successful retry finishes the migration instead of abandoning the stranded records.
     /// The decision helpers live in `HealthWriteback` so they are unit-tested without HealthKit.
-    private func migrateStrandedHealthRecords(fromTs: Int, nowTs: Int) async throws {
+    /// Capture only NOOP-authored objects carrying the retired device-scoped key shape.
+    /// The source+date predicate bounds the read; metadata decides eligibility for retirement.
+    private func captureStrandedHealthRecords(fromTs: Int, nowTs: Int) async throws -> [String: [HKSample]] {
         let defaults = UserDefaults.standard
-        let swept: Set<String> = Set(defaults.stringArray(forKey: Self.strandedRecordsSweptKey) ?? [])
+        let swept = Set(defaults.stringArray(forKey: Self.strandedRecordsSweptKey) ?? [])
         let bySource = HKQuery.predicateForObjects(from: HKSource.default())
         let byDate = HKQuery.predicateForSamples(
             withStart: Date(timeIntervalSince1970: TimeInterval(fromTs)),
             end: Date(timeIntervalSince1970: TimeInterval(nowTs) + 60),
             options: [])
         let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byDate])
-        var succeededThisRun: Set<String> = []
-        // Vitals: each quantity type that carried an id-keyed external UUID.
+
+        func legacyOnly(_ samples: [HKSample]) -> [HKSample] {
+            samples.filter { sample in
+                guard let key = sample.metadata?[HKMetadataKeyExternalUUID] as? String else { return false }
+                return HealthWriteback.isLegacyDeviceScopedAppleHealthKey(key)
+            }
+        }
+
+        var captured: [String: [HKSample]] = [:]
         for id in Self.quantityWriteIds {
             let typeId = id.rawValue
             guard !swept.contains(typeId),
                   let type = HKQuantityType.quantityType(forIdentifier: id),
                   store.authorizationStatus(for: type) == .sharingAuthorized else { continue }
-            // `try?` returns nil on throw — a failure is NOT recorded as swept, so it retries next run.
-            if (try? await store.deleteObjects(of: type, predicate: pred)) != nil {
-                succeededThisRun.insert(typeId)
-            }
+            captured[typeId] = legacyOnly(try await ownSamples(type: type, predicate: pred))
         }
-        // Sleep.
         if !swept.contains(Self.sleepSweepTypeId),
            let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
            store.authorizationStatus(for: sleep) == .sharingAuthorized {
-            if (try? await store.deleteObjects(of: sleep, predicate: pred)) != nil {
-                succeededThisRun.insert(Self.sleepSweepTypeId)
-            }
+            captured[Self.sleepSweepTypeId] = legacyOnly(try await ownSamples(type: sleep, predicate: pred))
         }
-        // Workouts.
         if !swept.contains(Self.workoutSweepTypeId),
            store.authorizationStatus(for: .workoutType()) == .sharingAuthorized {
-            if (try? await store.deleteObjects(of: .workoutType(), predicate: pred)) != nil {
-                succeededThisRun.insert(Self.workoutSweepTypeId)
-            }
+            captured[Self.workoutSweepTypeId] = legacyOnly(
+                try await ownSamples(type: HKObjectType.workoutType(), predicate: pred))
         }
-        // Persist only the types that actually succeeded this run; the rest stay pending.
-        if !succeededThisRun.isEmpty {
-            let updated = HealthWriteback.strandedSweepResult(swept: swept, succeededThisRun: succeededThisRun)
-            defaults.set(Array(updated), forKey: Self.strandedRecordsSweptKey)
+        return captured
+    }
+
+    /// Retire exact pre-write legacy objects only after the replacement pass succeeded.
+    /// Completion is persisted per type, so a failed delete remains pending for a later retry.
+    private func retireStrandedHealthRecords(_ captured: [String: [HKSample]]) async throws {
+        guard !captured.isEmpty else { return }
+        let defaults = UserDefaults.standard
+        var swept = Set(defaults.stringArray(forKey: Self.strandedRecordsSweptKey) ?? [])
+        for typeId in captured.keys.sorted() where !swept.contains(typeId) {
+            let samples = captured[typeId] ?? []
+            if !samples.isEmpty { try await store.delete(samples) }
+            swept.insert(typeId)
+            defaults.set(Array(swept).sorted(), forKey: Self.strandedRecordsSweptKey)
         }
     }
 
@@ -1220,14 +1230,24 @@ final class HealthKitBridge: ObservableObject {
     private func writeWorkouts(mine: [WorkoutRow], computed: [WorkoutRow],
                                fromTs: Int, toTs: Int) async throws {
         guard store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else { return }
-        // Both source reads completed before any HealthKit deletion in this pass.
-        var byKey: [String: WorkoutRow] = [:]
-        for w in computed + mine where w.source != HealthKitBridge.appleWorkoutSource {
-            byKey["\(w.startTs):\(w.sport)"] = w
+        // Both source reads completed before any HealthKit deletion in this pass. Adapt each
+        // persisted row into the SAME canonical representation the FIT exporter consumes. Keep the
+        // existing mine-over-computed collision precedence by inserting computed first, mine second.
+        var byKey: [String: CanonicalWorkout] = [:]
+        for w in computed where w.source != HealthKitBridge.appleWorkoutSource {
+            let canonical = CanonicalWorkout(workoutRow: w, deviceID: computedDeviceId)
+            byKey["\(canonical.startTimestamp):\(canonical.sport)"] = canonical
         }
-        let rows = byKey.values.sorted { $0.startTs < $1.startTs }
+        for w in mine where w.source != HealthKitBridge.appleWorkoutSource {
+            let canonical = CanonicalWorkout(workoutRow: w, deviceID: noopDeviceId)
+            byKey["\(canonical.startTimestamp):\(canonical.sport)"] = canonical
+        }
+        let rows = byKey.values.sorted { $0.startTimestamp < $1.startTimestamp }
 
-        func key(_ row: WorkoutRow) -> String { HealthWriteback.appleHealthWorkoutKey(startTs: row.startTs) }
+        func key(_ row: CanonicalWorkout) -> String {
+            // Keep the established HealthKit reconciliation identity for backwards compatibility.
+            HealthWriteback.appleHealthWorkoutKey(startTs: row.startTimestamp)
+        }
 
         // #2210: remove workouts we wrote that the store no longer holds. The delete below only ever
         // names the keys it is about to rewrite, so a row that LEFT the store keeps its Health copy for
@@ -1256,8 +1276,8 @@ final class HealthKitBridge: ObservableObject {
         let previous = try await ownSamples(type: HKObjectType.workoutType(), predicate: pred)
 
         for row in rows {
-            let start = Date(timeIntervalSince1970: TimeInterval(row.startTs))
-            let end = Date(timeIntervalSince1970: TimeInterval(row.endTs))
+            let start = Date(timeIntervalSince1970: TimeInterval(row.startTimestamp))
+            let end = Date(timeIntervalSince1970: TimeInterval(row.endTimestamp))
             guard end > start else { continue }
             let config = HKWorkoutConfiguration()
             config.activityType = Self.activityType(forSport: row.sport)
