@@ -2044,16 +2044,32 @@ struct TodayView: View {
             .tint(StrandPalette.accent)
             NavigationLink(value: TabRoute.metricExplorer) {
                 NoopCard(tint: StrandPalette.accent) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                            Text("Explore trends").font(StrandFont.headline)
-                            Text("Browse your saved metrics over time")
-                                .font(StrandFont.footnote)
+                    VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                                Text("Explore trends").font(StrandFont.headline)
+                                Text("Browse your saved metrics over time")
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
                                 .foregroundStyle(StrandPalette.textSecondary)
+                                .accessibilityHidden(true)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(StrandPalette.textSecondary)
+                        if let hrvHistory = sparks["hrv"], hrvHistory.count > 1 {
+                            HStack(spacing: NoopMetrics.space4) {
+                                Text("HRV")
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                Sparkline(values: Array(hrvHistory.suffix(7)),
+                                          gradient: Gradient(colors: [StrandPalette.metricCyan.opacity(0.55),
+                                                                      StrandPalette.metricCyan]),
+                                          showsHover: false)
+                                    .frame(height: 36)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                     }
                 }
             }
@@ -2073,6 +2089,20 @@ struct TodayView: View {
                             if let minutes = displayDay?.totalSleepMin, minutes > 0 {
                                 Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
                                     .font(StrandFont.title1.monospacedDigit())
+                                if selectedDayOffset == 0, let model = hostedSleepModel {
+                                    HStack(spacing: NoopMetrics.space2) {
+                                        Image(systemName: "moon.stars")
+                                            .accessibilityHidden(true)
+                                        Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs)),
+                                             style: .time)
+                                        Image(systemName: "arrow.right")
+                                            .accessibilityHidden(true)
+                                        Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs)),
+                                             style: .time)
+                                    }
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                }
                             } else {
                                 Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
                                     .font(StrandFont.subhead)
