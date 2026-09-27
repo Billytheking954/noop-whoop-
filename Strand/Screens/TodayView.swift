@@ -2072,7 +2072,7 @@ struct TodayView: View {
                                 .foregroundStyle(StrandPalette.textSecondary)
                             if let minutes = displayDay?.totalSleepMin, minutes > 0 {
                                 Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
-                                    .font(StrandFont.number(30))
+                                    .font(StrandFont.title1.monospacedDigit())
                             } else {
                                 Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
                                     .font(StrandFont.subhead)
@@ -6241,7 +6241,7 @@ private struct TodayMetricSummaryRow: View {
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textSecondary)
                         Text(value ?? String(localized: "No recent data"))
-                            .font(value == nil ? StrandFont.subhead : StrandFont.number(28))
+                            .font(value == nil ? StrandFont.subhead : StrandFont.title2.monospacedDigit())
                             .foregroundStyle(value == nil ? StrandPalette.textSecondary : StrandPalette.textPrimary)
                             .lineLimit(2)
                         if value != nil, let sourceDay {
