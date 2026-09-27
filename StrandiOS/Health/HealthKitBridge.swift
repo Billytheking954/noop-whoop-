@@ -1084,11 +1084,11 @@ final class HealthKitBridge: ObservableObject {
     /// ~1 Hz is deliberately downsampled: a fully-worn day is ~86k samples, which bloats the Health
     /// store; 1/min matches Apple Watch's background cadence.
     ///
-    /// Dedup: forward-only cursor plus a 48 h rewrite window. Each run deletes OUR OWN prior HR
-    /// samples in `[windowStart, now]` (source-scoped, date-range predicate — far cheaper than per-
-    /// sample external-UUID keys at this volume) and rewrites the window, so a strap offload that
-    /// backfills a recent night reconciles. Offloads older than 48 h behind the cursor are missed
-    /// until the cursor is cleared — accepted trade-off for not re-walking 14 days every sync.
+    /// Dedup: forward-only cursor plus a 48 h rewrite window. Each run first snapshots OUR OWN
+    /// prior HR samples in `[windowStart, now]`, saves the complete replacement window, then retires
+    /// only the exact objects captured before the save. A failed save therefore leaves the last
+    /// valid Health copy intact. Offloads older than 48 h behind the cursor are missed until the
+    /// cursor is cleared — accepted trade-off for not re-walking 14 days every sync.
     private func writeHeartRate(buckets: [HRBucket], windowStart: Int, cursor: Int,
                                 nowTs: Int) async throws {
         guard let type = HKQuantityType.quantityType(forIdentifier: .heartRate),
@@ -1101,7 +1101,9 @@ final class HealthKitBridge: ObservableObject {
                                         end: Date(timeIntervalSince1970: TimeInterval(nowTs) + 60),
                                         options: []),
         ])
-        _ = try? await store.deleteObjects(of: type, predicate: pred)
+        // A query failure is not "there was no prior data". Capture the exact NOOP-authored
+        // objects before writing so a later retirement can never sweep the replacement samples.
+        let previous = try await ownSamples(type: type, predicate: pred)
 
         let unit = HKUnit.count().unitDivided(by: .minute())
         var samples: [HKQuantitySample] = []
@@ -1111,12 +1113,18 @@ final class HealthKitBridge: ObservableObject {
             // Span the bucket, clamped so a bucket at the window edge can't end in the future
             // (HealthKit rejects future-dated samples).
             let end = Date(timeIntervalSince1970: TimeInterval(min(b.ts + 60, nowTs)))
-            samples.append(HKQuantitySample(type: type,
-                                            quantity: .init(unit: unit, doubleValue: b.bpm),
-                                            start: start, end: max(start, end)))
+            samples.append(HKQuantitySample(
+                type: type,
+                quantity: .init(unit: unit, doubleValue: b.bpm),
+                start: start, end: max(start, end),
+                metadata: [HKMetadataKeyExternalUUID:
+                           HealthWriteback.appleHealthExternalUUID(kind: "heart-rate", identity: "\(b.ts)")]
+            ))
         }
         // First run backfills ~20k samples (14 d × 1440/day); chunk the saves so no single HealthKit
-        // transaction is oversized. Cursor only advances past what actually saved.
+        // transaction is oversized. Do NOT advance the cursor until every chunk saved and the exact
+        // previous snapshot retired. If a later chunk fails, the previous valid copy remains and a
+        // retry can reconcile the partial new chunks without data loss.
         var lastSaved = cursor
         var pending = samples[...]
         var pendingTs = buckets.map(\.ts)[...]
@@ -1127,8 +1135,9 @@ final class HealthKitBridge: ObservableObject {
             pendingTs = pendingTs.dropFirst(chunk.count)
             try await store.save(chunk)
             lastSaved = max(lastSaved, chunkTs.last ?? lastSaved)
-            UserDefaults.standard.set(lastSaved, forKey: hrWriteCursorKey)
         }
+        if !previous.isEmpty { try await store.delete(previous) }
+        UserDefaults.standard.set(lastSaved, forKey: hrWriteCursorKey)
     }
 
     /// Write strap-detected and manual workouts into Health via `HKWorkoutBuilder`, with an
@@ -1137,7 +1146,7 @@ final class HealthKitBridge: ObservableObject {
     /// Health, and writing them back would duplicate the user's own Apple Watch/gym-app workouts.
     ///
     /// Dedup: `HKMetadataKeyExternalUUID = noop:workout:<startTs>` in the workout
-    /// metadata; delete-then-write scoped to our own source, like sleep and the vitals. The key
+    /// metadata; save-before-retire is scoped to our own source plus those stable keys. The key
     /// carries NO device-id segment (#1503): the active strap id is not durable, and embedding it
     /// stranded every prior workout as unreachable duplicates after a re-pair. Matches the Android
     /// twin's `noop-workout-<startTs>` `clientRecordId`.
@@ -1159,8 +1168,8 @@ final class HealthKitBridge: ObservableObject {
     ///
     /// ONE assumption this rests on, and it is newly load-bearing: that deleting an `HKWorkout` also
     /// removes the energy and distance samples `writeWorkouts` attached through its `HKWorkoutBuilder`.
-    /// The key-based delete already assumed it, but harmlessly, because every delete there is followed
-    /// immediately by a rewrite of the same key, so a surviving child is replaced rather than stranded.
+    /// The replacement retirement below also assumes it, but it happens only after a replacement
+    /// workout has saved for the same key, so a surviving child is not left without a workout above it.
     /// An orphan is deleted and NOT rewritten, so if the assumption is wrong its children are left in
     /// Health attributed to us with no workout above them, and nothing here will ever collect them.
     ///
@@ -1242,7 +1251,9 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
                                         allowedValues: rows.map(key)),
         ])
-        _ = try? await store.deleteObjects(of: .workoutType(), predicate: pred)
+        // Capture only our keyed workout objects. If this read fails, abort before creating a
+        // replacement; an empty result must mean "query succeeded and found nothing".
+        let previous = try await ownSamples(type: HKObjectType.workoutType(), predicate: pred)
 
         for row in rows {
             let start = Date(timeIntervalSince1970: TimeInterval(row.startTs))
@@ -1276,6 +1287,9 @@ final class HealthKitBridge: ObservableObject {
                 throw error
             }
         }
+        // Every replacement is now committed. Retire only the exact workout objects captured
+        // before the builders ran, so this delete cannot match the freshly-created workouts.
+        if !previous.isEmpty { try await store.delete(previous) }
     }
 
     /// Reverse of `sportName`: NOOP's sport label → the `HKWorkoutActivityType` written to Health.
