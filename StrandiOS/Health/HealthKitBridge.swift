@@ -979,20 +979,34 @@ final class HealthKitBridge: ObservableObject {
         }
         guard !candidates.isEmpty else { return }
 
-        // Delete any of OUR prior samples that carry the same metadata keys, then write the fresh
-        // batch. Scoped to HKSource.default() so we never touch a sample written by another app
-        // that happens to use the same external UUID. Delete failures are non-fatal (e.g., nothing
-        // to delete on first run) — only the save throws.
+        // Keep the previous samples until their replacements have actually saved. A failed save
+        // must leave the last successful sync visible in Health. Query only our own keyed samples;
+        // deleting the captured objects after saving cannot accidentally remove the new samples.
         let bySource = HKQuery.predicateForObjects(from: HKSource.default())
         let grouped = Dictionary(grouping: candidates, by: { $0.type })
+        var previous: [HKSample] = []
         for (type, items) in grouped {
             let keys = Array(Set(items.map { $0.key }))
             let byKey = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
                                                     allowedValues: keys)
             let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
-            _ = try? await self.store.deleteObjects(of: type, predicate: pred)
+            previous.append(contentsOf: try await ownSamples(type: type, predicate: pred))
         }
         try await self.store.save(candidates.map { $0.sample })
+        if !previous.isEmpty { try await self.store.delete(previous) }
+    }
+
+    /// Snapshot existing Health samples before a replacement. A query error must stop the write;
+    /// otherwise a failed read could silently turn every refresh into a duplicate write.
+    private func ownSamples(type: HKSampleType, predicate: NSPredicate) async throws -> [HKSample] {
+        try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(sampleType: type, predicate: predicate,
+                                      limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: samples ?? []) }
+            }
+            store.execute(query)
+        }
     }
 
     /// Write each BRIDGED NIGHT (#364) as one `.inBed` sample plus one category sample per stage
@@ -1054,8 +1068,9 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForObjects(from: HKSource.default()),
             HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: keys),
         ])
-        _ = try? await store.deleteObjects(of: type, predicate: pred)
+        let previous = try await ownSamples(type: type, predicate: pred)
         try await store.save(samples)
+        if !previous.isEmpty { try await store.delete(previous) }
     }
 
     /// UserDefaults key for the HR write cursor (the newest bucket ts we've written). Per-strap so a
