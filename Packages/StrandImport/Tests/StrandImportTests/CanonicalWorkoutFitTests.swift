@@ -68,7 +68,7 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         let imported = ActivityFileImporter.parse(data: export.data, filename: "run.fit")
         let activity = try XCTUnwrap(imported.activity)
         XCTAssertEqual(activity.kind, .fit)
-        XCTAssertEqual(activity.sport, "running")
+        XCTAssertEqual(activity.sport, "Running")
         XCTAssertEqual(activity.gpsPointCount, 3)
         XCTAssertEqual(activity.hrSampleCount, 3)
         XCTAssertEqual(activity.hrSamples.map(\.ts), [start, start + 60, start + 120])
