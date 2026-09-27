@@ -1,0 +1,210 @@
+name: One-shot HealthKit transaction patch
+
+on:
+  push:
+    branches: [feat/canonical-workout-fit-20260927]
+    paths:
+      - '.github/workflows/one-shot-healthkit-transaction-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/canonical-workout-fit-20260927
+          fetch-depth: 0
+
+      - name: Apply exact HealthKit replacements
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('StrandiOS/Health/HealthKitBridge.swift')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one old block, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          '''    /// Dedup: forward-only cursor plus a 48 h rewrite window. Each run deletes OUR OWN prior HR
+              /// samples in `[windowStart, now]` (source-scoped, date-range predicate — far cheaper than per-
+              /// sample external-UUID keys at this volume) and rewrites the window, so a strap offload that
+              /// backfills a recent night reconciles. Offloads older than 48 h behind the cursor are missed
+              /// until the cursor is cleared — accepted trade-off for not re-walking 14 days every sync.
+          ''',
+          '''    /// Dedup: forward-only cursor plus a 48 h rewrite window. Each run first snapshots OUR OWN
+              /// prior HR samples in `[windowStart, now]`, saves the complete replacement window, then retires
+              /// only the exact objects captured before the save. A failed save therefore leaves the last
+              /// valid Health copy intact. Offloads older than 48 h behind the cursor are missed until the
+              /// cursor is cleared — accepted trade-off for not re-walking 14 days every sync.
+          ''',
+          'heart-rate comment')
+
+          replace_once(
+          '''        let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                      HKQuery.predicateForObjects(from: HKSource.default()),
+                      HKQuery.predicateForSamples(withStart: Date(timeIntervalSince1970: TimeInterval(windowStart)),
+                                                  end: Date(timeIntervalSince1970: TimeInterval(nowTs) + 60),
+                                                  options: []),
+                  ])
+                  _ = try? await store.deleteObjects(of: type, predicate: pred)
+
+                  let unit = HKUnit.count().unitDivided(by: .minute())
+          ''',
+          '''        let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                      HKQuery.predicateForObjects(from: HKSource.default()),
+                      HKQuery.predicateForSamples(withStart: Date(timeIntervalSince1970: TimeInterval(windowStart)),
+                                                  end: Date(timeIntervalSince1970: TimeInterval(nowTs) + 60),
+                                                  options: []),
+                  ])
+                  // A query failure is not "there was no prior data". Capture the exact NOOP-authored
+                  // objects before writing so a later retirement can never sweep the replacement samples.
+                  let previous = try await ownSamples(type: type, predicate: pred)
+
+                  let unit = HKUnit.count().unitDivided(by: .minute())
+          ''',
+          'heart-rate pre-save capture')
+
+          replace_once(
+          '''            samples.append(HKQuantitySample(type: type,
+                                                      quantity: .init(unit: unit, doubleValue: b.bpm),
+                                                      start: start, end: max(start, end)))
+          ''',
+          '''            samples.append(HKQuantitySample(
+                          type: type,
+                          quantity: .init(unit: unit, doubleValue: b.bpm),
+                          start: start, end: max(start, end),
+                          metadata: [HKMetadataKeyExternalUUID:
+                                     HealthWriteback.appleHealthExternalUUID(kind: "heart-rate", identity: "\\(b.ts)")]
+                      ))
+          ''',
+          'heart-rate stable metadata')
+
+          replace_once(
+          '''        // First run backfills ~20k samples (14 d × 1440/day); chunk the saves so no single HealthKit
+                  // transaction is oversized. Cursor only advances past what actually saved.
+                  var lastSaved = cursor
+                  var pending = samples[...]
+                  var pendingTs = buckets.map(\\.ts)[...]
+                  while !pending.isEmpty {
+                      let chunk = Array(pending.prefix(5000))
+                      let chunkTs = Array(pendingTs.prefix(5000))
+                      pending = pending.dropFirst(chunk.count)
+                      pendingTs = pendingTs.dropFirst(chunk.count)
+                      try await store.save(chunk)
+                      lastSaved = max(lastSaved, chunkTs.last ?? lastSaved)
+                      UserDefaults.standard.set(lastSaved, forKey: hrWriteCursorKey)
+                  }
+          ''',
+          '''        // First run backfills ~20k samples (14 d × 1440/day); chunk the saves so no single HealthKit
+                  // transaction is oversized. Do NOT advance the cursor until every chunk saved and the exact
+                  // previous snapshot retired. If a later chunk fails, the previous valid copy remains and a
+                  // retry can reconcile the partial new chunks without data loss.
+                  var lastSaved = cursor
+                  var pending = samples[...]
+                  var pendingTs = buckets.map(\\.ts)[...]
+                  while !pending.isEmpty {
+                      let chunk = Array(pending.prefix(5000))
+                      let chunkTs = Array(pendingTs.prefix(5000))
+                      pending = pending.dropFirst(chunk.count)
+                      pendingTs = pendingTs.dropFirst(chunk.count)
+                      try await store.save(chunk)
+                      lastSaved = max(lastSaved, chunkTs.last ?? lastSaved)
+                  }
+                  if !previous.isEmpty { try await store.delete(previous) }
+                  UserDefaults.standard.set(lastSaved, forKey: hrWriteCursorKey)
+          ''',
+          'heart-rate save-before-retire')
+
+          replace_once(
+          '''    /// Dedup: `HKMetadataKeyExternalUUID = noop:workout:<startTs>` in the workout
+              /// metadata; delete-then-write scoped to our own source, like sleep and the vitals. The key
+          ''',
+          '''    /// Dedup: `HKMetadataKeyExternalUUID = noop:workout:<startTs>` in the workout
+              /// metadata; save-before-retire is scoped to our own source plus those stable keys. The key
+          ''',
+          'workout comment')
+
+          replace_once(
+          '''        guard !rows.isEmpty else { return }
+                  let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                      HKQuery.predicateForObjects(from: HKSource.default()),
+                      HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
+                                                  allowedValues: rows.map(key)),
+                  ])
+                  _ = try? await store.deleteObjects(of: .workoutType(), predicate: pred)
+
+                  for row in rows {
+          ''',
+          '''        guard !rows.isEmpty else { return }
+                  let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                      HKQuery.predicateForObjects(from: HKSource.default()),
+                      HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
+                                                  allowedValues: rows.map(key)),
+                  ])
+                  // Capture only our keyed workout objects. If this read fails, abort before creating a
+                  // replacement; an empty result must mean "query succeeded and found nothing".
+                  let previous = try await ownSamples(type: HKObjectType.workoutType(), predicate: pred)
+
+                  for row in rows {
+          ''',
+          'workout pre-save capture')
+
+          replace_once(
+          '''                _ = try await builder.finishWorkout()
+                      } catch {
+                          builder.discardWorkout()
+                          throw error
+                      }
+                  }
+              }
+          ''',
+          '''                _ = try await builder.finishWorkout()
+                      } catch {
+                          builder.discardWorkout()
+                          throw error
+                      }
+                  }
+                  // Every replacement is now committed. Retire only the exact workout objects captured
+                  // before the builders ran, so this delete cannot match the freshly-created workouts.
+                  if !previous.isEmpty { try await store.delete(previous) }
+              }
+          ''',
+          'workout save-before-retire')
+
+          replace_once(
+          '''    /// The key-based delete already assumed it, but harmlessly, because every delete there is followed
+              /// immediately by a rewrite of the same key, so a surviving child is replaced rather than stranded.
+          ''',
+          '''    /// The replacement retirement below also assumes it, but it happens only after a replacement
+              /// workout has saved for the same key, so a surviving child is not left without a workout above it.
+          ''',
+          'orphan child-sample comment')
+
+          path.write_text(text)
+          PY
+
+      - name: Verify diff is narrow
+        run: |
+          git diff --check
+          git diff -- StrandiOS/Health/HealthKitBridge.swift
+          test "$(git diff --name-only | wc -l | tr -d ' ')" = "1"
+          test "$(git diff --name-only)" = "StrandiOS/Health/HealthKitBridge.swift"
+
+      - name: Commit exact bridge patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add StrandiOS/Health/HealthKitBridge.swift
+          git commit -m "Make HealthKit workout and HR replacement transaction-safe"
+          git push origin HEAD:feat/canonical-workout-fit-20260927
