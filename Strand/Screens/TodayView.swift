@@ -2090,7 +2090,8 @@ struct TodayView: View {
                 }
             }
             .buttonStyle(.plain)
-            if selectedDayOffset == 0, let model = hostedSleepModel {
+            if selectedDayOffset == 0, (displayDay?.totalSleepMin ?? 0) > 0,
+               let model = hostedSleepModel {
                 StagesCard(model: model)
             } else if displayDay?.totalSleepMin != nil {
                 NavigationLink(value: TabRoute.sleep) {
