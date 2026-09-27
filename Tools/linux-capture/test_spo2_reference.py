@@ -86,6 +86,17 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(result["observations"]["retained_seconds"], 2)
         self.assertEqual(result["observations"]["largest_missing_gap_seconds"], 8)
 
+    def test_hourly_evidence_keeps_empty_and_partial_bins(self):
+        records = [row(START, 0), row(START + 3600, 97), row(START + 7199, 160)]
+        result = research.analyze(records, START, START + 7300)
+        bins = result["hourly_evidence"]
+        self.assertEqual([b["retained_seconds"] for b in bins], [1, 2, 0])
+        self.assertEqual([b["end_unix_exclusive"] - b["start_unix"] for b in bins],
+                         [3600, 3600, 100])
+        self.assertEqual(bins[0]["recorded_zero_seconds"], 1)
+        self.assertEqual(bins[1]["asleep_in_band_seconds"], 1)
+        self.assertEqual(bins[1]["asleep_out_of_band_nonzero_seconds"], 1)
+
     def test_duplicate_samples_are_idempotent_conflicts_are_refused(self):
         one = research.analyze([row(START, 97)], START, START+1, {START: 96})
         repeated = research.analyze([row(START, 97)]*100, START, START+1, {START: 96})
