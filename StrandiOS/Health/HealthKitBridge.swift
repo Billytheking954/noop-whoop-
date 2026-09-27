@@ -992,8 +992,9 @@ final class HealthKitBridge: ObservableObject {
             let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
             previous.append(contentsOf: try await ownSamples(type: type, predicate: pred))
         }
-        try await self.store.save(candidates.map { $0.sample })
-        if !previous.isEmpty { try await self.store.delete(previous) }
+        try await HealthWriteback.replaceAfterSave(existing: previous,
+            save: { try await self.store.save(candidates.map { $0.sample }) },
+            retire: { try await self.store.delete($0) })
     }
 
     /// Snapshot existing Health samples before a replacement. A query error must stop the write;
@@ -1069,8 +1070,9 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: keys),
         ])
         let previous = try await ownSamples(type: type, predicate: pred)
-        try await store.save(samples)
-        if !previous.isEmpty { try await store.delete(previous) }
+        try await HealthWriteback.replaceAfterSave(existing: previous,
+            save: { try await store.save(samples) },
+            retire: { try await store.delete($0) })
     }
 
     /// UserDefaults key for the HR write cursor (the newest bucket ts we've written). Per-strap so a
