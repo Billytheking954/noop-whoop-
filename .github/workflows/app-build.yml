@@ -114,7 +114,7 @@ jobs:
           xcrun simctl install "$UDID" "$APP"
           for APPEARANCE in light dark; do
             xcrun simctl ui "$UDID" appearance "$APPEARANCE"
-            for SCREEN in liquidtoday trends sleep workouts health settings; do
+            for SCREEN in today liquidtoday trends sleep workouts health settings; do
               xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
               # `--demo-seed` uses the app's DEBUG-only synthetic dataset; no values are presented as live data.
               xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
@@ -128,6 +128,13 @@ jobs:
               xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/$SCREEN-$APPEARANCE.png"
             done
           done
+          # Check the redesigned Today at an accessibility text size as well as the standard shots.
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen today \
+            -UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityM
+          sleep 18
+          xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/today-accessibility-medium-dark.png"
 
       - name: Upload seeded design review screenshots
         uses: actions/upload-artifact@v4
