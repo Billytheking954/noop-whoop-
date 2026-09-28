@@ -60,7 +60,7 @@ extension AutoWorkoutDetector {
         // Thresholds applied (the autoDetectThresholds capture). Stated once so a report carries the
         // calibration the windows were judged against.
         lines.append("autoDetect thresholds elevatedMargin=\(elevatedMarginBPM)bpm "
-            + "minSustainedMin=\(minimumSustainedMinutes) maxDipS=\(maxDipS) mergeGapS=\(mergeGapS) "
+            + "minSustainedMin=\(minimumSustainedMinutes) maxDipS=\(maxDipS) mergeGapS=\(mergeGapS) maxHRSampleGapS=\(maxHRSampleGapS) "
             + "motionConfirmMean=\(motionConfirmMean)")
 
         // Rebuild the SAME merged windows the detector forms (sustained spans tolerating dips, then merge),
@@ -76,6 +76,8 @@ extension AutoWorkoutDetector {
         var spanStart: Int? = nil
         var spanEnd = 0
         var dipStart: Int? = nil
+        var previousTs: Int? = nil
+        var missingIntervals: [(Int, Int)] = []
         func closeSpan() {
             if let s = spanStart, Double(spanEnd - s) >= minimumSustainedMinutes * 60.0 {
                 spans.append((s, spanEnd))
@@ -84,6 +86,11 @@ extension AutoWorkoutDetector {
             dipStart = nil
         }
         for sample in seg {
+            if let previousTs, sample.ts - previousTs > maxHRSampleGapS {
+                closeSpan()
+                missingIntervals.append((previousTs, sample.ts))
+            }
+            previousTs = sample.ts
             if sample.bpm >= floor {
                 if spanStart == nil { spanStart = sample.ts }
                 spanEnd = sample.ts
@@ -108,7 +115,8 @@ extension AutoWorkoutDetector {
         var curEnd = spans[0].end
         for k in 1..<spans.count {
             let next = spans[k]
-            if next.start - curEnd < mergeGapS {
+            let unobserved = missingIntervals.contains { $0.0 >= curEnd && $0.1 <= next.start }
+            if next.start - curEnd < mergeGapS && !unobserved {
                 curEnd = max(curEnd, next.end)
             } else {
                 merged.append((curStart, curEnd))
