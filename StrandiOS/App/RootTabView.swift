@@ -204,7 +204,7 @@ struct RootTabView: View {
         }
         // Honour a router request: Devices keeps its dedicated sheet; the v5 pillars route through the
         // shared pillar sheet. Cleared so the same tap can fire again later.
-        .onChange(of: router.requestedDestination) { _, dest in
+        .onChange(of: router.requestedDestination, initial: true) { _, dest in
             switch dest {
             case .devices:
                 showDevices = true

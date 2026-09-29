@@ -9,32 +9,17 @@ import WhoopStore
 enum DailyInsightNotificationScheduler {
     static let category = "noop-daily-insight"
     private static let prefix = "noop-daily-insight-"
-    static let enabledKey = "noop.insights.notifications.enabled"
-    static let rhrKey = "noop.insights.notifications.rhr"
-    static let hrvKey = "noop.insights.notifications.hrv"
-    static let sleepKey = "noop.insights.notifications.sleep"
-    static let startHourKey = "noop.insights.notifications.quietStartHour"
-    static let endHourKey = "noop.insights.notifications.quietEndHour"
-    private static let lastDayKey = "noop.insights.notifications.lastDay"
+    static let enabledKey = DailyInsightNotificationPolicy.enabledKey
+    static let rhrKey = DailyInsightNotificationPolicy.rhrKey
+    static let hrvKey = DailyInsightNotificationPolicy.hrvKey
+    static let sleepKey = DailyInsightNotificationPolicy.sleepKey
+    static let startHourKey = DailyInsightNotificationPolicy.startHourKey
+    static let endHourKey = DailyInsightNotificationPolicy.endHourKey
+    private static let lastDayKey = DailyInsightNotificationPolicy.lastDayKey
     private static let fingerprintKey = "noop.insights.notifications.fingerprint"
 
     static func preferences(_ defaults: UserDefaults = .standard) -> DailyInsightNotificationPolicy {
-        func allowed(_ key: String) -> Bool {
-            defaults.object(forKey: key) == nil || defaults.bool(forKey: key)
-        }
-        let metrics = Set(DailyChangeInsight.Metric.allCases.filter { metric in
-            switch metric {
-            case .restingHr: return allowed(rhrKey)
-            case .hrv: return allowed(hrvKey)
-            case .sleep: return allowed(sleepKey)
-            }
-        })
-        let start = defaults.object(forKey: startHourKey) == nil ? 22 : defaults.integer(forKey: startHourKey)
-        let end = defaults.object(forKey: endHourKey) == nil ? 8 : defaults.integer(forKey: endHourKey)
-        return .init(enabled: defaults.bool(forKey: enabledKey), metrics: metrics,
-                     quietStart: min(23, max(0, start)) * 60,
-                     quietEnd: min(23, max(0, end)) * 60,
-                     lastNotifiedDay: defaults.string(forKey: lastDayKey))
+        DailyInsightNotificationPolicy.load(from: defaults)
     }
 
     static func reconcile(rows: [DailyMetric], now: Date = Date(),

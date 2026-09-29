@@ -30,4 +30,22 @@ final class DailyInsightNotificationPolicyTests: XCTestCase {
         XCTAssertTrue(policy.isQuiet(at: now.addingTimeInterval(13 * 3600), calendar: c))
         XCTAssertNil(policy.eligible([insight], now: now.addingTimeInterval(24 * 3600), calendar: c))
     }
+
+    func testStoredPreferencesAndDedupDaySurviveReload() {
+        let name = "DailyInsightNotificationPolicyTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        XCTAssertFalse(DailyInsightNotificationPolicy.load(from: defaults).enabled)
+        defaults.set(true, forKey: DailyInsightNotificationPolicy.enabledKey)
+        defaults.set(false, forKey: DailyInsightNotificationPolicy.hrvKey)
+        defaults.set(23, forKey: DailyInsightNotificationPolicy.startHourKey)
+        defaults.set(7, forKey: DailyInsightNotificationPolicy.endHourKey)
+        defaults.set("2026-09-29", forKey: DailyInsightNotificationPolicy.lastDayKey)
+        let reloaded = DailyInsightNotificationPolicy.load(from: UserDefaults(suiteName: name)!)
+        XCTAssertTrue(reloaded.enabled)
+        XCTAssertEqual(reloaded.metrics, [.restingHr, .sleep])
+        XCTAssertEqual(reloaded.quietStart, 23 * 60)
+        XCTAssertEqual(reloaded.quietEnd, 7 * 60)
+        XCTAssertEqual(reloaded.lastNotifiedDay, "2026-09-29")
+    }
 }

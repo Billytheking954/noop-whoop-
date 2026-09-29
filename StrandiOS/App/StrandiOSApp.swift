@@ -561,6 +561,8 @@ enum DemoScreens {
         case "workouts": return AnyView(WorkoutsView())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsView())
+        case "insightshub": return AnyView(InsightsHubView())
+        case "insightalerts": return AnyView(DailyInsightNotificationSettingsView())
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
