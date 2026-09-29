@@ -142,7 +142,7 @@ jobs:
           # Cover the remaining DEBUG screenshot routes without inflating the main archive beyond
           # the review client's download limit. These are entry states, not every reachable sheet.
           xcrun simctl ui "$UDID" appearance dark
-          for SCREEN in live stress insights insightshub insightalerts explore compare chargebreakdown devices devicescatalog fitnessage vitality addwizard ouraonboarding ouradevice bondrefused; do
+          for SCREEN in live stress insights insightshub insightalerts insightdetail explore compare chargebreakdown restdetail effortdetail devices devicescatalog fitnessage vitality addwizard ouraonboarding ouradevice bondrefused; do
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
             xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
             sleep 12
