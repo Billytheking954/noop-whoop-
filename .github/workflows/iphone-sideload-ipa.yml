@@ -56,15 +56,17 @@ jobs:
           assert p['included_prs'] == list(range(7, 23)) + [24]
           assert p['spo2']['production_scoring'] is False
           PY
-      - name: Build fresh physical-iPhone app
+      - name: Archive fresh physical-iPhone app
         shell: bash
         run: |
           set -euo pipefail
           brew install xcodegen
           xcodegen generate
           xcodebuild -project Strand.xcodeproj -scheme NOOPiOS -configuration Release \
-            -destination 'generic/platform=iOS' -derivedDataPath "$PWD/build/sideload" \
-            CODE_SIGNING_ALLOWED=NO BUNDLE_ID_PREFIX=com.noopapp build
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/sideload/NOOPiOS.xcarchive" \
+            -derivedDataPath "$PWD/build/sideload/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO BUNDLE_ID_PREFIX=com.noopapp archive
       - name: Package and verify sideload IPA
         id: ipa
         shell: bash
@@ -72,7 +74,9 @@ jobs:
           set -euo pipefail
           SHA="$(git rev-parse HEAD)"
           SHORT="${SHA:0:12}"
-          APP="$PWD/build/sideload/Build/Products/Release-iphoneos/NOOP.app"
+          ARCHIVE="$PWD/build/sideload/NOOPiOS.xcarchive"
+          test -d "$ARCHIVE"
+          APP="$ARCHIVE/Products/Applications/NOOP.app"
           test -d "$APP/PlugIns/NOOPWidgets.appex"
           test ! -d "$APP/Watch"
           test "$(find "$APP/PlugIns" -maxdepth 1 -name '*.appex' -type d | wc -l | tr -d ' ')" = 1
@@ -96,7 +100,7 @@ jobs:
             'repository':'Billytheking954/noop-whoop-', 'branch':__import__('os').environ.get('GITHUB_HEAD_REF') or __import__('os').environ['GITHUB_REF_NAME'],
             'git_sha':sha, 'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
             'product':'NOOP', 'release_family':'NOOP V2', 'app_version':'11.8.0', 'build_number':'400',
-            'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64', 'signing':'ad-hoc; sideloader must re-sign',
+            'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64', 'build_action':'archive', 'signing':'ad-hoc; sideloader must re-sign',
             'included_prs':list(range(7,23)) + [24, 28, 30, 31], 'experimental_spo2_production_scoring':False,
           }, indent=2, sort_keys=True)+'\n')
           PY
@@ -128,7 +132,7 @@ jobs:
           (ipa.parent/'sideload-manifest.json').write_text(json.dumps({
             'source_sha':sha, 'branch':os.environ.get('GITHUB_HEAD_REF') or os.environ['GITHUB_REF_NAME'],
             'artifact':name, 'sha256':hashlib.sha256(ipa.read_bytes()).hexdigest(),
-            'version':'11.8.0', 'build':'400', 'platform':'iPhone',
+            'version':'11.8.0', 'build':'400', 'platform':'iPhone', 'build_action':'archive',
             'signing':'ad-hoc capability template; AltStore/SideStore must re-sign',
           }, indent=2, sort_keys=True)+'\n')
           PY
