@@ -59,6 +59,9 @@ final class NavRouter: ObservableObject {
     /// The #238 "a workout just started" transition trigger never fires for a session that is already in
     /// flight, so this is the one path that re-opens the live workout for an existing session.
     @Published var presentActiveWorkout = false
+    /// Exact daily-change finding selected by a local notification. The Insights screen clears it
+    /// after finding the current version; a withdrawn finding never opens an obsolete detail.
+    @Published var pendingDailyInsightID: String?
 
     /// Ask the shell to open the quick-action sheet (Live HR · workout · journal · breathe).
     func requestQuickActions() { quickActionsRequested = true }
@@ -69,6 +72,10 @@ final class NavRouter: ObservableObject {
     func openCoach() { requestedDestination = .coach }
     /// Open the v5 Insights hub (the n-of-1 "what moves your Charge" surface).
     func openInsightsHub() { requestedDestination = .insightsHub }
+    func openDailyInsight(id: String) {
+        pendingDailyInsightID = id
+        requestedDestination = .insightsHub
+    }
     /// Open the Lab Book (private health-records logbook).
     func openLabBook() { requestedDestination = .labBook }
     /// Open the "Your Data, Fused" multi-device record.

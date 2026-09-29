@@ -11,7 +11,7 @@ Status: **wired** means the current source has a real route and data read; **par
 | Today: Effort ring | effective stored/live strain, user scale | Opens strain metric detail | Wired; now third |
 | Today: Health snapshot | selected day's resting HR, `HealthView` | Opens Health Monitor | Wired compact first-hop; 5/5 count unsupported |
 | Today: Stress summary | `stressToday` and `StressView` | Opens Stress Monitor | Wired day-average or unavailable; sample 1.1 unsupported |
-| Today: day review / My Day | existing synthesis, `InsightsHubView` history | Opens Insights hub | Partial; generated narrative in concept unsupported |
+| Today: day review / My Day | existing synthesis, `InsightsHubView` measured changes | Opens Insights hub | Partial; generated narrative in concept unsupported |
 | Today: last night's sleep and stages | `DailyMetric.totalSleepMin`, `SleepModel.night.stages` | Opens Sleep | Wired where a session is available |
 | Today: overnight HRV and RHR | `DailyMetric.avgHrv`, `restingHr` with carried date | Opens respective metric | Wired |
 | Today: activity card | stored `WorkoutRow`; possible bout from HR detector | Opens detail or review card | Partial; no multi-candidate history |
@@ -31,13 +31,13 @@ Status: **wired** means the current source has a real route and data read; **par
 | Activity: possible activity / review | HR detector; optional gravity evidence | Accept, Edit, Dismiss | Wired single candidate; HR alone remains unconfirmed; sport stays generic |
 | Trends: date selection and dual axes | daily rows and metric series | Range control, charts, metric details | Partial: pictured exact 7-day dual-axis layout differs |
 | Trends: weekly averages / key trends | stored daily rows | Existing digest and metric links | Wired/partial; depends on history |
-| Insights: change cards with personal median, dates, source | No dedicated change-history engine in this branch | Existing Insights hub offers associations | Unsupported as pictured; no fabricated change feed |
-| Insights: notification categories, quiet hours, dedup, exact tap | No dedicated insight notification scheduler | Existing Coach/Automations controls are separate | Unsupported; opt-in change alerts must not be claimed |
+| Insights: change cards with personal median, dates, source | `DailyChangeInsight` over local daily rows (7 prior values in 30 days), recomputed after sync | Opens measured detail and underlying metric | Partial; local daily row is labelled, original device source needs metric drill-in |
+| Insights: notification categories, quiet hours, dedup, exact tap | Local `DailyInsightNotificationScheduler`, stored opt-in and one-per-day decision | Settings control; notification taps route by insight ID | Implemented in source; permission, timing, late-offload withdrawal and tap require hosted/device tests |
 | Device: connected strap, sync, battery, firmware | `LiveState`, observed BLE and device registry | Pair, sync, inspect | Wired where observed; sample strap image/name/firmware unsupported |
 | Device: broadcast HR toggle | existing `PuffinExperiment` preference and BLE capability gate | Toggle in Devices/Settings | Wired with device checks; physical behavior unverified |
 | Settings: appearance, units, Health permissions, sources, export | existing settings and HealthKit/backup paths | Opens actual controls | Wired; pictured compact list differs |
-| Settings: notifications and automations | existing reminders/Automations; no insight categories | Existing controls | Partial; insight controls unsupported |
-| Insight Detail: value, 20-day median, chart and source | no daily-change insight record | Existing metric detail only | Unsupported as pictured |
+| Settings: notifications and automations | existing reminders/Automations plus local insight settings | Opens category and quiet-hour controls | Partial; runtime permissions unverified |
+| Insight Detail: value, recent median, comparison dates and source | `DailyChangeInsight` from local daily records | Opens detail, then metric history | Partial; no dedicated 30-day chart or exact device-source field |
 | First Use: strap scan and setup later | `OnboardingWizard` / `AddDeviceWizard`, BLE scan | Pair or defer | Wired; pictured fictional strap/device unsupported |
 
 ## Validation boundary

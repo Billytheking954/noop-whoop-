@@ -183,6 +183,9 @@ struct RootTabView: View {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
+        .task(id: repo.refreshSeq) {
+            await DailyInsightNotificationScheduler.reconcile(rows: repo.days)
+        }
         // Quick-action sheet presents with the calm easing (~0.42s) per the README sheet spec —
         // the easing is applied where `quickAction` is set (see `presentQuickAction`), keeping the
         // animation scoped to the sheet rather than the whole shell.
@@ -509,6 +512,7 @@ struct RootTabView: View {
                     // Automations screen instead. Its absence from the iPhone More list is correct.
                     MoreRow("Alarms", "alarm.fill", .alarms)
                     MoreRow("Automations", "wand.and.stars", .automations)
+                    MoreRow("Insight notifications", "bell.badge", .dailyInsightNotifications)
                     // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
                     // just buried in Settings, so the feedback loop is one tap from the More tab.
                     MoreRow("Test Centre", "stethoscope", .testCentre)
@@ -601,7 +605,7 @@ private enum MoreDestination: Hashable {
     case insightsHub, intelligence, coach, insights, explore, compare
     case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
     case fusedRecord, appleHealth, miBand, dataSources, backupSync, shortcutsExport, noopLimitations
-    case alarms, automations, testCentre, siriShortcuts, powerSaving, settings
+    case alarms, automations, dailyInsightNotifications, testCentre, siriShortcuts, powerSaving, settings
 
     @ViewBuilder var destination: some View {
         switch self {
@@ -629,6 +633,7 @@ private enum MoreDestination: Hashable {
         case .shortcutsExport: ShortcutExportSettingsView()
         case .alarms:          SmartAlarmView()
         case .automations:     AutomationsView()
+        case .dailyInsightNotifications: DailyInsightNotificationSettingsView()
         case .testCentre:      TestCentreView()
         case .siriShortcuts:   SiriShortcutsSettingsView()
         case .powerSaving:     PowerSavingView()

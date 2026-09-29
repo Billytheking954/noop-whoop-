@@ -97,7 +97,7 @@ jobs:
             'git_sha':sha, 'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
             'product':'NOOP', 'release_family':'NOOP V2', 'app_version':'11.8.0', 'build_number':'400',
             'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64', 'signing':'ad-hoc; sideloader must re-sign',
-            'included_prs':list(range(7,23)) + [24], 'experimental_spo2_production_scoring':False,
+            'included_prs':list(range(7,23)) + [24, 28, 30, 31], 'experimental_spo2_production_scoring':False,
           }, indent=2, sort_keys=True)+'\n')
           PY
           bash Tools/prepare_iphone_sideload.sh "$APP"
@@ -122,7 +122,7 @@ jobs:
           PY
           shasum -a 256 "release-out/$NAME" > "release-out/$NAME.sha256.txt"
           python3 - "$NAME" "$SHA" <<'PY'
-          import hashlib, json, pathlib, sys
+          import hashlib, json, os, pathlib, sys
           name, sha = sys.argv[1:]
           ipa = pathlib.Path('release-out')/name
           (ipa.parent/'sideload-manifest.json').write_text(json.dumps({
