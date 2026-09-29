@@ -106,6 +106,6 @@ enum HeroRingMetric {
     static let effort = "strain"
     static let rest = "sleep_performance"
 
-    /// Charge, Effort, Rest, in the order the hero row renders them.
-    static let all = [charge, effort, rest]
+    /// Rest, Charge, Effort, in the order the Today hero row renders them.
+    static let all = [rest, charge, effort]
 }

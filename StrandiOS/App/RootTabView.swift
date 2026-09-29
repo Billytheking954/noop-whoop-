@@ -239,11 +239,6 @@ struct RootTabView: View {
                 // so a deep-link lands on the Today tab where that entry lives.
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
                 router.requestedDestination = nil
-            case .coach:
-                // #1862: the Today Coach launcher hands its question here. Coach is a pillar sheet on
-                // iPhone, the same as the Insights hub, so route it that way rather than switching tabs.
-                routedPillar = dest
-                router.requestedDestination = nil
             case .journal:
                 // The #627 Today journal widget opens the journal through the quick-action Journal sheet
                 // (InsightsView), matching the FAB's "Log journal" action. Calm sheet easing.

@@ -2020,10 +2020,12 @@ struct TodayView: View {
     private var editorialTodaySections: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
             classicHeroSection
+            editorialGlanceSection
             editorialSleepSection
             editorialOvernightSection
             editorialStressSection
             editorialActivitySection
+            editorialInsightsSection
             editorialHealthSection
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
@@ -2075,6 +2077,69 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// A compact first hop to the measured health and stress screens. A missing reading stays missing;
+    /// no sample value from the concept sheet is used as a fallback.
+    private var editorialGlanceSection: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: NoopMetrics.space3) { editorialGlanceCards }
+            VStack(spacing: NoopMetrics.space3) { editorialGlanceCards }
+        }
+    }
+
+    @ViewBuilder private var editorialGlanceCards: some View {
+        NavigationLink(value: TabRoute.health) {
+            NoopCard(padding: 12, tint: StrandPalette.metricCyan) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    Text("Health Monitor").font(StrandFont.headline)
+                    Text(displayDay?.restingHr.map { "Resting HR \($0) bpm" }
+                         ?? (repo.loaded ? "No reading for this day" : "Loading…"))
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        NavigationLink(value: TabRoute.stress) {
+            NoopCard(padding: 12, tint: StrandPalette.stressColor) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    Text("Stress Monitor").font(StrandFont.headline)
+                    Text(selectedDayOffset == 0
+                         ? stressToday.map { String(format: "Day average %.1f", locale: AppLanguage.activeLocale, $0) }
+                           ?? (repo.loaded ? "No supported reading" : "Loading…")
+                         : "Open selected-day detail")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var editorialInsightsSection: some View {
+        Button { router.openInsightsHub() } label: {
+            NoopCard(tint: StrandPalette.accent) {
+                HStack(spacing: NoopMetrics.space3) {
+                    Image(systemName: "lightbulb")
+                        .foregroundStyle(StrandPalette.accent)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        Text("Insights").font(StrandFont.headline)
+                        Text("Explore changes supported by your saved history")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var editorialSleepSection: some View {
@@ -3491,8 +3556,7 @@ struct TodayView: View {
         // and never clips. Until the first layout measures width, fall back to a sensible phone width so the
         // rings render at a reasonable size on the very first frame rather than collapsing.
         let measured = heroRingRowWidth > 1 ? heroRingRowWidth : 345
-        // Design Reset: three EQUAL clean rings (no glow, faint track) in Charge / Effort / Rest order with
-        // generous spacing, mirroring the flat mockup. Sized off width so they stay equal on any phone.
+        // Three equal rings in the concept's Rest / Charge / Effort order, sized to the available width.
         let ring = Self.heroRingDiameter(rowWidth: measured)
         HStack(alignment: .top, spacing: 22) {
             // Component 4: Charge/Rest badge their real per-day merge winner; Effort has no badge.
@@ -3510,18 +3574,16 @@ struct TodayView: View {
             // have and both rings open it, exactly as Android's do. The keys are the ones
             // `HeroRingDetailRouteTests` pins against `MetricCatalog`; `TabRoute.metric` falls back to the
             // Health screen on an unknown key rather than failing, which is why they are pinned.
+            heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance",
+                           detailRoute: .metric(HeroRingMetric.rest),
+                           caption: restIsPendingSync ? "Pending sync" : nil,
+                           captionWidth: ring) { restRing(diameter: ring) }
             heroRingColumn(section: .charge, domain: .charge, provenanceKey: "recovery",
                            onOpenBreakdown: { showChargeBreakdown = true }) {
                 chargeRing(score: score, d: d, diameter: ring)
             }
             heroRingColumn(section: .effort, domain: .effort,
                            detailRoute: .metric(HeroRingMetric.effort)) { effortRing(d: d, diameter: ring) }
-            // `provenanceKey` spells the same string the route does and stays a literal on purpose: it
-            // asks which SOURCE won this day, not which catalog entry to open. See `HeroRingMetric`.
-            heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance",
-                           detailRoute: .metric(HeroRingMetric.rest),
-                           caption: restIsPendingSync ? "Pending sync" : nil,
-                           captionWidth: ring) { restRing(diameter: ring) }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         // Zero-impact width reader: a clear background that publishes the row's width up via preference. It

@@ -1,6 +1,7 @@
 name: Unsigned iPhone sideload IPA
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
@@ -38,6 +39,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          # PR artifacts must come from the named branch's final commit, not GitHub's
+          # temporary test-merge ref. The embedded source SHA then resolves to that branch.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Check source and scope
         shell: bash
         run: |
@@ -89,7 +93,7 @@ jobs:
           info.update(NOOPReleaseGitSHA=sha, NOOPReleaseBaseline='NOOP 11.8', NOOPReleaseFamily='NOOP V2')
           with (app/'Info.plist').open('wb') as f: plistlib.dump(info, f)
           (app/'NOOPReleaseProvenance.json').write_text(json.dumps({
-            'repository':'Billytheking954/noop-whoop-', 'branch':'main' if __import__('os').environ['GITHUB_REF']=='refs/heads/main' else 'pull_request',
+            'repository':'Billytheking954/noop-whoop-', 'branch':__import__('os').environ.get('GITHUB_HEAD_REF') or __import__('os').environ['GITHUB_REF_NAME'],
             'git_sha':sha, 'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
             'product':'NOOP', 'release_family':'NOOP V2', 'app_version':'11.8.0', 'build_number':'400',
             'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64', 'signing':'ad-hoc; sideloader must re-sign',
@@ -122,7 +126,8 @@ jobs:
           name, sha = sys.argv[1:]
           ipa = pathlib.Path('release-out')/name
           (ipa.parent/'sideload-manifest.json').write_text(json.dumps({
-            'source_sha':sha, 'artifact':name, 'sha256':hashlib.sha256(ipa.read_bytes()).hexdigest(),
+            'source_sha':sha, 'branch':os.environ.get('GITHUB_HEAD_REF') or os.environ['GITHUB_REF_NAME'],
+            'artifact':name, 'sha256':hashlib.sha256(ipa.read_bytes()).hexdigest(),
             'version':'11.8.0', 'build':'400', 'platform':'iPhone',
             'signing':'ad-hoc capability template; AltStore/SideStore must re-sign',
           }, indent=2, sort_keys=True)+'\n')
