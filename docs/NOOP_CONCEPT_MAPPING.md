@@ -37,7 +37,7 @@ Status: **wired** means the current source has a real route and data read; **par
 | Device: broadcast HR toggle | existing `PuffinExperiment` preference and BLE capability gate | Toggle in Devices/Settings | Wired with device checks; physical behavior unverified |
 | Settings: appearance, units, Health permissions, sources, export | existing settings and HealthKit/backup paths | Opens actual controls | Wired; pictured compact list differs |
 | Settings: notifications and automations | existing reminders/Automations plus local insight settings | Opens category and quiet-hour controls | Partial; runtime permissions unverified |
-| Insight Detail: value, recent median, comparison dates and source | `DailyChangeInsight` from local daily records | Opens detail, then metric history | Partial; no dedicated 30-day chart or exact device-source field |
+| Insight Detail: value, recent median, comparison dates and source | `DailyChangeInsight` from local daily records | Opens detail, then metric history | 30-day observed chart with missing-day gaps; exact device-source field still unavailable |
 | First Use: strap scan and setup later | `OnboardingWizard` / `AddDeviceWizard`, BLE scan | Pair or defer | Wired; pictured fictional strap/device unsupported |
 
 ## Validation boundary
