@@ -96,7 +96,7 @@ private struct ConceptDeviceView: View {
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
                             Text("Last sync").font(.system(size: 11)).foregroundStyle(StrandPalette.textSecondary)
-                            Text(live.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not yet")
+                            Text(live.lastSyncedAt.map { Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
                                 .font(.system(size: 11))
                                 .foregroundStyle(StrandPalette.textPrimary)
                         }
@@ -161,7 +161,7 @@ private struct ConceptDeviceView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Sync Now").font(.system(size: 15, weight: .semibold))
                                 Text(syncFeedback ?? (live.lastSyncedAt.map {
-                                    "Last synced \($0.formatted(date: .abbreviated, time: .shortened))"
+                                    "Last synced \(Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened))"
                                 } ?? "No completed sync yet"))
                                     .font(.system(size: 11))
                                     .foregroundStyle(StrandPalette.textSecondary)
@@ -176,7 +176,7 @@ private struct ConceptDeviceView: View {
                     .buttonStyle(.plain)
                     .disabled(!live.connected || !live.encryptedBond)
                     .onChange(of: live.lastSyncedAt) { _, date in
-                        if let date { syncFeedback = "Synced \(date.formatted(date: .abbreviated, time: .shortened))" }
+                        if let date { syncFeedback = "Synced \(Date(timeIntervalSince1970: date).formatted(date: .abbreviated, time: .shortened))" }
                     }
                     if !live.connected || !live.encryptedBond {
                         Text("Sync needs a connected, bonded strap.")
