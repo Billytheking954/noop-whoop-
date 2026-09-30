@@ -1,5 +1,22 @@
 # AGENTS.md — working on NOOP
 
+## Authoritative NOOP V2 fork guidance
+
+This fork supports iPhone and its required widget only. The upstream reference below describes
+retired macOS, Android and Watch products. Do not reintroduce those targets or require absent Kotlin
+parity. Use `docs/CONTRIBUTING.md`, `docs/BUILD.md`, `docs/IOS.md` and actual `project.yml`.
+
+`app-build.yml` is active for relevant PRs to main: iPhone build, hosted app tests and seeded
+screenshots. Swift package CI separately tests reusable code. Linux/Windows tooling CI does not
+establish iPhone BLE, HealthKit or physiological accuracy. App changes require an actual iPhone build.
+
+Preserve offline operation, curated reversible BLE commands, design tokens, versioned migrations,
+attribution and production/research separation. Experimental SpO2 must not become a production
+value or scoring input. Development branches do not expand the formal release freeze; follow
+`docs/IPHONE_RELEASE_POLICY.md` for signing and publication.
+
+## Historical upstream reference
+
 Guidance for anyone (human or AI agent) submitting a pull request. This is the high-signal map;
 [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) is the full guide (BLE safety contract, design-system
 rules, add-a-metric/screen/command recipes), [`docs/BUILD.md`](docs/BUILD.md) covers signing/pairing,

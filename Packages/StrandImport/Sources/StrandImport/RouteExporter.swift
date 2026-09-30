@@ -218,7 +218,7 @@ public enum RouteExporter {
         case "cycle": return 2
         case "swim": return 5
         case "walk": return 11
-        case "hike": return 15
+        case "hike": return 17
         default: return 0
         }
     }
