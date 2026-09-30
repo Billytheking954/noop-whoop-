@@ -14,7 +14,7 @@ The three supplied sheets are generated visual references. The screenshots named
 | Insights | `insightshub-dark.png` | Local measured-change history, personal comparison, dates and detail routes | Cards were taller in the captured version; latest source tightens them. Sample prose and values are unsupported. |
 | Device | `devices-dark.png` | Real discovered device, pairing, sync and battery state where observed | No illustrated strap render or fictional firmware; a physical strap is needed to verify BLE/offload. |
 | Settings | `settings-dark.png` | Appearance, units, sources, permissions, export and insight alert preferences | Existing settings hierarchy is longer than the concept's condensed grouping. HealthKit entitlements need a signed device build. |
-| Insight Detail | `insightdetail-dark.png` | Exact measured value, personal median, window, source and metric link | No concept-style 30-day mini chart or original-device source field. |
+| Insight Detail | `insightdetail-dark.png` | Exact measured value, personal median, window, source and metric link | Current source adds a 30-day observed chart with visible gaps; fresh simulator capture is required. Original-device source attribution remains unavailable. |
 | First Use | No first-use capture; `addwizard-dark.png` covers pairing | Pairing and defer routes use actual scanning states | The pictured fictional strap cannot be shown as an observed device; the full onboarding screen remains visually unverified. |
 
 The source-to-action status for individual visible elements is in `NOOP_CONCEPT_MAPPING.md`. Once a fresh simulator run finishes, compare its captures to these rows and update any changed observations.
