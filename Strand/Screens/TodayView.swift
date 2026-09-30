@@ -1284,93 +1284,50 @@ struct TodayView: View {
     /// Apple-style large-title header: a tappable "Today ⌄" + full date on the left (taps to change day),
     /// then updates / quick-add / and an OBVIOUS menu avatar (opens Settings) on the right.
     @ViewBuilder private var todayTopBar: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+            Button { showSettings = true } label: {
+                ProfileAvatarView(imageData: profile.avatarImageData, size: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Menu and settings")
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: NoopMetrics.space1) {
                 Text("NOOP")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(StrandFont.headline)
                     .tracking(2)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Button { showDayPicker = true } label: {
-                    // Keep the date a real picker target below the product name.
-                    Text(dayNavHint ?? dayNavDateText)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(dayNavHint != nil ? StrandPalette.accent : StrandPalette.textPrimary)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .contentTransition(.opacity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .layoutPriority(1)
-                .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
-                .popover(isPresented: $showDayPicker) {
-                    // Cap at the logical day during the 00:00–04:00 rollover window.
-                    DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
-                               displayedComponents: [.date])
-                        .datePickerStyle(.graphical).labelsHidden().padding(12)
-                        .frame(minWidth: 320, minHeight: 360)
-                }
+                Text(dayNavHint ?? dayNavDateText)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .contentTransition(.opacity)
             }
+            .accessibilityElement(children: .combine)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
 
-            // Uniform 36pt circular icon set: recording-status light, updates bell, quick-add (+), menu.
-            HStack(spacing: 8) {
-                // Recording status, a colour-coded light (green recording / amber synced / red not
-                // recording), replacing the old full-width banner. Taps to Devices to connect. Its OWN
-                // subview observes LiveState so a ~1 Hz HR tick re-renders just this 36pt dot, not all of
-                // Today (the scroll-stutter fix, see the @EnvironmentObject note at the top of the type).
-                RecordingStatusLight(selectedDayOffset: selectedDayOffset) {
-                    StrandHaptic.selection.play(); router.openDevices()
-                }
-                // Updates bell.
-                Button { showUpdatesInbox = true } label: {
-                    Image(systemName: updateStore.unreadCount > 0 ? "bell.badge" : "bell")
-                        .font(.system(size: 15, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(StrandPalette.surfaceInset))
-                        .overlay(alignment: .topTrailing) {
-                            if updateStore.unreadCount > 0 {
-                                Text("\(min(updateStore.unreadCount, 99))")
-                                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                                    .monospacedDigit()
-                                    .foregroundStyle(StrandPalette.goldDeepText)
-                                    .padding(.horizontal, 3.5).padding(.vertical, 1)
-                                    .frame(minWidth: 14)
-                                    .background(Capsule().fill(StrandPalette.statusCritical))
-                                    .offset(x: 2, y: -1)
-                            }
-                        }
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Updates")
-                // Quick-action + (the accented primary, gold, same 36 size as the rest).
-                Button { router.requestQuickActions() } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(StrandPalette.goldDeepText)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(StrandPalette.accent))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Quick actions")
-                .accessibilityHint("Start a workout, log your journal, or breathe")
-                // Menu (Settings), the avatar, same 36 size.
-                Button { showSettings = true } label: {
-                    ProfileAvatarView(imageData: profile.avatarImageData, size: 36)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Menu and settings")
+            Button { showDayPicker = true } label: {
+                Image(systemName: "calendar")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
+            .popover(isPresented: $showDayPicker) {
+                DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
+                           displayedComponents: [.date])
+                    .datePickerStyle(.graphical).labelsHidden().padding(12)
+                    .frame(minWidth: 320, minHeight: 360)
             }
         }
         .frame(minHeight: 46)
-        // Cycle the swipe/tap hint: roughly every 10s flash a one-word hint for ~1.5s, alternating "Swipe" /
-        // "Tap", then return to the date. One async loop, auto-cancelled when Today goes away (no leaked timer).
         .task {
             var i = 0
             while !Task.isCancelled {
