@@ -1285,31 +1285,31 @@ struct TodayView: View {
     /// then updates / quick-add / and an OBVIOUS menu avatar (opens Settings) on the right.
     @ViewBuilder private var todayTopBar: some View {
         HStack(alignment: .center, spacing: 10) {
-            Button { showDayPicker = true } label: {
-                // Just the date, small (locale numeric), no relative word and no prev/next arrows. Every ~10s
-                // it swaps for ~1.5s to a one-word "Swipe" / "Tap" hint in the accent colour so users learn
-                // they can change the day by swiping across or tapping here. fixedSize makes it claim its own
-                // width so a tight top bar never compresses it, and the trailing icon cluster keeps its room.
-                Text(dayNavHint ?? dayNavDateText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(dayNavHint != nil ? StrandPalette.accent : StrandPalette.textPrimary)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .contentTransition(.opacity)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .layoutPriority(1)
-            .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
-            .popover(isPresented: $showDayPicker) {
-                // Cap at the LOGICAL day (not raw Date()) so the calendar never offers a day ahead of the
-                // data in the 00:00-04:00 window, matching the visible date + a11y label (#16).
-                DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
-                           displayedComponents: [.date])
-                    .datePickerStyle(.graphical).labelsHidden().padding(12)
-                    // #840, give the graphical picker an explicit size so the iPad popover bubble doesn't
-                    // clip the calendar grid (anchored to a 13pt label it otherwise sizes too small).
-                    .frame(minWidth: 320, minHeight: 360)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("NOOP")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .tracking(2)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Button { showDayPicker = true } label: {
+                    // Keep the date a real picker target below the product name.
+                    Text(dayNavHint ?? dayNavDateText)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(dayNavHint != nil ? StrandPalette.accent : StrandPalette.textPrimary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .contentTransition(.opacity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .layoutPriority(1)
+                .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
+                .popover(isPresented: $showDayPicker) {
+                    // Cap at the logical day during the 00:00–04:00 rollover window.
+                    DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
+                               displayedComponents: [.date])
+                        .datePickerStyle(.graphical).labelsHidden().padding(12)
+                        .frame(minWidth: 320, minHeight: 360)
+                }
             }
 
             Spacer(minLength: 8)
@@ -1368,7 +1368,7 @@ struct TodayView: View {
                 .accessibilityLabel("Menu and settings")
             }
         }
-        .frame(height: 46)
+        .frame(minHeight: 46)
         // Cycle the swipe/tap hint: roughly every 10s flash a one-word hint for ~1.5s, alternating "Swipe" /
         // "Tap", then return to the date. One async loop, auto-cancelled when Today goes away (no leaked timer).
         .task {
@@ -2018,7 +2018,7 @@ struct TodayView: View {
     /// The iPhone's default scroll uses the same stored rows and detail destinations as the existing
     /// cards. Optional tools remain in the expandable area, and a saved custom layout remains intact.
     private var editorialTodaySections: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
             classicHeroSection
             editorialGlanceSection
             editorialSleepSection
@@ -2309,12 +2309,8 @@ struct TodayView: View {
 
     private var classicHeroSection: some View {
         heroSection
-            .padding(.vertical, NoopMetrics.space4)
+            .padding(.vertical, NoopMetrics.space1)
             .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                    .fill(StrandPalette.surfaceBase.opacity(0.72))
-            )
     }
 
     private var liveSessionStartSection: some View {
@@ -3721,7 +3717,7 @@ struct TodayView: View {
             // Apple Watch (M1): a watch-sourced score reads "Apple Watch" with its confidence bound to the
             // shared ScoreStatePill dot/label, and a calibrating watch score shows "Needs more data" rather
             // than a bare ring, the honest "the watch can't support this yet" state, never a fake number.
-            if let key = provenanceKey {
+            if let key = provenanceKey, !usesEditorialToday {
                 if ringHasValue(key), isWatchSourced(key) {
                     VStack(spacing: 4) {
                         SourceBadge("\(watchProvenanceLabel(key))", tint: StrandPalette.metricCyan)

@@ -2,9 +2,9 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 
-// MARK: - Auto-detected workout prompt (Today screen)
+// MARK: - Possible activity review (Today and Activity)
 //
-// A single, dismissible Today card that appears ONLY when the opt-in "Auto-detect workouts"
+// A single, dismissible card that appears ONLY when the opt-in "Auto-detect workouts"
 // toggle is on and `Repository.autoDetectCandidate()` finds a recent sustained-elevated HR
 // window that isn't already saved and wasn't previously dismissed.
 //

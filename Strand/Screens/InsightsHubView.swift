@@ -88,7 +88,7 @@ struct InsightsHubView: View {
     private var dailyChangesSection: some View {
         let findings = DailyChangeInsight.derive(from: repo.days)
         let current = findings.filter { $0.day == Repository.localDayKey(Date()) }
-        return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             SectionHeader("Measured changes", overline: "Your history")
             if withdrawnDailyInsightID != nil {
                 NoopCard {
@@ -98,7 +98,7 @@ struct InsightsHubView: View {
                 }
             }
             if current.count >= 2 {
-                NoopCard(tint: StrandPalette.accent) {
+                NoopCard(padding: 14, tint: StrandPalette.accent) {
                     Text("Daily summary: \(current.count) measured changes with recent personal comparisons. Open each finding for its values and window.")
                         .font(StrandFont.subhead)
                 }
@@ -112,10 +112,10 @@ struct InsightsHubView: View {
             } else {
                 ForEach(findings.prefix(8)) { insight in
                     Button { selectedDailyInsight = insight } label: {
-                        NoopCard(tint: StrandPalette.metricCyan) {
+                        NoopCard(padding: 14, tint: StrandPalette.metricCyan) {
                             HStack(spacing: NoopMetrics.space3) {
                                 VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                                    Text(insight.metric.title).font(StrandFont.headline)
+                                    Text(insight.metric.title).font(StrandFont.subhead.weight(.semibold))
                                     Text("\(insight.day) · \(Int(insight.value.rounded())) \(insight.metric.unit) vs. \(Int(insight.median.rounded())) \(insight.metric.unit) median")
                                         .font(StrandFont.footnote)
                                         .foregroundStyle(StrandPalette.textSecondary)

@@ -14,7 +14,7 @@ Status: **wired** means the current source has a real route and data read; **par
 | Today: day review / My Day | existing synthesis, `InsightsHubView` measured changes | Opens Insights hub | Partial; generated narrative in concept unsupported |
 | Today: last night's sleep and stages | `DailyMetric.totalSleepMin`, `SleepModel.night.stages` | Opens Sleep | Wired where a session is available |
 | Today: overnight HRV and RHR | `DailyMetric.avgHrv`, `restingHr` with carried date | Opens respective metric | Wired |
-| Today: activity card | stored `WorkoutRow`; possible bout from HR detector | Opens detail or review card | Partial; no multi-candidate history |
+| Today / Activity: activity card | stored `WorkoutRow`; possible bout from HR detector | Opens detail or review card with Accept, Edit, Dismiss | Partial; only one possible candidate at a time, no multi-candidate history |
 | Today: strap / sync | `LiveState` battery and `lastSyncedAt`, local source rows | Expands Data Sources; opens Devices elsewhere | Partial; collapsed footer does not expose every status at a glance |
 | Charge: large ring | `DailyMetric.recovery` | Breakdown and metric detail | Wired through Today; pictured dedicated layout partial |
 | Charge: HRV / RHR / respiratory / sleep contributors | saved daily rows, charge breakdown and Health | Existing breakdown/details | Partial; no invented arrows or sample baselines |
@@ -42,4 +42,4 @@ Status: **wired** means the current source has a real route and data read; **par
 
 ## Validation boundary
 
-The branch must pass the iPhone simulator build and hosted tests before these source-wiring observations become compiled implementation evidence. The screenshot workflow uses `--demo-seed` synthetic local data, so its captures demonstrate layout and routes, not a real strap or real physiological readings. A physical WHOOP 5/MG and an appropriately signed, entitled build remain necessary for BLE/offload and HealthKit runtime verification.
+The hosted iPhone simulator build and Swift tests passed for the preceding commit. The source adjustments on this branch require a fresh hosted run. The screenshot workflow uses `--demo-seed` synthetic local data, so its captures demonstrate layout and routes, not a real strap or real physiological readings. A physical WHOOP 5/MG and an appropriately signed, entitled build remain necessary for BLE/offload and HealthKit runtime verification. See `NOOP_SIMULATOR_COMPARISON.md` for the screen-by-screen visual comparison and remaining gaps.
