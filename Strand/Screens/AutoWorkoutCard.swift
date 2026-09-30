@@ -68,11 +68,12 @@ struct AutoWorkoutCard: View {
                    durationMin: max(1, candidate.durationMin), sport: "Workout",
                    avgHr: candidate.avgBpm, energyKcal: nil) {
                 ManualWorkoutSheet(editing: draft) { row, _ in
+                    guard !saving else { return }
+                    saving = true
+                    saveError = false
                     Task {
-                        await repo.saveManualWorkout(row)
-                        repo.dismissDetectedSuggestion(candidate)
-                        handledThisSession = true
-                        await repo.refresh()
+                        let saved = await repo.saveEditedDetectedWorkout(row, suggestion: candidate)
+                        await finishSave(saved)
                     }
                 }
             }
@@ -101,6 +102,7 @@ struct AutoWorkoutCard: View {
                             .padding(NoopMetrics.space1)
                     }
                     .buttonStyle(.plain)
+                    .disabled(saving)
                     .accessibilityLabel("Dismiss this workout suggestion")
                 }
 
@@ -163,6 +165,7 @@ struct AutoWorkoutCard: View {
     }
 
     private func reload() async {
+        guard !saving else { return }
         guard autoDetectEnabled else { candidate = nil; motionSupported = false; return }
         scanning = true
         defer { scanning = false }
@@ -174,32 +177,46 @@ struct AutoWorkoutCard: View {
         } else {
             hasRecentHR = true
         }
+        let supported: Bool
         if let next {
-            motionSupported = await repo.autoDetectHasMotionEvidence(next)
+            supported = await repo.autoDetectHasMotionEvidence(next)
         } else {
-            motionSupported = false
+            supported = false
         }
-        // A fresh scan resets the session guard so a NEW window can surface after one is handled.
-        if next != candidate { handledThisSession = false }
+        // A superseded scan must not restore a suggestion while its save is in flight.
+        guard !Task.isCancelled, !saving else { return }
+        motionSupported = supported
+        if next != candidate { saveError = false }
+        handledThisSession = false
         candidate = next
     }
 
     private func save(_ w: DetectedWorkout) {
+        guard !saving else { return }
         saving = true
         saveError = false
         Task {
             let saved = await repo.saveDetectedWorkout(w)
-            handledThisSession = saved
-            saveError = !saved
-            if saved { await repo.refresh() }   // surfaces the new workout + drops it from re-suggestion
-            saving = false
+            await finishSave(saved)
         }
     }
 
+    private func finishSave(_ saved: Bool) async {
+        handledThisSession = saved
+        saveError = !saved
+        if saved { await repo.refresh() }
+        saving = false
+        // Refresh can leave refreshSeq unchanged. Explicitly request the next suggestion regardless.
+        if saved { scanRequested += 1 }
+    }
+
     private func dismiss(_ w: DetectedWorkout) {
+        guard !saving else { return }
         repo.dismissDetectedSuggestion(w)
         handledThisSession = true
         candidate = nil
+        saveError = false
+        scanRequested += 1
     }
 
     /// HH:mm in the user's locale/timezone.
