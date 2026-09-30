@@ -21,6 +21,16 @@ struct DevicesView: View {
     // for `DevicesContent` and the Add-device wizard, so nothing downstream loses its live readout.
 
     var body: some View {
+        #if os(iOS)
+        if let registry = model.deviceRegistry {
+            ConceptDeviceView(registry: registry)
+        } else {
+            DataPendingNote(
+                title: "Getting your devices ready",
+                message: "NOOP is opening your on-device data. Your paired bands will appear here in a moment.",
+                symbol: "badge.plus.radiowaves.right")
+        }
+        #else
         ScreenScaffold(title: "Devices",
                        subtitle: "Pair and manage the bands NOOP reads from.",
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
@@ -37,8 +47,206 @@ struct DevicesView: View {
                     symbol: "badge.plus.radiowaves.right")
             }
         }
+        #endif
     }
 }
+
+#if os(iOS)
+/// The connected-device landing page from the reference. All values come from the registry or
+/// current live connection. The full manager remains available for multi-device operations.
+private struct ConceptDeviceView: View {
+    @ObservedObject var registry: DeviceRegistry
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastRequested = false
+    @State private var showManager = false
+    @State private var showRename = false
+    @State private var nameDraft = ""
+    @State private var syncFeedback: String?
+
+    private var active: PairedDevice? {
+        registry.devices.first { $0.status == .active && !$0.isImportSource }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let device = active {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label(live.connected ? "CONNECTED TO" : "DISCONNECTED",
+                                  systemImage: "circle.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(live.connected ? StrandPalette.statusPositive : StrandPalette.textSecondary)
+                            Button {
+                                nameDraft = device.nickname ?? device.displayName
+                                showRename = true
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(device.displayName)
+                                        .font(.system(size: 21, weight: .bold))
+                                        .foregroundStyle(StrandPalette.textPrimary)
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 13))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Rename \(device.displayName)")
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Last sync").font(.system(size: 11)).foregroundStyle(StrandPalette.textSecondary)
+                            Text(live.lastSyncedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not yet")
+                                .font(.system(size: 11))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                        }
+                    }
+                    .padding(.top, 8)
+
+                    HStack(spacing: 16) {
+                        Spacer()
+                        // Drawn in SwiftUI: an original neutral band silhouette, never a brand render.
+                        ZStack {
+                            Ellipse()
+                                .stroke(Color(white: 0.2), lineWidth: 31)
+                                .frame(width: 135, height: 190)
+                                .rotationEffect(.degrees(-23))
+                            Ellipse()
+                                .stroke(Color(white: 0.35).opacity(0.55), lineWidth: 1)
+                                .frame(width: 135, height: 190)
+                                .rotationEffect(.degrees(-23))
+                            RoundedRectangle(cornerRadius: 13)
+                                .fill(LinearGradient(colors: [Color(white: 0.38), Color(white: 0.12)],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .frame(width: 57, height: 100)
+                                .rotationEffect(.degrees(-23))
+                                .offset(x: 64, y: 7)
+                        }
+                        .accessibilityHidden(true)
+                        Spacer()
+                        VStack(spacing: 4) {
+                            Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text("Battery").font(.system(size: 12)).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
+                    }
+                    .frame(height: 240)
+
+                    deviceActionCard {
+                        Toggle(isOn: $broadcastRequested) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Broadcast Heart Rate").font(.system(size: 14, weight: .semibold))
+                                Text(live.encryptedBond
+                                     ? "Request to compatible apps and devices"
+                                     : "Connect and bond a WHOOP 5.0 / MG first")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                        }
+                        .tint(.blue)
+                        .disabled(!live.encryptedBond || !SourceCoordinator.isWhoop(device))
+                        .onChange(of: broadcastRequested) { _, on in
+                            model.ble.setBroadcastHr(on)
+                        }
+                    }
+                    Button {
+                        model.ble.syncNow()
+                        syncFeedback = "Sync requested. Waiting for strap history."
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Sync Now").font(.system(size: 15, weight: .semibold))
+                                Text(syncFeedback ?? (live.lastSyncedAt.map {
+                                    "Last synced \($0.formatted(date: .abbreviated, time: .shortened))"
+                                } ?? "No completed sync yet"))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(Color.blue.opacity(0.23), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!live.connected || !live.encryptedBond)
+                    .onChange(of: live.lastSyncedAt) { _, date in
+                        if let date { syncFeedback = "Synced \(date.formatted(date: .abbreviated, time: .shortened))" }
+                    }
+                    if !live.connected || !live.encryptedBond {
+                        Text("Sync needs a connected, bonded strap.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    deviceActionCard {
+                        VStack(spacing: 0) {
+                            infoRow("Model", value: String(describing: device.model))
+                            Divider()
+                            infoRow("Firmware", value: live.connected ? (live.strapFirmware ?? "Unavailable") : "Unavailable")
+                            Divider()
+                            infoRow("Device identifier", value: "Hidden")
+                        }
+                    }
+                } else {
+                    Text("No active device")
+                        .font(.system(size: 20, weight: .semibold))
+                    Text("Pair a strap to see connection, battery and sync details.")
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                Button("Manage paired devices") { showManager = true }
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .padding(.horizontal, 16)
+        }
+        .background(StrandPalette.surfaceBase)
+        .navigationTitle("Device")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showManager) {
+            NavigationStack {
+                ScreenScaffold(title: "Devices", subtitle: "Pair and manage the bands NOOP reads from.") {
+                    DevicesContent(registry: registry)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showManager = false }
+                    }
+                }
+            }
+        }
+        .alert("Device name", isPresented: $showRename) {
+            TextField("Name", text: $nameDraft)
+            Button("Save") {
+                if let device = active { registry.rename(device.id, to: nameDraft) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose a name for this device.")
+        }
+    }
+
+    private func deviceActionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(14)
+            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func infoRow(_ label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value).foregroundStyle(StrandPalette.textSecondary)
+        }
+        .font(.system(size: 12))
+        .frame(minHeight: 32)
+    }
+}
+#endif
 
 // MARK: - Content (registry resolved)
 
