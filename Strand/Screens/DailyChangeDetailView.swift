@@ -28,7 +28,7 @@ struct DailyChangeDetailView: View {
             if let selected {
                 PointMark(x: .value("Day", selected.date),
                           y: .value("Reading", selected.value))
-                    .foregroundStyle(StrandPalette.statusGood)
+                    .foregroundStyle(StrandPalette.statusPositive)
                     .symbolSize(80)
             }
         }
