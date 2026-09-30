@@ -215757,7 +215757,9 @@
         "ru": {"stringUnit": {"state": "translated", "value": "Включено: заряд, отдых, ВСР и тренировки отправляются провайдеру, каждая тренировка с видом спорта, длительностью, дистанцией и пульсом."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "开启：你的充能、休息、HRV 和训练会发送给服务商，每次训练包含运动类型、时长、距离和心率。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "開啟：你的充能、休息、HRV 和訓練會傳送給服務商，每次訓練包含運動類型、時長、距離和心率。"}}
-    } }
+    } },
+    "My Day": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Mein Tag"}},"es":{"stringUnit":{"state":"translated","value":"Mi día"}},"fr":{"stringUnit":{"state":"translated","value":"Ma journée"}},"pt-PT":{"stringUnit":{"state":"translated","value":"O meu dia"}}}},
+    "Day in review": {"localizations":{"de":{"stringUnit":{"state":"translated","value":"Tagesrückblick"}},"es":{"stringUnit":{"state":"translated","value":"Resumen del día"}},"fr":{"stringUnit":{"state":"translated","value":"Bilan de la journée"}},"pt-PT":{"stringUnit":{"state":"translated","value":"Resumo do dia"}}}}
   },
   "version": "1.0"
 }
