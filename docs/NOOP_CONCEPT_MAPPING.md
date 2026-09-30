@@ -11,7 +11,7 @@ Status: **wired** means the current source has a real route and data read; **par
 | Today: Effort ring | effective stored/live strain, user scale | Opens strain metric detail | Wired; now third |
 | Today: Health snapshot | selected day's resting HR, `HealthView` | Opens Health Monitor | Wired compact first-hop; 5/5 count unsupported |
 | Today: Stress summary | `stressToday` and `StressView` | Opens Stress Monitor | Wired day-average or unavailable; sample 1.1 unsupported |
-| Today: day review / My Day | existing synthesis, `InsightsHubView` measured changes | Opens Insights hub | Partial; generated narrative in concept unsupported |
+| Today: day review / My Day | `TodayView` section and `InsightsHubView` measured changes | Quick add opens existing actions; review opens Insights hub | Wired routes; generated narrative in concept unsupported |
 | Today: last night's sleep and stages | `DailyMetric.totalSleepMin`, `SleepModel.night.stages` | Opens Sleep | Wired where a session is available |
 | Today: overnight HRV and RHR | `DailyMetric.avgHrv`, `restingHr` with carried date | Opens respective metric | Wired |
 | Today / Activity: activity card | stored `WorkoutRow`; possible bout from HR detector | Opens detail or review card with Accept, Edit, Dismiss | Partial; only one possible candidate at a time, no multi-candidate history |
