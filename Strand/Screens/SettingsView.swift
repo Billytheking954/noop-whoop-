@@ -336,6 +336,10 @@ struct SettingsView: View {
     @AppStorage(SettingsDisclosureDefaults.advancedOpenKey) private var advancedOpen = SettingsDisclosureDefaults.advancedOpenDefault
 
     var body: some View {
+        Group {
+        #if os(iOS)
+        conceptSettingsHub
+        #else
         ScreenScaffold(title: "Settings",
                        subtitle: "Your numbers, your strap, and how NOOP works. All on \(Platform.deviceNounPhrase).",
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends / Devices:
@@ -374,6 +378,8 @@ struct SettingsView: View {
                 // About stays expanded at the foot (version, links and the help sheets people return to).
                 aboutCard.staggeredAppear(index: 7)
             }
+        }
+        #endif
         }
         .alert(backupAlertTitle, isPresented: $showBackupAlert) {
             Button("OK", role: .cancel) { }
@@ -437,6 +443,120 @@ struct SettingsView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    /// Compact destination index from the iPhone reference. The existing settings cards and services
+    /// remain the destination content, so this changes navigation without changing stored preferences.
+    private var conceptSettingsHub: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                conceptSettingsRow("Appearance", detail: "System, Light or Dark",
+                                   symbol: "sun.max", tint: .cyan) {
+                    conceptSettingsDetail("Appearance") { appearanceCard }
+                }
+                conceptSettingsRow("Units", detail: "Metric or Imperial",
+                                   symbol: "ruler", tint: .blue) {
+                    conceptSettingsDetail("Units") { unitsCard }
+                }
+                conceptSettingsRow("Health Permissions", detail: "Manage data access",
+                                   symbol: "heart", tint: .pink) {
+                    AppleHealthView()
+                }
+                conceptSettingsRow("Data Sources", detail: "NOOP and other sources",
+                                   symbol: "externaldrive", tint: .blue) {
+                    DataSourcesView()
+                }
+                conceptSettingsRow("Notifications", detail: "Insights, goals and reminders",
+                                   symbol: "bell", tint: .pink) {
+                    DailyInsightNotificationSettingsView()
+                }
+                conceptSettingsRow("Automations", detail: "Rules and behaviours",
+                                   symbol: "bolt", tint: .green) {
+                    AutomationsView()
+                }
+                conceptSettingsRow("Export and Backup", detail: "Your data, on this iPhone",
+                                   symbol: "icloud.and.arrow.up", tint: .blue) {
+                    BackupSyncView()
+                }
+                conceptSettingsRow("NOOP",
+                                   detail: "Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") · build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")",
+                                   symbol: "info.circle", tint: StrandPalette.textSecondary) {
+                    conceptSettingsDetail("NOOP") { aboutCard }
+                }
+                // Retain access to the existing profile, strap and advanced controls below the
+                // reference viewport rather than discarding them from the product.
+                conceptSettingsRow("Profile and device controls", detail: "Personal details and strap options",
+                                   symbol: "person.crop.circle", tint: StrandPalette.accent) {
+                    conceptSettingsDetail("Profile and device controls") {
+                        profileCard
+                        strapCard
+                        featuresCard
+                        syncCard
+                        recoveryCard
+                        hrvCard
+                        experimentalCard
+                        backupCard
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 24)
+        }
+        .background(StrandPalette.surfaceBase)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func conceptSettingsDetail<Content: View>(
+        _ title: String, @ViewBuilder content: () -> Content
+    ) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                content()
+            }
+            .padding(16)
+        }
+        .background(StrandPalette.surfaceBase)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func conceptSettingsRow<Destination: View>(
+        _ title: String, detail: String, symbol: String, tint: Color,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink(destination: destination) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(tint)
+                    .frame(width: 34)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 58)
+            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens \(title)")
+    }
+    #endif
 
     // MARK: - Profile
 
