@@ -144,12 +144,7 @@ struct SleepView: View {
         // synchronously, so the very first frame already shows content (no empty-state flash).
         let key = dataKey
         let resolved: SleepModel? = (key == modelKey) ? model : buildModel()
-        // Title lives inside the immersive night hero (Bevel-style composition). Omit the scaffold
-        // header + generic sky so the Rest world owns the upper band and everything below returns to
-        // the normal Sleep canvas. Empty state still gets a plain scaffold title for orientation.
-        // Night scene is a FIXED ScrollView topBackground (Home sky pattern): edge-to-edge under the
-        // status bar and stable on overscroll — pulling to the top reveals the scene, not surfaceBase.
-        ScreenScaffold(title: resolved == nil ? "Sleep" : nil,
+        ScreenScaffold(title: "Sleep",
                        subtitle: resolved == nil ? "Last night, read in two seconds." : nil,
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header), builds trailing trend/ledger cards on demand. Combined
@@ -158,19 +153,14 @@ struct SleepView: View {
                        // re-evaluates this heavy body.
                        onRefresh: { await repo.refresh() },
                        lazy: true,
-                       topBackground: resolved == nil ? nil : AnyView(sleepNightTopBackground)) {
+                       topBackground: liquidScaffoldSky()) {
             Group {
                 if let resolved {
                     // Each top-level section fades + rises in sequence on first appear (Reduce-Motion safe).
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         if let sleepUndo { sleepUndoBanner(sleepUndo) }
                         SleepFreshnessNote(latestWakeTs: resolved.night.session.endTs)
-                        // Bleed past ScreenScaffold's 16/24 gutters so the hero column is edge-to-edge
-                        // in the upper band; the night scene itself is the fixed topBackground.
-                        // Customize sits at the end of the hero (not floating in a blank band).
                         restHero(resolved)
-                            .padding(.horizontal, -16)
-                            .padding(.top, -24)
                             .staggeredAppear(index: 0)
                         // #sleep-layout: the analytical cards render in the user's saved order minus the
                         // hidden set, below the pinned Rest hero. Reordered via the Arrange sheet.
@@ -466,73 +456,61 @@ struct SleepView: View {
         }
     }
 
-    /// Immersive Rest-world hero: compact Bevel-like hierarchy — centered "Sleep", muted circular
-    /// performance ring, state word, source badge. Night scene lives on ScreenScaffold.topBackground
-    /// (fixed under the status bar); this column only owns the readable content. Presentation-only.
+    /// The existing Rest score and saved sleep duration in one compact summary card. The night
+    /// detail and stage chart follow immediately; all values still come from the selected night.
     @ViewBuilder
     private func restHero(_ model: SleepModel) -> some View {
         let night = heroNight(model)
         let score = performanceScore(for: night)
-        VStack(spacing: 0) {
-            Text("Sleep")
-                .font(StrandFont.rounded(24, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.96))
-                .shadow(color: .black.opacity(0.35), radius: 5, y: 1)
-                .padding(.top, 6)
-                .accessibilityAddTraits(.isHeader)
-
-            if let score {
-                // Same LiquidVessel gauge as Home (`LiquidTodayView` / `HeroScoreCell`).
-                VStack(spacing: 8) {
-                    LiquidScoreGauge(
-                        score: score,
-                        tint: StrandPalette.restColor,
-                        diameter: 184,
-                        animated: true,
-                        captionText: String(localized: "of 100"),
-                        // The vessel is pale in light mode and graphite in dark mode.
-                        // Keep the score legible on the actual center fill in each appearance.
-                        numberColor: colorScheme == .dark ? .white : StrandPalette.textPrimary,
-                        captionColor: colorScheme == .dark ? .white.opacity(0.68) : StrandPalette.textSecondary
-                    )
-                    Text(sleepScoreWord(score))
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(Color.white.opacity(0.90))
-                        .shadow(color: .black.opacity(0.30), radius: 2, y: 1)
+        NoopCard(tint: StrandPalette.restColor) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                HStack(alignment: .center, spacing: NoopMetrics.space3) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                        Text("Rest").strandOverline()
+                        if night.stages.asleep > 0 {
+                            Text(durationText(night.stages.asleep))
+                                .font(StrandFont.number(36))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                                .minimumScaleFactor(0.75)
+                                .lineLimit(1)
+                            Text("asleep last night")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        } else {
+                            Text("No stage data recorded for this night.")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
+                    Spacer(minLength: NoopMetrics.space1)
+                    if let score {
+                        LiquidScoreGauge(
+                            score: score,
+                            tint: StrandPalette.restColor,
+                            diameter: 92,
+                            animated: true,
+                            captionText: String(localized: "of 100"),
+                            numberColor: StrandPalette.textPrimary,
+                            captionColor: StrandPalette.textSecondary
+                        )
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(String(localized: "Sleep performance \(Int(score.rounded())) of 100, \(sleepScoreWord(score))"))
+                    }
                 }
-                .padding(.top, 8)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(String(localized: "Sleep performance \(Int(score.rounded())) of 100, \(sleepScoreWord(score))"))
-            } else {
-                VStack(spacing: NoopMetrics.space1) {
-                    CountUpText(
-                        value: night.stages.asleep,
-                        format: { durationText($0) },
-                        font: StrandFont.number(42),
-                        color: Color.white.opacity(0.96)
+                HStack(spacing: NoopMetrics.space2) {
+                    if let score {
+                        Text(sleepScoreWord(score))
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.restColor)
+                    }
+                    SourceBadge(
+                        score != nil ? heroSource(for: night) : (repo.activeDeviceIsOura ? "Oura" : "On-device"),
+                        tint: StrandPalette.restColor
                     )
-                    Text("asleep last night")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(Color.white.opacity(0.72))
                 }
-                .padding(.top, 14)
-                .padding(.bottom, 4)
-                .accessibilityElement(children: .combine)
+                sleepArrangeAffordance
             }
-
-            SourceBadge(
-                score != nil ? heroSource(for: night) : (repo.activeDeviceIsOura ? "Oura" : "On-device"),
-                tint: StrandPalette.restColor
-            )
-            .padding(.top, 8)
-
-            // Subtle Customize at the hero foot — functional, not competing with the gauge.
-            sleepArrangeAffordance
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 6)
         }
-        .frame(maxWidth: .infinity)
     }
 
     /// Fixed night-scene band behind Sleep scroll content — same ScreenScaffold.topBackground pattern

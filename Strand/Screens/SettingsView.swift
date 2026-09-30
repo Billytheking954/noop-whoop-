@@ -344,10 +344,10 @@ struct SettingsView: View {
                        topBackground: liquidScaffoldSky()) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 // Everyday sections stay expanded (S3): the ones a first-run user actually needs.
-                profileCard.staggeredAppear(index: 0)
+                appearanceCard.staggeredAppear(index: 0)
                 unitsCard.staggeredAppear(index: 1)
-                appearanceCard.staggeredAppear(index: 2)
-                strapCard.staggeredAppear(index: 3)
+                strapCard.staggeredAppear(index: 2)
+                profileCard.staggeredAppear(index: 3)
                 streakCard.staggeredAppear(index: 4)
                 featuresCard.staggeredAppear(index: 5)
                 #if os(iOS)
@@ -450,20 +450,15 @@ struct SettingsView: View {
                 profilePhotoRow
                 rowDivider
                 FormRow(label: "Date of birth") {
-                    HStack(spacing: 12) {
-                        Text("\(profile.age)")
-                            .font(StrandFont.bodyNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(minWidth: 28, alignment: .trailing)
-                        // #146: age is derived from the date of birth, so it advances on its own.
-                        DatePicker("Date of birth",
-                                   selection: $profile.dateOfBirth,
-                                   in: ProfileStore.dateOfBirthRange,
-                                   displayedComponents: .date)
-                            .labelsHidden()
-                            .tint(StrandPalette.accent)
-                            .accessibilityLabel("Date of birth, age \(profile.age) years")
-                    }
+                    // Age remains derived from this date and is read aloud; the extra age number
+                    // previously crowded the visible date into the same narrow control row.
+                    DatePicker("Date of birth",
+                               selection: $profile.dateOfBirth,
+                               in: ProfileStore.dateOfBirthRange,
+                               displayedComponents: .date)
+                        .labelsHidden()
+                        .tint(StrandPalette.accent)
+                        .accessibilityLabel("Date of birth, age \(profile.age) years")
                 }
                 rowDivider
                 FormRow(label: "Sex") {

@@ -20,7 +20,9 @@ final class SleepLayoutPrefsTests: XCTestCase {
         XCTAssertEqual(encoded, "nightDetail,sleepMarks,asleepDuration,stages,sleepDebt,stagesVsTypical")
         // `bodyClock` is absent from the saved order, so decode inserts it at its default position — the
         // migration path every newly-added section takes for an existing customised layout.
-        XCTAssertEqual(SleepLayoutPrefs.decodeOrder(encoded), [.bodyClock] + reordered)
+        XCTAssertEqual(SleepLayoutPrefs.decodeOrder(encoded), [
+            .nightDetail, .sleepMarks, .bodyClock, .asleepDuration, .stages, .sleepDebt, .stagesVsTypical,
+        ])
     }
 
     /// A saved order that leads with `asleepDuration` and ends on `sleepMarks` keeps those two placements
@@ -30,7 +32,7 @@ final class SleepLayoutPrefsTests: XCTestCase {
         let decoded = SleepLayoutPrefs.decodeOrder("asleepDuration,sleepMarks")
         XCTAssertEqual(decoded.count, SleepSection.allCases.count)
         XCTAssertEqual(decoded, [
-            .stages, .bodyClock, .nightDetail, .sleepDebt, .stagesVsTypical, .asleepDuration, .sleepMarks,
+            .stages, .nightDetail, .bodyClock, .sleepDebt, .stagesVsTypical, .asleepDuration, .sleepMarks,
         ])
     }
 
@@ -58,7 +60,7 @@ final class SleepLayoutPrefsTests: XCTestCase {
         let order = "nightDetail,sleepMarks,asleepDuration,stages,sleepDebt,stagesVsTypical"
         XCTAssertEqual(
             SleepLayoutPrefs.visibleOrder(orderRaw: order, hiddenRaw: "asleepDuration,sleepDebt"),
-            [.bodyClock, .nightDetail, .sleepMarks, .stages, .stagesVsTypical]
+            [.nightDetail, .sleepMarks, .bodyClock, .stages, .stagesVsTypical]
         )
         XCTAssertEqual(SleepLayoutPrefs.decodeOrder(order).count, SleepSection.allCases.count)
     }

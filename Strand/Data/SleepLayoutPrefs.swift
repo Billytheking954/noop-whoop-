@@ -4,10 +4,9 @@ import SwiftUI
 // MARK: - Reorderable Sleep sections (#sleep-layout)
 //
 // The Sleep tab's analytical cards — Sleep marks, the Stages hypnogram, Naps, Night detail, the Sleep-debt
-// ledger, Stages-vs-typical, and the Asleep-duration trend — render in one fixed order below the pinned
-// Sleep-performance hero + date navigator. This lets the user REORDER or HIDE those cards, mirroring the
-// Today tab's Arrange sheet (see `TodayLayoutPrefs`), with the default being the original order so nothing
-// changes for anyone who never customises Sleep. Display-only — no metric is computed or stored
+// ledger, Stages-vs-typical, and the Asleep-duration trend — render below the pinned
+// Sleep-performance summary. This lets the user REORDER or HIDE those cards, mirroring the
+// Today tab's Arrange sheet (see `TodayLayoutPrefs`). Display-only — no metric is computed or stored
 // differently; this only decides which already-built cards render and in what sequence.
 //
 // Stored as a single comma-joined string of section keys in @AppStorage("sleep.sectionOrder"), the same
@@ -50,12 +49,11 @@ enum SleepSection: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The original, hard-coded card order — the default when the layout isn't customised. Matches the
-    /// pre-customisation render order in `SleepView` below the pinned Sleep-performance hero. (Naps rides
+    /// Stage evidence and night detail come before manual sleep marks by default. (Naps rides
     /// with Stages for now — it's drawn inside the stages hero; making it an independently arrangeable
     /// card is a follow-up that requires hoisting the hero's edit/delete callbacks.)
     static let defaultOrder: [SleepSection] = [
-        .sleepMarks, .stages, .bodyClock, .nightDetail, .sleepDebt, .stagesVsTypical, .asleepDuration,
+        .stages, .nightDetail, .sleepMarks, .bodyClock, .sleepDebt, .stagesVsTypical, .asleepDuration,
     ]
 }
 
