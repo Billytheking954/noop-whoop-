@@ -13,6 +13,27 @@ struct DailyChangeDetailView: View {
         DailyChangeInsight.history(for: insight, rows: repo.days)
     }
 
+    private func historyChart(_ points: [DailyChangeInsight.HistoryPoint]) -> some View {
+        let selected = points.first { $0.id == insight.day }
+        return Chart {
+            RuleMark(y: .value("Personal median", insight.median))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            ForEach(points) { point in
+                LineMark(x: .value("Day", point.date),
+                         y: .value("Reading", point.value),
+                         series: .value("Observed run", point.segment))
+                    .foregroundStyle(StrandPalette.metricCyan)
+            }
+            if let selected {
+                PointMark(x: .value("Day", selected.date),
+                          y: .value("Reading", selected.value))
+                    .foregroundStyle(StrandPalette.statusGood)
+                    .symbolSize(80)
+            }
+        }
+    }
+
     var body: some View {
         ScreenScaffold(title: "Measured change", subtitle: LocalizedStringKey(insight.metric.title)) {
             NoopCard(tint: StrandPalette.metricCyan) {
@@ -52,29 +73,11 @@ struct DailyChangeDetailView: View {
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                     } else {
-                        Chart {
-                            RuleMark(y: .value("Personal median", insight.median))
-                                .foregroundStyle(StrandPalette.textTertiary)
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                            ForEach(points) { point in
-                                LineMark(
-                                    x: .value("Day", point.date),
-                                    y: .value(insight.metric.title, point.value),
-                                    series: .value("Continuous readings", point.segment)
-                                )
-                                .foregroundStyle(StrandPalette.metricCyan)
-                                if point.id == insight.day {
-                                    PointMark(x: .value("Day", point.date),
-                                              y: .value(insight.metric.title, point.value))
-                                        .foregroundStyle(StrandPalette.statusGood)
-                                        .symbolSize(80)
-                                }
-                            }
-                        }
-                        .frame(height: NoopMetrics.chartHeight)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(Text("Last 30 days"))
-                        .accessibilityValue(Text("\(points.count) observed days"))
+                        historyChart(points)
+                            .frame(height: NoopMetrics.chartHeight)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(Text("Last 30 days"))
+                            .accessibilityValue(Text("\(points.count) observed days"))
                         HStack(spacing: NoopMetrics.space4) {
                             Text("\(points.count) observed days")
                             Spacer(minLength: 0)
