@@ -1285,12 +1285,15 @@ struct TodayView: View {
     /// then updates / quick-add / and an OBVIOUS menu avatar (opens Settings) on the right.
     @ViewBuilder private var todayTopBar: some View {
         HStack(alignment: .center, spacing: NoopMetrics.space3) {
-            Button { showSettings = true } label: {
+            Menu {
+                Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
+                Button { showUpdatesInbox = true } label: { Label("Updates", systemImage: "bell") }
+                Button { router.openDevices() } label: { Label("Devices", systemImage: "sensor.tag.radiowaves.forward") }
+            } label: {
                 ProfileAvatarView(imageData: profile.avatarImageData, size: 36)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Menu and settings")
 
             Spacer(minLength: 0)
