@@ -31,6 +31,21 @@ final class DailyChangeInsightTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
+    func testThirtyDayHistoryKeepsObservedGapsAndRejectsInvalidValues() {
+        let prior = (1...7).map { row($0) }
+        let finding = row(9, rhr: 70)
+        let rows = prior + [row(8, rhr: nil), finding]
+        let insight = DailyChangeInsight.derive(
+            from: rows, now: .init(timeIntervalSince1970: 1_800_000_000)
+        ).first { $0.metric == .restingHr && $0.day == "2026-09-09" }
+        XCTAssertNotNil(insight)
+        guard let insight else { return }
+        let points = DailyChangeInsight.history(for: insight, rows: rows)
+        XCTAssertEqual(points.map(\.id), (1...7).map { String(format: "2026-09-%02d", $0) } + ["2026-09-09"])
+        XCTAssertEqual(points.map(\.segment), Array(repeating: 0, count: 7) + [1])
+        XCTAssertEqual(points.last?.value, 70)
+    }
+
     func testAWindowDoesNotBorrowOldHistory() {
         let previous = (1...7).map { day in
             DailyMetric(day: String(format: "2026-07-%02d", day), totalSleepMin: 450,
