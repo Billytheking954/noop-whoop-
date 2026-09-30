@@ -1981,11 +1981,11 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
             classicHeroSection
             editorialGlanceSection
+            editorialInsightsSection
             editorialSleepSection
+            editorialActivitySection
             editorialOvernightSection
             editorialStressSection
-            editorialActivitySection
-            editorialInsightsSection
             editorialHealthSection
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
@@ -2080,26 +2080,37 @@ struct TodayView: View {
     }
 
     private var editorialInsightsSection: some View {
-        Button { router.openInsightsHub() } label: {
-            NoopCard(tint: StrandPalette.accent) {
-                HStack(spacing: NoopMetrics.space3) {
-                    Image(systemName: "lightbulb")
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                        Text("Insights").font(StrandFont.headline)
-                        Text("Explore changes supported by your saved history")
-                            .font(StrandFont.footnote)
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            HStack {
+                Text("My Day").font(StrandFont.title2)
+                Spacer()
+                Button { router.requestQuickActions() } label: {
+                    Image(systemName: "plus")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(StrandPalette.surfaceRaised,
+                                    in: RoundedRectangle(cornerRadius: NoopMetrics.compactRadius))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Quick actions")
+            }
+            Button { router.openInsightsHub() } label: {
+                NoopCard(tint: StrandPalette.accent) {
+                    HStack(spacing: NoopMetrics.space3) {
+                        Image(systemName: "moon.stars")
+                            .foregroundStyle(StrandPalette.restColor)
+                            .accessibilityHidden(true)
+                        Text("Day in review").font(StrandFont.headline)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
                             .foregroundStyle(StrandPalette.textSecondary)
+                            .accessibilityHidden(true)
                     }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .accessibilityHidden(true)
                 }
             }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     private var editorialSleepSection: some View {
