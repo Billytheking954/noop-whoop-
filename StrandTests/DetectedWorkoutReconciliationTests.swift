@@ -1,6 +1,6 @@
 import XCTest
 import Foundation
-import GRDB
+import SQLite3
 import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
@@ -82,9 +82,27 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             "a candidate dismissed through either historical contract must never reappear")
     }
 
+    private func executeFixtureSQL(_ sql: String, at path: String) throws {
+        var db: OpaquePointer?
+        let opened = sqlite3_open(path, &db)
+        defer { sqlite3_close(db) }
+        guard opened == SQLITE_OK else {
+            throw NSError(domain: "DetectedWorkoutFixture", code: Int(opened))
+        }
+        let result = sqlite3_exec(db, sql, nil, nil, nil)
+        guard result == SQLITE_OK else {
+            throw NSError(domain: "DetectedWorkoutFixture", code: Int(result),
+                          userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(db))])
+        }
+    }
+
     func testRejectedSuggestionSavesRemainRetryable() async throws {
         try await withPreferences {
-            let store = try await WhoopStore.inMemory()
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let path = directory.appendingPathComponent("fixture.sqlite").path
+            let store = try await WhoopStore(path: path)
             let repo = Repository(deviceId: deviceId)
             repo.setStoreForTesting(store)
             let start = Int(Date().timeIntervalSince1970) - 3_600
@@ -93,12 +111,10 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             let edited = try XCTUnwrap(WorkoutSource.buildManualRow(
                 start: Date(timeIntervalSince1970: Double(start - 1_800)),
                 durationMin: 15, sport: "Cycling", avgHr: 130, energyKcal: nil))
-            try await store.registryWriter.write { db in
-                try db.execute(sql: """
-                    CREATE TRIGGER reject_workout BEFORE INSERT ON workout
-                    BEGIN SELECT RAISE(ABORT, 'injected save failure'); END
-                    """)
-            }
+            try executeFixtureSQL("""
+                CREATE TRIGGER reject_workout BEFORE INSERT ON workout
+                BEGIN SELECT RAISE(ABORT, 'injected save failure'); END
+                """, at: path)
 
             let directSave = await repo.saveDetectedWorkout(suggestion)
             let editedSave = await repo.saveEditedDetectedWorkout(edited, suggestion: suggestion)
@@ -110,9 +126,7 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             XCTAssertEqual(Repository.selectAutoDetectCandidate(
                 [suggestion], autoDismissedTokens: [], detectedDismissedTokens: []), suggestion)
 
-            try await store.registryWriter.write { db in
-                try db.execute(sql: "DROP TRIGGER reject_workout")
-            }
+            try executeFixtureSQL("DROP TRIGGER reject_workout", at: path)
             let retry = await repo.saveEditedDetectedWorkout(edited, suggestion: suggestion)
             XCTAssertTrue(retry)
             let savedRows = try await store.workouts(deviceId: deviceId, from: 0, to: start + 3_600, limit: 100)
