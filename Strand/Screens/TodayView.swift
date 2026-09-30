@@ -2090,7 +2090,7 @@ struct TodayView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(StrandPalette.surfaceRaised,
-                                    in: RoundedRectangle(cornerRadius: NoopMetrics.compactRadius))
+                                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Quick actions")
