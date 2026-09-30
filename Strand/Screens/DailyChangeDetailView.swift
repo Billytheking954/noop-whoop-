@@ -48,7 +48,7 @@ struct DailyChangeDetailView: View {
                     Text("Last 30 days").font(StrandFont.headline)
                     let points = history
                     if points.isEmpty {
-                        Text("No valid readings are available in this period.")
+                        Text("No readings recorded.")
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                     } else {
@@ -73,9 +73,13 @@ struct DailyChangeDetailView: View {
                         }
                         .frame(height: NoopMetrics.chartHeight)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(insight.metric.title) over the last 30 days")
-                        .accessibilityValue("\(points.count) measured days. Current reading \(Int(insight.value.rounded())) \(insight.metric.unit); personal median \(Int(insight.median.rounded())) \(insight.metric.unit). Missing days are not estimated.")
-                        Text("\(points.count) measured days · dashed line: personal median · gaps: no valid reading")
+                        .accessibilityLabel(Text("Last 30 days"))
+                        .accessibilityValue(Text("\(points.count) observed days"))
+                        HStack(spacing: NoopMetrics.space4) {
+                            Text("\(points.count) observed days")
+                            Spacer(minLength: 0)
+                            Text("Personal median")
+                        }
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textSecondary)
                     }
