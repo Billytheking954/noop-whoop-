@@ -91,7 +91,7 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             let suggestion = DetectedWorkout(startSec: start, endSec: start + 900,
                                             avgBpm: 130, peakBpm: 150, durationMin: 15)
             let edited = try XCTUnwrap(WorkoutSource.buildManualRow(
-                start: Date(timeIntervalSince1970: Double(start - 600)),
+                start: Date(timeIntervalSince1970: Double(start - 1_800)),
                 durationMin: 15, sport: "Cycling", avgHr: 130, energyKcal: nil))
             try await store.registryWriter.write { db in
                 try db.execute(sql: """

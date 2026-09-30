@@ -4,7 +4,7 @@
 
 - `saveManualWorkout` swallowed SQLite failures, and `saveDetectedWorkout` returned success anyway. The card could disappear without a saved workout. Manual persistence now returns a durable-save result, which the suggestion path propagates.
 - Editing a suggestion recorded its dismissal even when its replacement failed to save. `saveEditedDetectedWorkout` now gates dismissal on successful persistence, including when the edit moves outside the original interval.
-- Dismissing the newest suggestion hid the whole card until a later data refresh. Save and dismissal now explicitly request another scan, independently of whether `refreshSeq` changes, revealing the next eligible interval. Dismiss controls are disabled during a write, and superseded scans cannot replace the card during that write.
+- Dismissing the newest suggestion hid the whole card until a later data refresh. Save and dismissal now explicitly request another scan, independently of whether `refreshSeq` changes, revealing the next eligible interval. Dismiss controls are disabled during a write, and superseded scans cannot replace the card during that write. The edit sheet holds the originally selected interval even if a sync changes the card behind it.
 
 The detector thresholds, production scores, exact-span dismissal compatibility and two-day scan window are unchanged. This is sequential review of existing detector results, not a new persistent candidate-history system. Dismissals remain durable in the existing preference store, and suggestions can be re-derived from stored HR after restarting.
 

@@ -30,6 +30,8 @@ struct AutoWorkoutCard: View {
     @State private var scanRequested = 0
     @State private var motionSupported = false
     @State private var hasRecentHR = false
+    // Keep the sheet tied to the activity the user opened, even if a sync changes the card.
+    @State private var editingCandidate: DetectedWorkout?
     @State private var showEdit = false
     @State private var saveError = false
 
@@ -61,8 +63,8 @@ struct AutoWorkoutCard: View {
                                      request: scanRequested)) {
             await reload()
         }
-        .sheet(isPresented: $showEdit) {
-            if let candidate,
+        .sheet(isPresented: $showEdit, onDismiss: { editingCandidate = nil }) {
+            if let candidate = editingCandidate,
                let draft = WorkoutSource.buildManualRow(
                    start: Date(timeIntervalSince1970: TimeInterval(candidate.startSec)),
                    durationMin: max(1, candidate.durationMin), sport: "Workout",
@@ -133,7 +135,10 @@ struct AutoWorkoutCard: View {
                     .tint(StrandPalette.accent)
                     .disabled(saving)
 
-                    Button("Edit") { showEdit = true }
+                    Button("Edit") {
+                        editingCandidate = w
+                        showEdit = true
+                    }
                         .buttonStyle(.bordered)
                         .disabled(saving)
 
