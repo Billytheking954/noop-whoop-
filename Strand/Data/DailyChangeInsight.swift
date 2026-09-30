@@ -60,6 +60,39 @@ struct DailyChangeInsight: Identifiable, Hashable {
     var id: String { "\(metric.rawValue):\(day)" }
     var increased: Bool { value > median }
 
+    /// Valid observed readings in the 30 calendar days ending on this finding. Gaps create
+    /// separate chart runs; an absent day is never interpolated or treated as zero.
+    struct HistoryPoint: Identifiable {
+        let id: String
+        let date: Date
+        let value: Double
+        let segment: Int
+    }
+
+    static func history(for insight: Self, rows: [DailyMetric]) -> [HistoryPoint] {
+        guard let end = date(insight.day),
+              let start = utcCalendar.date(byAdding: .day, value: -29, to: end) else { return [] }
+        let lowerDay = dayString(start)
+        var points: [HistoryPoint] = []
+        var segment = 0
+        for row in rows.sorted(by: { $0.day < $1.day })
+        where row.day >= lowerDay && row.day <= insight.day {
+            guard let observedDate = date(row.day),
+                  let value = insight.metric.value(row),
+                  insight.metric.plausible(value) else { continue }
+            if let last = points.last {
+                let distance = utcCalendar.dateComponents([.day], from: last.date, to: observedDate).day
+                if distance == 0 {
+                    points.removeLast() // A revised row supersedes the earlier value for this day.
+                } else if distance != 1 {
+                    segment += 1
+                }
+            }
+            points.append(HistoryPoint(id: row.day, date: observedDate, value: value, segment: segment))
+        }
+        return points
+    }
+
     /// Seven usable earlier days within a 30-calendar-day lookback. This protects cold starts and
     /// sparse imports from spurious comparisons. The median is resistant to one unusual prior day.
     static func derive(from rows: [DailyMetric], now: Date = Date()) -> [Self] {
