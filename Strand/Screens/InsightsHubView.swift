@@ -40,25 +40,34 @@ struct InsightsHubView: View {
     @State private var selectedDailyInsight: DailyChangeInsight?
     @State private var withdrawnDailyInsightID: String?
     @State private var showNotificationSettings = false
+    @State private var category = "All"
+    private let categories = ["All", "Recovery", "Sleep", "Activity"]
 
     var body: some View {
-        ScreenScaffold(title: "Insights",
-                       subtitle: "Patterns in your own data: association, not cause.",
-                       // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
-                       // alignment/spacing/header). The content is one inner eager VStack, so the staggered
-                       // mover reveal is unchanged; this only defers building that stack until it scrolls in.
-                       lazy: true) {
-            dailyChangesSection
-            if !model.loaded {
-                ComingSoon(what: "Reading your journal and outcomes…")
-            } else {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
+                HStack {
+                    Text("Insights").font(ReferenceStyle.title)
+                    Spacer()
+                    Button { showNotificationSettings = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .frame(minWidth: ReferenceStyle.touch, minHeight: ReferenceStyle.touch)
+                    }.accessibilityLabel("Insights & Alerts")
+                }
+                Picker("Category", selection: $category) {
+                    ForEach(categories, id: \.self) { Text(LocalizedStringKey($0)).tag($0) }
+                }.pickerStyle(.segmented)
+                dailyChangesSection
+                if !model.loaded {
+                    ComingSoon(what: "Reading your journal and outcomes…")
+                } else {
                     moversSection
                     doseSection
                     methodNote
                 }
-            }
+            }.padding(ReferenceStyle.page)
         }
+        .background(ReferenceStyle.canvas.ignoresSafeArea())
         .task(id: repo.refreshSeq) { await model.load(repo: repo) }
         .onChangeCompat(of: outcome) { model.rankFor($0) }
         .sheet(item: $selectedDailyInsight) { insight in
@@ -86,25 +95,25 @@ struct InsightsHubView: View {
     }
 
     private var dailyChangesSection: some View {
-        let findings = DailyChangeInsight.derive(from: repo.days)
-        let current = findings.filter { $0.day == Repository.localDayKey(Date()) }
-        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            SectionHeader("Measured changes", overline: "Your history")
+        let findings = DailyChangeInsight.derive(from: repo.days).filter { insight in
+            switch category {
+            case "Recovery": return insight.metric != .sleep
+            case "Sleep": return insight.metric == .sleep
+            case "Activity": return false
+            default: return true
+            }
+        }
+        return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+
             if withdrawnDailyInsightID != nil {
-                NoopCard {
+                ReferenceCard {
                     Text("This finding changed after new data was saved. Its earlier notification is no longer current.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
             }
-            if current.count >= 2 {
-                NoopCard(padding: 14, tint: StrandPalette.accent) {
-                    Text("Daily summary: \(current.count) measured changes with recent personal comparisons. Open each finding for its values and window.")
-                        .font(StrandFont.subhead)
-                }
-            }
             if findings.isEmpty {
-                NoopCard {
+                ReferenceCard {
                     Text("No supported change yet. Seven recent comparable days are needed for each metric.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
@@ -112,9 +121,9 @@ struct InsightsHubView: View {
             } else {
                 ForEach(findings.prefix(8)) { insight in
                     Button { selectedDailyInsight = insight } label: {
-                        NoopCard(padding: 14, tint: StrandPalette.metricCyan) {
-                            HStack(spacing: NoopMetrics.space3) {
-                                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        ReferenceCard() {
+                            HStack(spacing: ReferenceStyle.padding) {
+                                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                                     Text(insight.metric.title).font(StrandFont.subhead.weight(.semibold))
                                     Text("\(insight.day) · \(Int(insight.value.rounded())) \(insight.metric.unit) vs. \(Int(insight.median.rounded())) \(insight.metric.unit) median")
                                         .font(StrandFont.footnote)
