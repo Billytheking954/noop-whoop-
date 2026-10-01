@@ -2939,21 +2939,22 @@ final class Repository: ObservableObject {
     ///    then retires the stale strap row. A failed write therefore preserves the original;
     ///  - an IMPORTED row is never passed here as `replacing` (duplicating one is a pure add), so its
     ///    history is never touched.
-    func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async {
-        guard let store = await ensureStore() else { return }
+    @discardableResult
+    func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async -> Bool {
+        guard let store = await ensureStore() else { return false }
         if let old, WorkoutSource.classify(old.source) == .detected {
             // Write the replacement first. If that insert fails, the grandfathered source row and its
             // visibility remain untouched; a failed explicit edit must not turn into data loss.
             do { _ = try await store.upsertWorkouts([row], deviceId: deviceId) }
-            catch { return }
+            catch { return false }
             await dismissDetected(old)
-            return
+            return true
         } else if let old, old.startTs != row.startTs || old.sport != row.sport {
             // Write the replacement before deleting anything. If SQLite rejects the insert, leave both the
             // original row and its route untouched; if the later delete fails, the recoverable result is two
             // rows rather than lost history.
             do { _ = try await store.upsertWorkouts([row], deviceId: deviceId) }
-            catch { return }
+            catch { return false }
             // #10: the GPS route lives in RouteStore keyed by the natural key (startTs + sport), NOT in the
             // DB row. Copy it only after the replacement row is durable. Keep the old copy until the old
             // DB row is successfully retired, so a delete failure preserves both complete versions.
@@ -2970,9 +2971,14 @@ final class Repository: ObservableObject {
             } catch {
                 // Replacement and both route keys remain available; retrying the edit is safe.
             }
-            return
+            return true
         }
-        _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
+        do {
+            _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Re-label a legacy detected bout: copy it to a manual strap row with the chosen sport, then delete
@@ -3232,6 +3238,23 @@ final class Repository: ObservableObject {
             detectedDismissedTokens: dismissedDetectedSpans)
     }
 
+    /// Motion is supporting evidence only. The WHOOP 5/MG may bank HR without usable gravity;
+    /// absence of motion cannot turn an HR pattern into a confirmed workout or prove inactivity.
+    func autoDetectHasMotionEvidence(_ w: DetectedWorkout) async -> Bool {
+        let gravity = await gravitySamplesUnion(from: w.startSec, to: w.endSec, limit: 200_000)
+        guard gravity.count >= 30 else { return false }
+        let points = AutoWorkoutDetector.motionPoints(gravity)
+        let supported = zip(points.dropFirst(), points).filter { pair in
+            pair.0.ts - pair.1.ts <= 5 && pair.0.ts > pair.1.ts
+        }
+        guard supported.count >= 30,
+              (supported.last?.0.ts ?? 0) - (supported.first?.0.ts ?? 0) >= 6 * 60 else {
+            return false
+        }
+        let moving = supported.filter { $0.0.intensity >= AutoWorkoutDetector.motionConfirmMean }
+        return moving.count * 4 >= supported.count
+    }
+
     /// SAVE a suggested window as a manual-style "Workout" (generic sport , we don't claim a sport we
     /// didn't classify). Built through the same `WorkoutSource.buildManualRow` the manual sheet uses, so
     /// it persists exactly like a hand-entered session under the strap source. After saving, the screen
@@ -3243,7 +3266,15 @@ final class Repository: ObservableObject {
         guard let row = WorkoutSource.buildManualRow(start: start, durationMin: durationMin,
                                                      sport: "Workout", avgHr: w.avgBpm,
                                                      energyKcal: nil) else { return false }
-        await saveManualWorkout(row)
+        return await saveManualWorkout(row)
+    }
+
+    /// An edited suggestion may move outside its original span. Suppress the original only after
+    /// its replacement is durable, so a rejected write leaves the suggestion available to retry.
+    @discardableResult
+    func saveEditedDetectedWorkout(_ row: WorkoutRow, suggestion: DetectedWorkout) async -> Bool {
+        guard await saveManualWorkout(row) else { return false }
+        dismissDetectedSuggestion(suggestion)
         return true
     }
 

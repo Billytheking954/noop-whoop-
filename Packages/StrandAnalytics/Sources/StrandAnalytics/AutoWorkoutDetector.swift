@@ -3,9 +3,8 @@ import WhoopProtocol
 
 // AutoWorkoutDetector.swift — opt-in MVP "did you just work out?" detector.
 //
-// Faithful Swift twin of android/.../com/noop/analytics/AutoWorkoutDetector.kt — the two MUST
-// stay BYTE-PARITY on the detection logic (same thresholds, same span/merge/overlap rules, same
-// outputs), verified by the mirrored unit tests on each platform.
+// The Android twin is not present in this fork checkout. The HR-gap guard requires a matching
+// Android change before any cross-platform parity claim can be made.
 //
 // This is DELIBERATELY SEPARATE from `WorkoutDetector` (the exercise.py port that computes
 // calories / zones / strain for daily analytics and enriches already logged workouts). This one
@@ -15,7 +14,7 @@ import WhoopProtocol
 // remains frozen while the duration alternatives collect local shadow evidence.
 //
 // The published thresholds here are intentionally CONSERVATIVE (low sensitivity): a sustained ≥ 12-min
-// elevation of HR ≥ resting + 30 bpm, brief (≤ 90 s) dips tolerated, near windows merged. Tuned
+// elevation of HR ≥ resting + 30 bpm, brief (≤ 90 s) dips tolerated, observed near windows merged. Tuned
 // to avoid false positives from stress / caffeine / a brief flight of stairs, at the cost of
 // missing the odd short or gentle session — exactly right for a SUGGESTION you can decline. An
 // OPTIONAL continuous motion signal, when one is readily available, is required as confirmation;
@@ -71,6 +70,8 @@ public enum AutoWorkoutDetector {
     public static let shadowSustainedMinutes: [Double] = [10.0, 15.0]
     /// A dip below the gate no longer than this does NOT break the span (a red light, a sip of water).
     public static let maxDipS = 90
+    /// A missing HR interval cannot establish continuous exercise, even if both readings are high.
+    public static let maxHRSampleGapS = 120
     /// Two detected windows whose gap is strictly less than this are merged into one (5 min).
     public static let mergeGapS = 5 * 60
     /// When an OPTIONAL continuous motion series is supplied, a window must ALSO show elevated motion
@@ -124,10 +125,11 @@ public enum AutoWorkoutDetector {
 
     /// Detect candidate sustained-elevated-HR workout windows.
     ///
-    /// Algorithm (kept byte-identical with the Kotlin twin):
+    /// Algorithm (the HR-gap rule has not been verified against the absent Kotlin twin):
     ///  1. Sort HR ascending. Floor = restingHR + `elevatedMarginBPM`. A sample is "elevated" when
     ///     bpm >= floor.
-    ///  2. Grow a contiguous span across elevated samples. A run of NON-elevated samples is tolerated
+    ///  2. Grow a contiguous span across elevated samples. An HR gap over two minutes ends the span
+    ///     and cannot be merged across. A run of NON-elevated samples is tolerated
     ///     (does not end the span) ONLY while the dip's wall-clock duration (from the first sub-threshold
     ///     sample) stays <= `maxDipS`; a longer dip closes the span. The span's [start, end] are the
     ///     first/last ELEVATED sample timestamps.
@@ -162,6 +164,8 @@ public enum AutoWorkoutDetector {
         var spanStart: Int? = nil
         var spanEnd = 0
         var dipStart: Int? = nil
+        var previousTs: Int? = nil
+        var missingIntervals: [(Int, Int)] = []
 
         func closeSpan() {
             if let s = spanStart, Double(spanEnd - s) >= minimumSustainedMinutes * 60.0 {
@@ -172,6 +176,11 @@ public enum AutoWorkoutDetector {
         }
 
         for sample in seg {
+            if let previousTs, sample.ts - previousTs > maxHRSampleGapS {
+                closeSpan()
+                missingIntervals.append((previousTs, sample.ts))
+            }
+            previousTs = sample.ts
             if sample.bpm >= floor {
                 if spanStart == nil { spanStart = sample.ts }
                 spanEnd = sample.ts
@@ -193,7 +202,8 @@ public enum AutoWorkoutDetector {
         var curEnd = spans[0].end
         for k in 1..<spans.count {
             let next = spans[k]
-            if next.start - curEnd < mergeGapS {
+            let unobserved = missingIntervals.contains { $0.0 >= curEnd && $0.1 <= next.start }
+            if next.start - curEnd < mergeGapS && !unobserved {
                 curEnd = max(curEnd, next.end)
             } else {
                 merged.append((curStart, curEnd))

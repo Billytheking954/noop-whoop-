@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import SQLite3
 import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
@@ -24,7 +25,7 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             RescoreBackgroundScheduler.lastPassSecondsKey, DayCycleMode.storageKey,
             PuffinExperiment.experimentalSleepV2Key, PuffinExperiment.motionAwareWakeKey,
             PuffinExperiment.autoDetectWorkoutsKey,
-            WorkoutSource.dismissedDefaultsKey,
+            WorkoutSource.dismissedDefaultsKey, "workouts.autoDetectDismissed",
             "testcentre.active.workouts", "testcentre.active.master",
         ]
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
@@ -79,6 +80,90 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
                 autoDismissedTokens: ["3000:3900"],
                 detectedDismissedTokens: ["990:1910"]),
             "a candidate dismissed through either historical contract must never reappear")
+    }
+
+    private func executeFixtureSQL(_ sql: String, at path: String) throws {
+        var db: OpaquePointer?
+        let opened = sqlite3_open(path, &db)
+        defer { sqlite3_close(db) }
+        guard opened == SQLITE_OK else {
+            throw NSError(domain: "DetectedWorkoutFixture", code: Int(opened))
+        }
+        let result = sqlite3_exec(db, sql, nil, nil, nil)
+        guard result == SQLITE_OK else {
+            throw NSError(domain: "DetectedWorkoutFixture", code: Int(result),
+                          userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(db))])
+        }
+    }
+
+    func testRejectedSuggestionSavesRemainRetryable() async throws {
+        try await withPreferences {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let path = directory.appendingPathComponent("fixture.sqlite").path
+            let store = try await WhoopStore(path: path)
+            let repo = Repository(deviceId: deviceId)
+            repo.setStoreForTesting(store)
+            let start = Int(Date().timeIntervalSince1970) - 3_600
+            let suggestion = DetectedWorkout(startSec: start, endSec: start + 900,
+                                            avgBpm: 130, peakBpm: 150, durationMin: 15)
+            let edited = try XCTUnwrap(WorkoutSource.buildManualRow(
+                start: Date(timeIntervalSince1970: Double(start - 1_800)),
+                durationMin: 15, sport: "Cycling", avgHr: 130, energyKcal: nil))
+            try executeFixtureSQL("""
+                CREATE TRIGGER reject_workout BEFORE INSERT ON workout
+                BEGIN SELECT RAISE(ABORT, 'injected save failure'); END
+                """, at: path)
+
+            let directSave = await repo.saveDetectedWorkout(suggestion)
+            let editedSave = await repo.saveEditedDetectedWorkout(edited, suggestion: suggestion)
+            XCTAssertFalse(directSave)
+            XCTAssertFalse(editedSave)
+            let rows = try await store.workouts(deviceId: deviceId, from: 0, to: start + 3_600, limit: 100)
+            XCTAssertTrue(rows.isEmpty)
+            XCTAssertNil(UserDefaults.standard.stringArray(forKey: "workouts.autoDetectDismissed"))
+            XCTAssertEqual(Repository.selectAutoDetectCandidate(
+                [suggestion], autoDismissedTokens: [], detectedDismissedTokens: []), suggestion)
+
+            try executeFixtureSQL("DROP TRIGGER reject_workout", at: path)
+            let retry = await repo.saveEditedDetectedWorkout(edited, suggestion: suggestion)
+            XCTAssertTrue(retry)
+            let savedRows = try await store.workouts(deviceId: deviceId, from: 0, to: start + 3_600, limit: 100)
+            XCTAssertEqual(savedRows, [edited])
+            XCTAssertEqual(UserDefaults.standard.stringArray(forKey: "workouts.autoDetectDismissed"),
+                           ["\(suggestion.startSec):\(suggestion.endSec)"])
+        }
+    }
+
+    func testHandlingNewestSuggestionRevealsOlderAcrossRepositoryRestart() async throws {
+        try await withPreferences {
+            UserDefaults.standard.set(true, forKey: PuffinExperiment.autoDetectWorkoutsKey)
+            let store = try await WhoopStore.inMemory()
+            let start = Int(Date().timeIntervalSince1970) - 4 * 3_600
+            let olderHR = (0...(13 * 60)).map { HRSample(ts: start + $0, bpm: 120) }
+            let newerHR = (0...(13 * 60)).map { HRSample(ts: start + 2 * 3_600 + $0, bpm: 120) }
+            _ = try await store.insert(Streams(hr: olderHR + newerHR), deviceId: deviceId)
+            let repo = Repository(deviceId: deviceId)
+            repo.setStoreForTesting(store)
+            let first = await repo.autoDetectCandidate()
+            let newest = try XCTUnwrap(first)
+            XCTAssertEqual(newest.startSec, start + 2 * 3_600)
+            repo.dismissDetectedSuggestion(newest)
+
+            let restarted = Repository(deviceId: deviceId)
+            restarted.setStoreForTesting(store)
+            let next = await restarted.autoDetectCandidate()
+            let older = try XCTUnwrap(next)
+            XCTAssertEqual(older.startSec, start)
+            let saved = await restarted.saveDetectedWorkout(older)
+            XCTAssertTrue(saved)
+            let remaining = await restarted.autoDetectCandidate()
+            XCTAssertNil(remaining)
+            let rows = try await store.workouts(deviceId: deviceId, from: start, to: start + 4 * 3_600, limit: 100)
+            XCTAssertEqual(rows.count, 1)
+            XCTAssertEqual(rows.first?.startTs, older.startSec)
+        }
     }
 
     func testLegacyRowsAreRemovedFromTheirArchivedComputedOwner() async throws {

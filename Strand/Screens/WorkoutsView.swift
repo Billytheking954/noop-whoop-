@@ -187,6 +187,7 @@ struct WorkoutsView: View {
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: liquidScaffoldSky()) {
+            AutoWorkoutCard()
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
@@ -211,6 +212,7 @@ struct WorkoutsView: View {
                 scopeBar
                 rangeBar(rows: windowRows, effectiveRange: resolved)
                 if let postLogNote { postLogBanner(postLogNote) }
+                sessionsSection(rows: windowRows)
                 effortHero(rows: windowRows, effectiveRange: resolved, groups: groups)
                 summarySection(rows: windowRows, effectiveRange: resolved, groups: groups)
                 heatmapSection()
@@ -219,7 +221,6 @@ struct WorkoutsView: View {
                     zonesSection(z, totalSessions: windowRows.count)
                 }
                 recoveryTrendSection
-                sessionsSection(rows: windowRows)
             }
         }
         .task(id: repo.refreshSeq) {
