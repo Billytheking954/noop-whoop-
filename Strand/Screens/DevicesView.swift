@@ -58,6 +58,7 @@ private struct ConceptDeviceView: View {
     @ObservedObject var registry: DeviceRegistry
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var ble: BLEManager
     @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastRequested = false
     @State private var showManager = false
     @State private var showRename = false
@@ -70,13 +71,13 @@ private struct ConceptDeviceView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                 if let device = active {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
                             Label(live.connected ? "CONNECTED TO" : "DISCONNECTED",
                                   systemImage: "circle.fill")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(ReferenceStyle.caption)
                                 .foregroundStyle(live.connected ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                             Button {
                                 nameDraft = device.nickname ?? device.displayName
@@ -84,7 +85,7 @@ private struct ConceptDeviceView: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     Text(device.displayName)
-                                        .font(.system(size: 21, weight: .bold))
+                                        .font(ReferenceStyle.title)
                                         .foregroundStyle(StrandPalette.textPrimary)
                                     Image(systemName: "pencil")
                                         .font(.system(size: 13))
@@ -95,9 +96,9 @@ private struct ConceptDeviceView: View {
                         }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text("Last sync").font(.system(size: 11)).foregroundStyle(StrandPalette.textSecondary)
+                            Text("Last sync").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
                             Text(live.lastSyncedAt.map { Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
-                                .font(.system(size: 11))
+                                .font(ReferenceStyle.caption)
                                 .foregroundStyle(StrandPalette.textPrimary)
                         }
                     }
@@ -126,9 +127,9 @@ private struct ConceptDeviceView: View {
                         Spacer()
                         VStack(spacing: 4) {
                             Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
-                                .font(.system(size: 32, weight: .bold))
+                                .font(ReferenceStyle.value)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Battery").font(.system(size: 12)).foregroundStyle(StrandPalette.textSecondary)
+                            Text("Battery").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
@@ -138,18 +139,16 @@ private struct ConceptDeviceView: View {
                     deviceActionCard {
                         Toggle(isOn: $broadcastRequested) {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Broadcast Heart Rate").font(.system(size: 14, weight: .semibold))
-                                Text(live.encryptedBond
-                                     ? "Request to compatible apps and devices"
-                                     : "Connect and bond a WHOOP 5.0 / MG first")
-                                    .font(.system(size: 10))
+                                Text("Broadcast Heart Rate").font(ReferenceStyle.headline)
+                                Text(broadcastFeedback)
+                                    .font(ReferenceStyle.caption)
                                     .foregroundStyle(StrandPalette.textSecondary)
                             }
                         }
                         .tint(.blue)
-                        .disabled(!live.encryptedBond || !SourceCoordinator.isWhoop(device))
+                        .disabled(!live.encryptedBond || !SourceCoordinator.isWhoop(device) || ble.broadcastHRStatus == .pending)
                         .onChange(of: broadcastRequested) { _, on in
-                            model.ble.setBroadcastHr(on)
+                            ble.setBroadcastHr(on)
                         }
                     }
                     Button {
@@ -159,28 +158,28 @@ private struct ConceptDeviceView: View {
                         HStack {
                             Image(systemName: "arrow.triangle.2.circlepath")
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Sync Now").font(.system(size: 15, weight: .semibold))
+                                Text(live.backfilling ? "Syncing…" : "Sync Now").font(ReferenceStyle.headline)
                                 Text(syncFeedback ?? (live.lastSyncedAt.map {
                                     "Last synced \(Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened))"
                                 } ?? "No completed sync yet"))
-                                    .font(.system(size: 11))
+                                    .font(ReferenceStyle.caption)
                                     .foregroundStyle(StrandPalette.textSecondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
                         }
-                        .padding(14)
+                        .padding(ReferenceStyle.padding)
                         .frame(maxWidth: .infinity, minHeight: 54)
-                        .background(Color.blue.opacity(0.23), in: RoundedRectangle(cornerRadius: 10))
+                        .background(Color.blue.opacity(0.23), in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
                     }
                     .buttonStyle(.plain)
-                    .disabled(!live.connected || !live.encryptedBond)
+                    .disabled(!live.connected || !live.bonded || !live.historyReady || live.backfilling)
                     .onChange(of: live.lastSyncedAt) { _, date in
                         if let date { syncFeedback = "Synced \(Date(timeIntervalSince1970: date).formatted(date: .abbreviated, time: .shortened))" }
                     }
-                    if !live.connected || !live.encryptedBond {
+                    if !live.connected || !live.historyReady {
                         Text("Sync needs a connected, bonded strap.")
-                            .font(.system(size: 11))
+                            .font(ReferenceStyle.caption)
                             .foregroundStyle(StrandPalette.textSecondary)
                     }
                     deviceActionCard {
@@ -199,12 +198,12 @@ private struct ConceptDeviceView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
                 Button("Manage paired devices") { showManager = true }
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(ReferenceStyle.headline)
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, ReferenceStyle.page)
         }
-        .background(StrandPalette.surfaceBase)
+        .background(ReferenceStyle.canvas)
         .navigationTitle("Device")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showManager) {
@@ -230,10 +229,27 @@ private struct ConceptDeviceView: View {
         }
     }
 
+    private var broadcastFeedback: String {
+        guard live.encryptedBond else { return String(localized: "Connect and bond a WHOOP 5.0 / MG first") }
+        switch ble.broadcastHRStatus {
+        case .idle: return String(localized: "Stored preference; strap state not yet confirmed")
+        case .unavailable: return String(localized: "Unable to request broadcast on this connection")
+        case .pending: return String(localized: "Waiting for strap confirmation…")
+        case .finished(let report):
+            switch report.verdict {
+            case .confirmed: return report.storedValue == "1"
+                ? String(localized: "Broadcast flag enabled on strap")
+                : String(localized: "Broadcast flag disabled on strap")
+            case .unchanged: return String(localized: "The strap did not apply this change")
+            default: return String(localized: "Could not confirm the strap setting. Try again.")
+            }
+        }
+    }
+
     private func deviceActionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(14)
-            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+            .padding(ReferenceStyle.padding)
+            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
     }
 
     private func infoRow(_ label: String, value: String) -> some View {
@@ -242,7 +258,7 @@ private struct ConceptDeviceView: View {
             Spacer()
             Text(value).foregroundStyle(StrandPalette.textSecondary)
         }
-        .font(.system(size: 12))
+        .font(ReferenceStyle.caption)
         .frame(minHeight: 32)
     }
 }
