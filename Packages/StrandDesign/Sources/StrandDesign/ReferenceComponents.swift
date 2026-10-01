@@ -95,3 +95,25 @@ public struct ReferenceStressGauge: View {
         .accessibilityValue(Text(score, format: .number.precision(.fractionLength(1))))
     }
 }
+
+
+/// Original vector artwork shared by connection and device screens.
+public struct ReferenceBandIllustration: View {
+    public init() {}
+    public var body: some View {
+        ZStack {
+            Ellipse().stroke(Color(white: 0.17), lineWidth: 24)
+                .frame(width: 104, height: 150)
+            Ellipse().stroke(Color(white: 0.35), lineWidth: 1)
+                .frame(width: 104, height: 150)
+            RoundedRectangle(cornerRadius: 10)
+                .fill(LinearGradient(colors: [Color(white: 0.43), Color(white: 0.12)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(white: 0.42), lineWidth: 1))
+                .frame(width: 46, height: 80).offset(x: 47, y: 6)
+        }
+        .rotationEffect(.degrees(-23))
+        .frame(width: 180, height: 190)
+        .accessibilityHidden(true)
+    }
+}

@@ -535,10 +535,10 @@ struct SettingsView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(.body, design: .default).weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text(detail)
-                        .font(.system(size: 11))
+                        .font(.system(.caption, design: .default))
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
                 Spacer(minLength: 4)
@@ -548,8 +548,8 @@ struct SettingsView: View {
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, 14)
-            .frame(minHeight: 58)
-            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+            .frame(minHeight: 64)
+            .background(ReferenceStyle.surface, in: RoundedRectangle(cornerRadius: 10))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -2037,7 +2037,6 @@ struct SettingsView: View {
     /// model — a 4.0 owner still needs the export to share decoded streams. The SpO2 candidate card is
     /// split out the same way (see `spo2CandidateCard`'s comment) — it is NOT WHOOP-5/MG-specific.
     @ViewBuilder private var experimentalCard: some View {
-        liquidTodayCard
         liveSessionsCard
         // WHOOP 5/MG protocol research now lives in Test Centre. Everyday Settings no longer carries
         // a second copy; the persisted keys and reversible disable actions remain unchanged there.

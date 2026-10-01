@@ -74,8 +74,8 @@ struct WorkoutDetailView: View {
     @State private var steps: StepReadout?
 
     var body: some View {
-        ScreenScaffold(title: "\(WorkoutSource.displaySport(row.sport))",
-                       subtitle: "\(dateLabel(row.startTs))",
+        ScreenScaffold(title: nil,
+                       subtitle: nil,
                        // PERF: chart/map-heavy column (a MapKit route map, the session HR curve, the
                        // zone-split chart and the effort card). The LazyVStack path builds the off-screen
                        // ones on demand — byte-identical layout — so a tall detail doesn't materialise the
@@ -97,6 +97,8 @@ struct WorkoutDetailView: View {
                 effortCard(strain: strain)
             }
         }
+        .navigationTitle("Activity")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // A Done affordance for the sheet on both platforms (iOS gets the grabber too).
             ToolbarItem(placement: .cancellationAction) {
@@ -128,7 +130,7 @@ struct WorkoutDetailView: View {
                     Text(loaded ? "No route recorded" : "Loading route…")
                         .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: ReferenceStyle.chartHeight)
+                .frame(maxWidth: .infinity, minHeight: 72)
             }
         }
     }
@@ -142,18 +144,11 @@ struct WorkoutDetailView: View {
 
     private var referenceStats: some View {
         ReferenceCard {
-            VStack(spacing: ReferenceStyle.padding) {
-                HStack(spacing: ReferenceStyle.gap) {
-                    compactStat("Duration", value: durationLabel(row.durationS ?? Double(row.endTs - row.startTs)))
-                    compactStat("Distance", value: distanceLabel(row.distanceM))
-                    compactStat("Effort", value: row.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—")
-                }
-                Divider()
-                HStack(spacing: ReferenceStyle.gap) {
-                    compactStat("Avg HR", value: row.avgHr.map { "\($0) bpm" } ?? "—")
-                    compactStat("Max HR", value: row.maxHr.map { "\($0) bpm" } ?? "—")
-                    compactStat("Calories", value: row.energyKcal.map { grouped($0) } ?? "—")
-                }
+            HStack(spacing: ReferenceStyle.gap) {
+                compactStat("Distance", value: distanceLabel(row.distanceM))
+                compactStat("Duration", value: durationLabel(row.durationS ?? Double(row.endTs - row.startTs)))
+                compactStat("Effort", value: row.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—")
+                compactStat("Avg HR", value: row.avgHr.map { "\($0) bpm" } ?? "—")
             }
         }
     }

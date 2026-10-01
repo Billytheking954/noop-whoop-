@@ -246,7 +246,7 @@ struct TrendsView: View {
     }
 
     private var scaffold: some View {
-        ScreenScaffold(title: "Trends", subtitle: "The thread of you over time.",
+        ScreenScaffold(title: "Trends", subtitle: nil,
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // section reveal is unchanged; this only defers building that stack until it scrolls in.
@@ -306,17 +306,27 @@ struct TrendsView: View {
     }
 
     private var referenceWeekRows: [DailyMetric] {
-        let first = WeeklyDigestEngine.mondayOfWeek(containing: weekAnchorDay) ?? weekAnchorDay
-        let last = WeeklyDigestEngine.addDays(first, 6)
+        let last = weekAnchorDay
+        let first = WeeklyDigestEngine.addDays(last, -6)
         return repo.days.filter { $0.day >= first && $0.day <= last }.sorted { $0.day < $1.day }
     }
 
     private var referenceWeek: some View {
         let rows = referenceWeekRows
-        let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
         let maximumEffort = UnitFormatter.effortValue(100, scale: effortScale)
         return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-            weekNavBar(digest: digest)
+            HStack {
+                Button { stepWeek(-1) } label: {
+                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                }.disabled(weekOffset <= minWeekOffset).accessibilityLabel("Previous week")
+                Spacer()
+                Text("\(WeeklyDigestEngine.addDays(weekAnchorDay, -6)) – \(weekAnchorDay)")
+                    .font(ReferenceStyle.headline).monospacedDigit()
+                Spacer()
+                Button { stepWeek(1) } label: {
+                    Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                }.disabled(weekOffset >= 0).accessibilityLabel("Next week")
+            }
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                     HStack(spacing: ReferenceStyle.section) {
@@ -372,9 +382,12 @@ struct TrendsView: View {
                     }
                 }
             }
+            ReferenceCard {
             HStack(spacing: ReferenceStyle.gap) {
                 referenceAverage("Average Effort", values: rows.compactMap { $0.strain }.map { UnitFormatter.effortValue($0, scale: effortScale) }, suffix: "")
                 referenceAverage("Average Charge", values: rows.compactMap { $0.recovery }, suffix: "%")
+                referenceAverage("Sleep duration", values: rows.compactMap { $0.totalSleepMin }.map { $0 / 60 }, suffix: "h")
+            }
             }
             referenceMetricRow("HRV", values: rows.compactMap { $0.avgHrv }, unit: "ms", key: "hrv")
             referenceMetricRow("Resting heart rate", values: rows.compactMap { $0.restingHr.map(Double.init) }, unit: "bpm", key: "rhr")
@@ -394,15 +407,13 @@ struct TrendsView: View {
     }
 
     private func referenceAverage(_ title: String, values: [Double], suffix: String) -> some View {
-        ReferenceCard {
-            VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                Text(title).font(ReferenceStyle.caption)
-                Text(values.isEmpty ? "—" : "\(Int((values.reduce(0, +) / Double(values.count)).rounded()))\(suffix)")
-                    .font(ReferenceStyle.value).monospacedDigit()
-                Text("\(values.count) observed days").font(ReferenceStyle.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-        }
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            Text(title).font(ReferenceStyle.caption)
+            Text(values.isEmpty ? "—" : String(format: suffix == "h" ? "%.1f%@" : "%.0f%@", values.reduce(0, +) / Double(values.count), suffix))
+                .font(ReferenceStyle.value).monospacedDigit()
+            Text("\(values.count) observed days").font(ReferenceStyle.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func referenceMetricRow(_ title: String, values: [Double], unit: String, key: String) -> some View {

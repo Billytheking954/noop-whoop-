@@ -65,12 +65,9 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// The live metric feed is the default Today. A saved opt-in still opens the liquid prototype.
-    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = false
-
-    /// The Today tab root, honouring the liquid/classic preference.
+    /// The reference dashboard is the shipping Today. Prototype views remain available in DEBUG capture routes.
     @ViewBuilder private var todayTabRoot: some View {
-        if liquidTodayEnabled { LiquidTodayView() } else { TodayView() }
+        TodayView()
     }
 
     /// Native tab selection binding. SwiftUI sends taps on the already-selected item through the

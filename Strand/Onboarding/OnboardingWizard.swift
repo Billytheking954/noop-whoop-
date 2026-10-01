@@ -273,8 +273,8 @@ private struct ReferenceConnectionIntro: View {
                     .padding(.bottom, ReferenceStyle.section)
                 ReferenceCard {
                     HStack(spacing: ReferenceStyle.padding) {
-                        Image(systemName: "applewatch.side.right")
-                            .font(ReferenceStyle.value).foregroundStyle(ReferenceStyle.blue)
+                        ReferenceBandIllustration()
+                            .scaleEffect(0.28).frame(width: 54, height: 58)
                         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                             Text(live.bonded ? "Strap connected" : "Find a nearby strap")
                                 .font(ReferenceStyle.headline)

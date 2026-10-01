@@ -149,7 +149,7 @@ struct SleepView: View {
         // the normal Sleep canvas. Empty state still gets a plain scaffold title for orientation.
         // Night scene is a FIXED ScrollView topBackground (Home sky pattern): edge-to-edge under the
         // status bar and stable on overscroll — pulling to the top reveals the scene, not surfaceBase.
-        ScreenScaffold(title: resolved == nil ? "Sleep" : nil,
+        ScreenScaffold(title: nil,
                        subtitle: resolved == nil ? "Last night, read in two seconds." : nil,
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header), builds trailing trend/ledger cards on demand. Combined
@@ -276,6 +276,10 @@ struct SleepView: View {
                 }
             }
         }
+        .navigationTitle("Sleep")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     // MARK: - 0. REST HERO — scenic backdrop + sleep-performance gauge (Bevel)
@@ -470,7 +474,7 @@ struct SleepView: View {
         let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(night.session.endTs)))
         return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
             HStack {
-                Text("Sleep").font(ReferenceStyle.title)
+                Text("Last night's sleep").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
                 Spacer()
                 wakeEditButton(night)
             }

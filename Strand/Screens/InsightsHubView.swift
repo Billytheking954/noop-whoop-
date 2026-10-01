@@ -119,12 +119,21 @@ struct InsightsHubView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
             } else {
-                ForEach(findings.prefix(8)) { insight in
+                ForEach(findings.reduce(into: [DailyChangeInsight]()) { result, insight in
+                    if !result.contains(where: { $0.metric == insight.metric }) { result.append(insight) }
+                }) { insight in
                     Button { selectedDailyInsight = insight } label: {
                         ReferenceCard() {
                             HStack(spacing: ReferenceStyle.padding) {
+                                Image(systemName: insight.metric == .sleep ? "moon" : (insight.metric == .hrv ? "waveform.path.ecg" : "heart"))
+                                    .font(ReferenceStyle.value).foregroundStyle(ReferenceStyle.blue)
+                                    .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                                    Text(insight.metric.title).font(StrandFont.subhead.weight(.semibold))
+                                    Text(insight.metric.title).font(ReferenceStyle.headline)
+                                    Text(insight.increased ? "Above your baseline" : "Below your baseline")
+                                        .font(ReferenceStyle.body)
+                                    Text("\(Int(abs(insight.value - insight.median).rounded())) \(insight.metric.unit)")
+                                        .font(ReferenceStyle.value).foregroundStyle(ReferenceStyle.blue)
                                     Text("\(insight.day) · \(Int(insight.value.rounded())) \(insight.metric.unit) vs. \(Int(insight.median.rounded())) \(insight.metric.unit) median")
                                         .font(StrandFont.footnote)
                                         .foregroundStyle(StrandPalette.textSecondary)

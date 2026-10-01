@@ -107,25 +107,16 @@ private struct ConceptDeviceView: View {
                     HStack(spacing: 16) {
                         Spacer()
                         // Drawn in SwiftUI: an original neutral band silhouette, never a brand render.
-                        ZStack {
-                            Ellipse()
-                                .stroke(Color(white: 0.2), lineWidth: 31)
-                                .frame(width: 135, height: 190)
-                                .rotationEffect(.degrees(-23))
-                            Ellipse()
-                                .stroke(Color(white: 0.35).opacity(0.55), lineWidth: 1)
-                                .frame(width: 135, height: 190)
-                                .rotationEffect(.degrees(-23))
-                            RoundedRectangle(cornerRadius: 13)
-                                .fill(LinearGradient(colors: [Color(white: 0.38), Color(white: 0.12)],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                                .frame(width: 57, height: 100)
-                                .rotationEffect(.degrees(-23))
-                                .offset(x: 64, y: 7)
-                        }
-                        .accessibilityHidden(true)
+                        ReferenceBandIllustration()
                         Spacer()
                         VStack(spacing: 4) {
+                            ZStack(alignment: .bottom) {
+                                RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.border)
+                                if live.connected, let battery = live.batteryPct {
+                                    RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.green)
+                                        .frame(height: 110 * Double(min(100, max(0, battery))) / 100)
+                                }
+                            }.frame(width: 24, height: 110)
                             Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
                                 .font(ReferenceStyle.value)
                                 .foregroundStyle(StrandPalette.textPrimary)
@@ -134,7 +125,7 @@ private struct ConceptDeviceView: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
                     }
-                    .frame(height: 240)
+                    .frame(height: 210)
 
                     deviceActionCard {
                         Toggle(isOn: $broadcastRequested) {

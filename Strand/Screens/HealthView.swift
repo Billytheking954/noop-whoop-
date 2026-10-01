@@ -26,12 +26,13 @@ struct HealthView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ReferenceStyle.section) {
-                Text("Health Monitor").font(ReferenceStyle.title)
                 HealthSectionsStack()
             }.padding(ReferenceStyle.page)
         }
         .background(ReferenceStyle.canvas.ignoresSafeArea())
         .refreshable { await repo.refresh() }
+        .navigationTitle("Health Monitor")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -1392,13 +1393,7 @@ private struct VitalsSection: View {
                         .staggeredAppear(index: idx)
                 }
             }
-            Text("Once NOOP has 14 nights of history, in-range compares each vital to your own baseline (approximate, not medical advice); until then, typical adult ranges apply.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Experimental blood-oxygen candidates are shown in Night Lab, not as a Health Monitor percentage.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
+
         }
         .task {
             // #1118: load the per-night HRV over-count flags (always — no toggle) so the HRV tile can
@@ -1413,21 +1408,39 @@ private struct VitalsSection: View {
 
 private struct ReferenceVitalTile: View {
     let reading: BodyVitalReading
+    private var icon: String {
+        switch reading.key {
+        case "rhr": return "heart"
+        case "hrv": return "waveform.path.ecg"
+        case "resp": return "lungs"
+        case "skin": return "thermometer.medium"
+        default: return "drop"
+        }
+    }
     var body: some View {
         NavigationLink(value: TabRoute.metric(reading.key)) {
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                    Text(reading.label).font(ReferenceStyle.caption)
+                    HStack {
+                        Image(systemName: icon).foregroundStyle(ReferenceStyle.blue)
+                            .accessibilityHidden(true)
+                        Text(reading.label).font(ReferenceStyle.caption)
+                    }
                     if let value = reading.value {
                         Text("\(reading.format(value)) \(reading.unit)")
                             .font(ReferenceStyle.value).monospacedDigit()
                     } else {
                         Text("Unavailable").font(ReferenceStyle.headline)
                     }
-                    Text(reading.stateCaption)
+                    Text(reading.caveat ?? reading.stateText)
                         .font(ReferenceStyle.caption)
                         .foregroundStyle(reading.accent)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(reading.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                    if let day = reading.day, day != BodyVitalSigns.logicalDayKey(Date()) {
+                        Text(BodyVitalReading.dayLabel(day))
+                            .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                    }
                     if reading.key == "spo2" {
                         Text("Experimental").font(ReferenceStyle.caption)
                             .foregroundStyle(StrandPalette.textSecondary)

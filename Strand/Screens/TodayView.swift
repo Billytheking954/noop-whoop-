@@ -2113,57 +2113,45 @@ struct TodayView: View {
     }
 
     private var editorialSleepSection: some View {
-        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-
-            NavigationLink(value: TabRoute.sleep) {
-                ReferenceCard() {
-                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                        HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                                Text("Asleep").font(StrandFont.footnote)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                                if let minutes = displayDay?.totalSleepMin, minutes > 0 {
-                                    Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
-                                        .font(ReferenceStyle.value.monospacedDigit())
-                                } else {
-                                    Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
-                                        .font(StrandFont.subhead)
-                                }
-                            }
-                            Spacer(minLength: ReferenceStyle.gap)
-                            if let restScore {
-                                Text(String(format: String(localized: "Rest: %d%%"), Int(restScore.rounded())))
-                                    .font(StrandFont.subhead)
-                                    .foregroundStyle(StrandPalette.restColor)
-                            }
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .accessibilityHidden(true)
-                        }
-                        if selectedDayOffset == 0, (displayDay?.totalSleepMin ?? 0) > 0,
-                           let model = hostedSleepModel {
-                            let start = Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs))
-                            let end = Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: ReferenceStyle.gap) {
-                                    Image(systemName: "moon.stars").accessibilityHidden(true)
-                                    Text(start, style: .time).fixedSize()
-                                    Image(systemName: "arrow.right").accessibilityHidden(true)
-                                    Text(end, style: .time).fixedSize()
-                                }
-                                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                                    Text(start, style: .time)
-                                    Text(end, style: .time)
-                                }
-                            }
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        }
+        NavigationLink(value: TabRoute.sleep) {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
+                    HStack {
+                        Label("Last night's sleep", systemImage: "bed.double")
+                            .font(ReferenceStyle.headline)
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    HStack(alignment: .top, spacing: ReferenceStyle.gap) {
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Bedtime").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            if selectedDayOffset == 0, let model = hostedSleepModel {
+                                Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs)), style: .time)
+                                    .font(ReferenceStyle.headline)
+                            } else { Text("—").font(ReferenceStyle.headline) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Time asleep").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            if let minutes = displayDay?.totalSleepMin, minutes > 0 {
+                                Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
+                                    .font(ReferenceStyle.headline).monospacedDigit()
+                            } else { Text("—").font(ReferenceStyle.headline) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Wake up").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            if selectedDayOffset == 0, let model = hostedSleepModel {
+                                Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs)), style: .time)
+                                    .font(ReferenceStyle.headline)
+                            } else { Text("—").font(ReferenceStyle.headline) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if displayDay?.totalSleepMin == nil {
+                        Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
+                            .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
                     }
                 }
             }
-            .buttonStyle(.plain)
-        }
+        }.buttonStyle(.plain)
     }
 
     private var editorialOvernightSection: some View {

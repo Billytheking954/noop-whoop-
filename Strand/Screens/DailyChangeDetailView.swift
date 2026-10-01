@@ -47,8 +47,7 @@ struct DailyChangeDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
-                Text(insight.metric.title).font(ReferenceStyle.title)
+            VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                 ReferenceCard {
                     HStack(alignment: .top, spacing: ReferenceStyle.padding) {
                         Image(systemName: insight.increased ? "arrow.up.right" : "arrow.down.right")
@@ -79,7 +78,7 @@ struct DailyChangeDetailView: View {
                             Text("No readings recorded.").font(ReferenceStyle.body)
                         } else {
                             historyChart(points)
-                                .frame(height: ReferenceStyle.chartHeight)
+                                .frame(height: 125)
                                 .chartYAxisLabel(insight.metric.unit)
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(Text("\(insight.metric.title), last 30 days"))
@@ -117,7 +116,7 @@ struct DailyChangeDetailView: View {
             .padding(ReferenceStyle.page)
         }
         .background(ReferenceStyle.canvas.ignoresSafeArea())
-        .navigationTitle("Insight")
+        .navigationTitle(insight.metric.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
