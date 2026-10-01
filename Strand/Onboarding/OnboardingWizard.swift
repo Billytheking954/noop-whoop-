@@ -46,6 +46,7 @@ public struct OnboardingWizard: View {
 
     @State private var step: Step = .welcome
     @State private var glow = false
+    @State private var skipPairing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Low Power Mode / "Reduce motion in NOOP" pose these looping glows still too. Onboarding is
     /// first-run only, but a `repeatForever` is a `repeatForever` wherever it lives.
@@ -65,7 +66,7 @@ public struct OnboardingWizard: View {
                 // The paged content.
                 ZStack {
                     switch step {
-                    case .welcome:    ReferenceConnectionIntro(onContinue: advance, onLater: advance)
+                    case .welcome:    ReferenceConnectionIntro(onContinue: { skipPairing = false; advance() }, onLater: { skipPairing = true; advance() })
                     case .what:       WhatItDoesStep()
                     case .expectations: ExpectationsStep()
                     case .bluetooth:  BluetoothStep()
@@ -220,11 +221,19 @@ public struct OnboardingWizard: View {
     }
 
     private func advanceStep() {
+        if skipPairing && step == .expectations {
+            withAnimation(StrandMotion.gentle) { step = .profile }
+            return
+        }
         guard let next = Step(rawValue: step.rawValue + 1) else { onFinished(); return }
         withAnimation(StrandMotion.gentle) { step = next }
     }
 
     private func back() {
+        if skipPairing && step == .profile {
+            withAnimation(StrandMotion.gentle) { step = .expectations }
+            return
+        }
         guard let prev = Step(rawValue: step.rawValue - 1) else { return }
         withAnimation(StrandMotion.gentle) { step = prev }
     }

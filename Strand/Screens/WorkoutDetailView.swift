@@ -534,10 +534,10 @@ struct WorkoutDetailView: View {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 ChartCard(
                     title: "HEART RATE",
-                    height: ReferenceStyle.chartHeight,
                     subtitle: String(localized: "Beats per minute across the session"),
                     trailing: row.avgHr.map { String(localized: "avg \($0)") },
-                    tint: StrandPalette.effortColor
+                    height: ReferenceStyle.chartHeight,
+                    tint: ReferenceStyle.blue
                 ) {
                     TrendChart(
                         points: hrPoints,

@@ -571,9 +571,7 @@ enum DemoScreens {
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
         case "chargebreakdown": return AnyView(ChargeDetailView())
-        case "restdetail":
-            guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.rest }) else { return nil }
-            return AnyView(MetricDetailView(metric: metric))
+        case "restdetail": return AnyView(SleepView())
         case "effortdetail":
             guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.effort }) else { return nil }
             return AnyView(MetricDetailView(metric: metric))

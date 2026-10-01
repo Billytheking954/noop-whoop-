@@ -9,10 +9,10 @@ import SwiftUI
 public enum NoopVisualStyle {
     // NOOP's cool mineral canvas and midnight ink give the metrics room to lead.
     // CRUX contributes spacing discipline, while the colour and atmosphere remain NOOP's own.
-    public static let canvas = Color(light: "#F4F7FA", dark: "#10151E")
-    public static let surface = Color(light: "#FFFFFF", dark: "#1C2531")
-    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#243141")
-    public static let surfaceBottom = Color(light: "#FAFCFE", dark: "#1B2633")
+    public static let canvas = Color(light: "#F4F7FA", dark: "#0D171B")
+    public static let surface = Color(light: "#FFFFFF", dark: "#19262C")
+    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#1C2A30")
+    public static let surfaceBottom = Color(light: "#FAFCFE", dark: "#19262C")
     public static let inset = Color(light: "#E9EFF4", dark: "#141D28")
 
     public static let border = Color(light: "#DCE4EB", dark: "#2C3948")
@@ -28,13 +28,13 @@ public enum NoopVisualStyle {
     public static let mintDeep = Color(light: "#0D655B", dark: "#36B994")
     public static let mintGlow = Color(light: "#42A995", dark: "#A3E4D4")
 
-    public static let cardRadius: CGFloat = 18
-    public static let compactRadius: CGFloat = 14
+    public static let cardRadius: CGFloat = 10
+    public static let compactRadius: CGFloat = 10
     public static let pillRadius: CGFloat = 999
     public static let pagePadding: CGFloat = 16
-    public static let cardPadding: CGFloat = 16
-    public static let itemGap: CGFloat = 12
-    public static let sectionGap: CGFloat = 24
+    public static let cardPadding: CGFloat = 12
+    public static let itemGap: CGFloat = 8
+    public static let sectionGap: CGFloat = 16
 }
 
 /// Shared card/panel treatment: a cool surface, quiet hairline, and restrained depth.

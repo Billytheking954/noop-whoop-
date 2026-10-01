@@ -1363,7 +1363,7 @@ private struct VitalsSection: View {
     @State private var hrvOverCountByDay: [String: Double] = [:]   // #1118
 
     private static func order(_ key: String) -> Int {
-        ["rhr", "hrv", "resp_rate", "spo2", "skin_temp"].firstIndex(of: key) ?? 5
+        ["rhr", "hrv", "resp", "spo2", "skin"].firstIndex(of: key) ?? 5
     }
 
     var body: some View {
@@ -1374,7 +1374,7 @@ private struct VitalsSection: View {
             spo2CandidateByDay: [:],
             hrvOverCountByDay: hrvOverCountByDay,
             skinTempPreferred: SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute   // #1846
-        )
+        ).filter { ["rhr", "hrv", "resp", "spo2", "skin"].contains($0.key) }
         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
 
             LazyVGrid(
