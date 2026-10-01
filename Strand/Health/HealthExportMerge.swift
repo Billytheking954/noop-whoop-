@@ -19,6 +19,10 @@ import WhoopStore
 /// How a day's computed row and its imported row combine for the Apple Health export.
 enum HealthExportMerge {
 
+    /// HealthKit's HRV quantity is SDNN. A strap/CSV `avgHrv` can be RMSSD, so it cannot
+    /// stand in for a missing SDNN, even when it is the only HRV value for the day.
+    static func sdnnForHealth(_ row: DailyMetric) -> Double? { row.avgSdnn }
+
     /// The row to export for one day.
     ///
     /// Imported still wins field-for-field, preserving the existing precedence. The single departure is a

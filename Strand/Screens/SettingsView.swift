@@ -231,7 +231,7 @@ struct SettingsView: View {
     /// Opt-in "Auto-detect workouts" (default OFF). When ON, Today scans the last day or two of HR for a
     /// sustained-elevated window and offers — via a single dismissible card — to save it as a workout.
     /// Nothing is ever created automatically. Mirrors the Android `NoopPrefs.KEY_AUTO_DETECT_WORKOUTS`.
-    @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectWorkoutsEnabled = false
+    @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectWorkoutsEnabled = true
 
     /// "Journal reminder" (#627, default ON). When ON, Today shows the persistent journal widget
     /// (last-7-days strip + tap-through). Mirrors the Android `NoopPrefs.KEY_JOURNAL_REMINDER_ENABLED`.
@@ -336,6 +336,10 @@ struct SettingsView: View {
     @AppStorage(SettingsDisclosureDefaults.advancedOpenKey) private var advancedOpen = SettingsDisclosureDefaults.advancedOpenDefault
 
     var body: some View {
+        Group {
+        #if os(iOS)
+        conceptSettingsHub
+        #else
         ScreenScaffold(title: "Settings",
                        subtitle: "Your numbers, your strap, and how NOOP works. All on \(Platform.deviceNounPhrase).",
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends / Devices:
@@ -374,6 +378,8 @@ struct SettingsView: View {
                 // About stays expanded at the foot (version, links and the help sheets people return to).
                 aboutCard.staggeredAppear(index: 7)
             }
+        }
+        #endif
         }
         .alert(backupAlertTitle, isPresented: $showBackupAlert) {
             Button("OK", role: .cancel) { }
@@ -437,6 +443,120 @@ struct SettingsView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    /// Compact destination index from the iPhone reference. The existing settings cards and services
+    /// remain the destination content, so this changes navigation without changing stored preferences.
+    private var conceptSettingsHub: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                conceptSettingsRow("Appearance", detail: "System, Light or Dark",
+                                   symbol: "sun.max", tint: .cyan) {
+                    conceptSettingsDetail("Appearance") { appearanceCard }
+                }
+                conceptSettingsRow("Units", detail: "Metric or Imperial",
+                                   symbol: "ruler", tint: .blue) {
+                    conceptSettingsDetail("Units") { unitsCard }
+                }
+                conceptSettingsRow("Health Permissions", detail: "Manage data access",
+                                   symbol: "heart", tint: .pink) {
+                    AppleHealthView()
+                }
+                conceptSettingsRow("Data Sources", detail: "NOOP and other sources",
+                                   symbol: "externaldrive", tint: .blue) {
+                    DataSourcesView()
+                }
+                conceptSettingsRow("Notifications", detail: "Insights, goals and reminders",
+                                   symbol: "bell", tint: .pink) {
+                    DailyInsightNotificationSettingsView()
+                }
+                conceptSettingsRow("Automations", detail: "Rules and behaviours",
+                                   symbol: "bolt", tint: .green) {
+                    AutomationsView()
+                }
+                conceptSettingsRow("Export and Backup", detail: "Your data, on this iPhone",
+                                   symbol: "icloud.and.arrow.up", tint: .blue) {
+                    BackupSyncView()
+                }
+                conceptSettingsRow("NOOP",
+                                   detail: "Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") · build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")",
+                                   symbol: "info.circle", tint: StrandPalette.textSecondary) {
+                    conceptSettingsDetail("NOOP") { aboutCard }
+                }
+                // Retain access to the existing profile, strap and advanced controls below the
+                // reference viewport rather than discarding them from the product.
+                conceptSettingsRow("Profile and device controls", detail: "Personal details and strap options",
+                                   symbol: "person.crop.circle", tint: StrandPalette.accent) {
+                    conceptSettingsDetail("Profile and device controls") {
+                        profileCard
+                        strapCard
+                        featuresCard
+                        syncCard
+                        recoveryCard
+                        hrvCard
+                        experimentalCard
+                        backupCard
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 24)
+        }
+        .background(StrandPalette.surfaceBase)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func conceptSettingsDetail<Content: View>(
+        _ title: String, @ViewBuilder content: () -> Content
+    ) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                content()
+            }
+            .padding(16)
+        }
+        .background(StrandPalette.surfaceBase)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func conceptSettingsRow<Destination: View>(
+        _ title: String, detail: String, symbol: String, tint: Color,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink(destination: destination) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(tint)
+                    .frame(width: 34)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(.body, design: .default).weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(detail)
+                        .font(.system(.caption, design: .default))
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+            .background(ReferenceStyle.surface, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens \(title)")
+    }
+    #endif
 
     // MARK: - Profile
 
@@ -1768,7 +1888,7 @@ struct SettingsView: View {
                 .tint(StrandPalette.accent)
                 .accessibilityHint("Offers to save a workout when it spots sustained elevated heart rate")
 
-                Text("After a sync, NOOP looks over your recent heart rate for a sustained, raised stretch that looks like exercise and offers to save it. It only ever suggests. Nothing is saved until you tap Save, and you can dismiss any suggestion. Turning this off stops future suggestions but keeps your existing workout history. Deliberately conservative, so the odd workout may be missed. On \(Platform.deviceNounPhrase) only.")
+                Text("After a sync, NOOP checks the last two days of heart rate for possible activity. It offers a suggestion for you to confirm; heart rate alone cannot prove a workout. Nothing is saved until you tap Save. Turning this off stops checks but keeps your workout history. Short or gentle sessions may need to be added manually. On \(Platform.deviceNounPhrase) only.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1917,7 +2037,6 @@ struct SettingsView: View {
     /// model — a 4.0 owner still needs the export to share decoded streams. The SpO2 candidate card is
     /// split out the same way (see `spo2CandidateCard`'s comment) — it is NOT WHOOP-5/MG-specific.
     @ViewBuilder private var experimentalCard: some View {
-        liquidTodayCard
         liveSessionsCard
         // WHOOP 5/MG protocol research now lives in Test Centre. Everyday Settings no longer carries
         // a second copy; the persisted keys and reversible disable actions remain unchanged there.
@@ -1926,9 +2045,8 @@ struct SettingsView: View {
         rawSensorDiagnosticsCard
     }
 
-    /// Opt-in liquid Today redesign (default ON in this build). Off falls back to the
-    /// classic dashboard immediately, no rebuild. Same data either way.
-    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = true
+    /// The liquid prototype remains an opt-in alongside the live metric feed.
+    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = false
     private var liquidTodayCard: some View {
         SettingsSection(
             icon: "drop.fill",

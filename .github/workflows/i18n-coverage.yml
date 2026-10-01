@@ -19,3 +19,28 @@ jobs:
 
       - name: iPhone localisation audit
         run: python3 Tools/i18n_ios_ci.py
+
+      - name: Collect localization review evidence
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import sys, json
+          from pathlib import Path
+          sys.path.insert(0, "Tools")
+          import i18n_audit as audit
+          audit.CATALOGS = [(dirs, path) for dirs, path in audit.CATALOGS if path.is_file()]
+          baseline = audit.load_baseline()
+          literals, _ = audit.scan_ios()
+          gaps = [row for row in literals if (row[0], row[2]) not in baseline["ios"]]
+          Path("localization-gaps.json").write_text(json.dumps(gaps, indent=2))
+          PY
+
+      - name: Upload localization review evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-localization-review
+          path: |
+            Strand/Resources/Localizable.xcstrings
+            localization-gaps.json
+          retention-days: 7

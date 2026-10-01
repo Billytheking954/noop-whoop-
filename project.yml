@@ -74,6 +74,7 @@ targets:
         AppGroupIdentifier: "$(APP_GROUP_ID)"
         LSApplicationCategoryType: public.app-category.healthcare-fitness
         UILaunchScreen: {}
+        UIDesignRequiresCompatibility: true
         CFBundleIcons:
           CFBundleAlternateIcons:
             AppIcon-Navy:
@@ -138,6 +139,21 @@ targets:
       - package: OuraProtocol
       - package: PolarProtocol
       - target: NOOPiOSWidgets
+
+  NOOPReferenceUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - StrandUITests
+    dependencies:
+      - target: NOOPiOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).noop.referenceuitests
+        TEST_TARGET_NAME: NOOPiOS
+        TARGETED_DEVICE_FAMILY: "1"
 
   StrandTests:
     type: bundle.unit-test
@@ -205,3 +221,4 @@ schemes:
       config: Debug
       targets:
         - StrandTests
+        - NOOPReferenceUITests

@@ -64,7 +64,7 @@ struct StressView: View {
     @State private var modelSignature: StressInputs?
 
     var body: some View {
-        ScreenScaffold(title: "Stress", subtitle: "Autonomic load from HRV and resting heart rate",
+        ScreenScaffold(title: "Stress Monitor", subtitle: nil,
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // section reveal is unchanged; this only defers building that stack until it scrolls in.
@@ -72,7 +72,7 @@ struct StressView: View {
                        // The day-of-sky liquid backdrop, matching Today / Health / Live / Sleep / Trends: a
                        // fixed, full-bleed time-of-day sky behind the scroll content (does not scroll), so the
                        // Stress screen sits in the same liquid atmosphere as every other tab.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             if let model {
                 content(model)
             } else if !loaded {
@@ -236,6 +236,13 @@ struct StressView: View {
             heroCard(model)
                 .staggeredAppear(index: 0)
 
+            // Keep the time-aware evidence beside the current value. A day without sufficient
+            // intraday samples falls through to the labelled trend and methodology below.
+            if let daytime, !daytime.scored.isEmpty {
+                daytimeSection(daytime)
+                    .staggeredAppear(index: 1)
+            }
+
             // 1b. ADVANCED HRV readouts (additive, on-demand). A separate, clearly-labelled card
             //     that appears only when at least one engine returned a value. It sits BELOW the
             //     hero and never alters the hero, the markers or the timeline.
@@ -250,13 +257,6 @@ struct StressView: View {
                 tileGrid(model)
             }
             .staggeredAppear(index: 1)
-
-            // 3. Today's intraday timeline — when in the day stress ran high, + a
-            //    passive Breathe suggestion when the recent hours stay elevated.
-            if let daytime, !daytime.scored.isEmpty {
-                daytimeSection(daytime)
-                    .staggeredAppear(index: 2)
-            }
 
             // 4. Trend over the chosen window.
             trendSection(model)
@@ -288,11 +288,10 @@ struct StressView: View {
     @ViewBuilder
     private func daytimeSection(_ day: DaytimeStress.Result) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Today's Timeline", overline: "Intraday",
-                          trailing: timelineTrailing(day))
+            Text("Today's Timeline").font(ReferenceStyle.headline)
 
-            NoopCard(tint: StressRamp.calm) {
-                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            ReferenceCard() {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     HStack {
                         Text("Autonomic load through the day").strandOverline()
                         Spacer()
@@ -406,34 +405,15 @@ struct StressView: View {
     // one plain-English line explains the number below. Frosted card, liquid finish.
 
     private func heroCard(_ model: StressModel) -> some View {
-        NoopCard(tint: StressRamp.calm) {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                HStack {
-                    Text("Stress monitor").strandOverline()
-                    Spacer()
-                    StatePill("\(model.band.title)", tone: model.band.tone, showsDot: true)
-                }
-
-                HStack(alignment: .center, spacing: NoopMetrics.space5) {
-                    // The stress-level vessel: fills to score/3, tinted to the live band, the value
-                    // counting up over it. Taps splash the gauge (the numeral is hit-transparent).
-                    StressHeroGauge(score: model.score, tint: StressRamp.color(model.score))
-
-                    VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                        Text(model.band.title)
-                            .font(StrandFont.overline)
-                            .tracking(StrandFont.overlineTracking)
-                            .foregroundStyle(StressRamp.color(model.score))
-                        // One plain-English line beside the gauge.
-                        Text(model.explanation)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                }
+        VStack(spacing: ReferenceStyle.gap) {
+            ReferenceStressGauge(score: model.score, category: model.band.title)
+            if let day = model.fullTrend.last?.date {
+                Text(day, style: .date).font(ReferenceStyle.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
-        }
+            Text("Daily estimate").font(ReferenceStyle.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }.frame(maxWidth: .infinity)
     }
 
     // MARK: 1b · Advanced HRV readouts (additive, on-demand)

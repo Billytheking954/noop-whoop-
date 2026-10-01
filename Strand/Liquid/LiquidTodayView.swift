@@ -675,6 +675,20 @@ struct LiquidTodayView: View {
             let diameter = min(HeroScoreCell.vesselDiameter,
                                max(68, (proxy.size.width - NoopMetrics.space6 - NoopMetrics.space4) / 3))
             HStack(alignment: .top, spacing: NoopMetrics.space2) {
+                HeroScoreCell(label: String(localized: "Rest"), score: restScore,
+                              tint: StrandPalette.restColor, animated: dataLoaded,
+                              onGuide: { guideSection = .rest }, diameter: diameter,
+                              detailRoute: .metric(HeroRingMetric.rest))
+                    .overlay(alignment: .top) {
+                        if let sourceLabel = heroSourceLabel {
+                            SourceBadge("\(sourceLabel)", tint: StrandPalette.textSecondary)
+                                .fixedSize()
+                                .frame(width: diameter, alignment: .trailing)
+                                .offset(y: -(NoopMetrics.space4 + NoopMetrics.sourceBadgeHeight / 2))
+                                .allowsHitTesting(false)
+                                .accessibilityLabel(Text("Source: \(sourceLabel)"))
+                        }
+                    }
                 // #543 carry: an unscored today shows the last scored night's REAL Charge (labelled as prior by
                 // the state pill) rather than an empty vessel, matching the classic Today, widget/watch/Live
                 // Activity (`Repository.widgetAnchor`) and Android. Effort deliberately does NOT carry.
@@ -691,20 +705,6 @@ struct LiquidTodayView: View {
                               diameter: diameter,
                               decimals: effortScale == .whoop ? 1 : 0,
                               detailRoute: .metric(HeroRingMetric.effort))
-                HeroScoreCell(label: String(localized: "Rest"), score: restScore,
-                              tint: StrandPalette.restColor, animated: dataLoaded,
-                              onGuide: { guideSection = .rest }, diameter: diameter,
-                              detailRoute: .metric(HeroRingMetric.rest))
-                    .overlay(alignment: .top) {
-                        if let sourceLabel = heroSourceLabel {
-                            SourceBadge("\(sourceLabel)", tint: StrandPalette.textSecondary)
-                                .fixedSize()
-                                .frame(width: diameter, alignment: .trailing)
-                                .offset(y: -(NoopMetrics.space4 + NoopMetrics.sourceBadgeHeight / 2))
-                                .allowsHitTesting(false)
-                                .accessibilityLabel(Text("Source: \(sourceLabel)"))
-                        }
-                    }
             }
             .padding(.vertical, NoopMetrics.space4)
             .padding(.horizontal, NoopMetrics.space3)
