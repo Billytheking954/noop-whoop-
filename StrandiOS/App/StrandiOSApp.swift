@@ -444,7 +444,13 @@ private struct iOSRootView: View {
             // Inherit the app appearance (set via the Theme picker, or `-theme.appearance light|dark`
             // in the launch arguments) so demo/marketing shots can be taken in either scheme.
             return AnyView(
-                ReferenceDemoTabHost(screen: demo)
+                Group {
+                    if CommandLine.arguments.contains("addwizard") {
+                        demo
+                    } else {
+                        ReferenceDemoTabHost(screen: demo)
+                    }
+                }
             )
         }
         #endif
@@ -574,7 +580,7 @@ enum DemoScreens {
         case "devicescatalog": return AnyView(DeviceCardCatalog())
         case "fitnessage": return AnyView(FitnessAgeDemoScreen())
         case "vitality": return AnyView(VitalityDemoScreen())
-        case "addwizard": return AnyView(AddWizardDemoHost())
+        case "addwizard": return AnyView(OnboardingWizard(onFinished: {}))
         // Oura onboarding: the Add-device wizard deep-linked straight to the Oura factory-reset-and-adopt
         // prep step (the Beta banner + get/lose card + the red irreversible-consent gate), screenshot-able
         // WITHOUT a ring.
