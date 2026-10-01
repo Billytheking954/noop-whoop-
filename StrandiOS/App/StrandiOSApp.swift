@@ -444,11 +444,7 @@ private struct iOSRootView: View {
             // Inherit the app appearance (set via the Theme picker, or `-theme.appearance light|dark`
             // in the launch arguments) so demo/marketing shots can be taken in either scheme.
             return AnyView(
-                NavigationStack {
-                    demo
-                        .background(StrandPalette.surfaceBase.ignoresSafeArea())
-                        .navigationBarTitleDisplayMode(.inline)
-                }
+                ReferenceDemoTabHost(screen: demo)
             )
         }
         #endif
@@ -563,11 +559,7 @@ enum DemoScreens {
         case "insights": return AnyView(InsightsView())
         case "insightshub": return AnyView(InsightsHubView())
         case "insightalerts": return AnyView(DailyInsightNotificationSettingsView())
-        // A deterministic DEBUG-only finding for layout inspection. These values are synthetic and
-        // this route is absent from Release; the real Insights hub derives findings from saved rows.
-        case "insightdetail": return AnyView(DailyChangeDetailView(insight: .init(
-            metric: .restingHr, day: "2026-09-29", value: 70, median: 60,
-            comparisonDays: 10, windowStart: "2026-09-08", windowEnd: "2026-09-28")))
+        case "insightdetail": return AnyView(DailyInsightDemoHost())
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
@@ -605,6 +597,52 @@ enum DemoScreens {
 /// DEBUG-only host so `--demo-screen addwizard` can render the multi-step Add-a-device wizard.
 /// A SwiftUI View body is main-actor, so it can pull the injected LiveState and hand it to the
 /// wizard's `init(live:)` (the nonisolated DemoScreens switch can't construct a LiveState itself).
+private struct ReferenceDemoTabHost: View {
+    let screen: AnyView
+    @State private var selection = 0
+    private var screenTab: Int {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--demo-screen"), index + 1 < args.count else { return 0 }
+        switch args[index + 1] {
+        case "health": return 1
+        case "workouts": return 2
+        case "settings", "devices", "insightshub", "insightdetail", "trends": return 3
+        default: return 0
+        }
+    }
+    private func root<V: View>(_ view: V, tag: Int) -> some View {
+        NavigationStack {
+            Group {
+                if tag == screenTab { screen } else { AnyView(view) }
+            }
+            .tabRouteDestinations()
+            .background(ReferenceStyle.canvas.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+    var body: some View {
+        TabView(selection: $selection) {
+            root(TodayView(), tag: 0).tabItem { Label("Today", systemImage: "house") }.tag(0)
+            root(HealthView(), tag: 1).tabItem { Label("Health", systemImage: "heart") }.tag(1)
+            root(WorkoutsView(), tag: 2).tabItem { Label("Activity", systemImage: "chart.bar") }.tag(2)
+            root(SettingsView(), tag: 3).tabItem { Label("More", systemImage: "ellipsis") }.tag(3)
+        }
+        .tint(ReferenceStyle.blue)
+        .onAppear { selection = screenTab }
+    }
+}
+
+private struct DailyInsightDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    var body: some View {
+        if let insight = DailyChangeInsight.derive(from: repo.days).first {
+            DailyChangeDetailView(insight: insight)
+        } else {
+            Text("No baseline comparison available")
+        }
+    }
+}
+
 private struct AddWizardDemoHost: View {
     @EnvironmentObject var live: LiveState
     var body: some View { AddDeviceWizard(live: live, onClose: {}) }
