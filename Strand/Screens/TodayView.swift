@@ -2050,9 +2050,9 @@ struct TodayView: View {
 
     @ViewBuilder private var editorialGlanceCards: some View {
         NavigationLink(value: TabRoute.health) {
-            NoopCard(padding: 12, tint: StrandPalette.metricCyan) {
-                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                    Text("Health Monitor").font(StrandFont.headline)
+            ReferenceCard() {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    Text("Health Snapshot").font(ReferenceStyle.headline)
                     Text(displayDay?.restingHr.map { "Resting HR \($0) bpm" }
                          ?? (repo.loaded ? "No reading for this day" : "Loading…"))
                         .font(StrandFont.footnote)
@@ -2063,9 +2063,9 @@ struct TodayView: View {
         }
         .buttonStyle(.plain)
         NavigationLink(value: TabRoute.stress) {
-            NoopCard(padding: 12, tint: StrandPalette.stressColor) {
-                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                    Text("Stress Monitor").font(StrandFont.headline)
+            ReferenceCard() {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    Text("Stress Monitor").font(ReferenceStyle.headline)
                     Text(selectedDayOffset == 0
                          ? stressToday.map { String(format: "Day average %.1f", locale: AppLanguage.activeLocale, $0) }
                            ?? (repo.loaded ? "No supported reading" : "Loading…")
@@ -2080,13 +2080,13 @@ struct TodayView: View {
     }
 
     private var editorialInsightsSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
             HStack {
-                Text("My Day").font(StrandFont.title2)
+                Text("My Day").font(ReferenceStyle.title)
                 Spacer()
                 Button { router.requestQuickActions() } label: {
                     Image(systemName: "plus")
-                        .font(StrandFont.headline)
+                        .font(ReferenceStyle.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
                         .frame(width: 44, height: 44)
                         .background(StrandPalette.surfaceRaised,
@@ -2096,12 +2096,12 @@ struct TodayView: View {
                 .accessibilityLabel("Quick actions")
             }
             Button { router.openInsightsHub() } label: {
-                NoopCard(tint: StrandPalette.accent) {
-                    HStack(spacing: NoopMetrics.space3) {
+                ReferenceCard() {
+                    HStack(spacing: ReferenceStyle.gap) {
                         Image(systemName: "moon.stars")
                             .foregroundStyle(StrandPalette.restColor)
                             .accessibilityHidden(true)
-                        Text("Day in review").font(StrandFont.headline)
+                        Text("Day in review").font(ReferenceStyle.headline)
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")
                             .foregroundStyle(StrandPalette.textSecondary)
@@ -2114,24 +2114,24 @@ struct TodayView: View {
     }
 
     private var editorialSleepSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Sleep summary", overline: "Sleep")
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+
             NavigationLink(value: TabRoute.sleep) {
-                NoopCard(tint: StrandPalette.restColor) {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                ReferenceCard() {
+                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                         HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                            VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                                 Text("Asleep").font(StrandFont.footnote)
                                     .foregroundStyle(StrandPalette.textSecondary)
                                 if let minutes = displayDay?.totalSleepMin, minutes > 0 {
                                     Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
-                                        .font(StrandFont.title1.monospacedDigit())
+                                        .font(ReferenceStyle.value.monospacedDigit())
                                 } else {
                                     Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
                                         .font(StrandFont.subhead)
                                 }
                             }
-                            Spacer(minLength: NoopMetrics.space2)
+                            Spacer(minLength: ReferenceStyle.gap)
                             if let restScore {
                                 Text(String(format: String(localized: "Rest: %d%%"), Int(restScore.rounded())))
                                     .font(StrandFont.subhead)
@@ -2146,13 +2146,13 @@ struct TodayView: View {
                             let start = Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs))
                             let end = Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
                             ViewThatFits(in: .horizontal) {
-                                HStack(spacing: NoopMetrics.space2) {
+                                HStack(spacing: ReferenceStyle.gap) {
                                     Image(systemName: "moon.stars").accessibilityHidden(true)
                                     Text(start, style: .time).fixedSize()
                                     Image(systemName: "arrow.right").accessibilityHidden(true)
                                     Text(end, style: .time).fixedSize()
                                 }
-                                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                                     Text(start, style: .time)
                                     Text(end, style: .time)
                                 }
@@ -2164,21 +2164,6 @@ struct TodayView: View {
                 }
             }
             .buttonStyle(.plain)
-            if selectedDayOffset == 0, (displayDay?.totalSleepMin ?? 0) > 0,
-               let model = hostedSleepModel, model.night.stages.total > 0 {
-                NavigationLink(value: TabRoute.sleep) {
-                    TodayStagePreview(stages: model.night.stages)
-                }
-                .buttonStyle(.plain)
-            } else if displayDay?.totalSleepMin != nil {
-                NavigationLink(value: TabRoute.sleep) {
-                    NoopCard(tint: StrandPalette.restColor) {
-                        Label("Open sleep stages and timing", systemImage: "moon.stars")
-                            .font(StrandFont.subhead)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
         }
     }
 
@@ -3542,7 +3527,7 @@ struct TodayView: View {
             // `HeroRingDetailRouteTests` pins against `MetricCatalog`; `TabRoute.metric` falls back to the
             // Health screen on an unknown key rather than failing, which is why they are pinned.
             heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance",
-                           detailRoute: .metric(HeroRingMetric.rest),
+                           detailRoute: .sleep,
                            caption: restIsPendingSync ? "Pending sync" : nil,
                            captionWidth: ring) { restRing(diameter: ring) }
             heroRingColumn(section: .charge, domain: .charge, provenanceKey: "recovery",
@@ -3741,7 +3726,7 @@ struct TodayView: View {
     private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
         if let s = score {
             GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10,
+                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
         } else if recoveryCalibration == nil, let carried = lastScoredCharge {
             // #802: a CARRIED last-night Charge draws as a real (dimmed) ring, matching the Rest ring, rather
@@ -3749,7 +3734,7 @@ struct TodayView: View {
             // diameter, so the #762 self-sizing hero row is untouched; the dim + the row-level "Last night"
             // caption already beneath the rings mark it as carried, not today's fresh score.
             GlowRing(fraction: carried.value / 100, value: carried.value, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10,
+                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
                 .opacity(0.8)
         } else {
@@ -3764,7 +3749,7 @@ struct TodayView: View {
         if effortStrain(d) != nil, let gv = effortGaugeValue(d) {
             GlowRing(fraction: gv / effortGaugeMax, value: gv,
                      format: { effortScale == .whoop ? String(format: "%.1f", locale: AppLanguage.activeLocale, $0) : "\(Int($0.rounded()))" },
-                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: diameter * 0.10,
+                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
         } else {
             emptyHeroRing(diameter: diameter) { ringNoData(diameter: diameter) }
@@ -3788,7 +3773,7 @@ struct TodayView: View {
         // the column's caption, rather than shown by withholding the number. Past days are final.
         if let s = restScore {
             GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.restColor, diameter: diameter, lineWidth: diameter * 0.10,
+                     color: StrandPalette.restColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
         } else if displayDay?.recovery != nil {
             // #898: an aggregate-import user (a daily HRV/RHR import, no in-bed session) gets a Charge from
@@ -3820,7 +3805,7 @@ struct TodayView: View {
     private func emptyHeroRing<Overlay: View>(diameter: CGFloat, @ViewBuilder overlay: () -> Overlay) -> some View {
         ZStack {
             Circle().stroke(StrandPalette.textPrimary.opacity(0.10),
-                            style: StrokeStyle(lineWidth: diameter * 0.10, lineCap: .round))
+                            style: StrokeStyle(lineWidth: ReferenceStyle.ringWidth, lineCap: .round))
             overlay()
         }
         .frame(width: diameter, height: diameter)
