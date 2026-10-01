@@ -3531,7 +3531,7 @@ struct TodayView: View {
                            caption: restIsPendingSync ? "Pending sync" : nil,
                            captionWidth: ring) { restRing(diameter: ring) }
             heroRingColumn(section: .charge, domain: .charge, provenanceKey: "recovery",
-                           onOpenBreakdown: { showChargeBreakdown = true }) {
+                           detailRoute: .charge(day: displayDay?.day)) {
                 chargeRing(score: score, d: d, diameter: ring)
             }
             heroRingColumn(section: .effort, domain: .effort,

@@ -476,7 +476,7 @@ struct SleepView: View {
             }
             HStack(spacing: ReferenceStyle.padding) {
                 Text("Rest").foregroundStyle(ReferenceStyle.blue)
-                NavigationLink("Charge", value: TabRoute.metric("recovery"))
+                NavigationLink("Charge", value: TabRoute.charge(day: day))
                 NavigationLink("Effort", value: TabRoute.metric(HeroRingMetric.effort))
             }
             .font(ReferenceStyle.headline)
@@ -507,13 +507,14 @@ struct SleepView: View {
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     Text("Sleep stages").font(ReferenceStyle.headline)
-                    if night.intervals.count >= 2 {
-                        Hypnogram(intervals: night.intervals, height: ReferenceStyle.chartHeight,
+                    if let intervals = night.realSegments, intervals.count >= 2 {
+                        Hypnogram(intervals: intervals, height: ReferenceStyle.chartHeight,
                                   showsStageAxis: false, showsHover: true,
                                   nightStart: night.onsetDate, showsTimeAxis: true,
                                   filled: false, stagePalette: .noop)
                     } else {
                         stageBar(night.stages).frame(height: ReferenceStyle.touch)
+                        Text("Stage totals; timeline unavailable").font(ReferenceStyle.caption)
                     }
                     HStack(spacing: ReferenceStyle.gap) {
                         referenceStage("Awake", minutes: night.stages.awake)

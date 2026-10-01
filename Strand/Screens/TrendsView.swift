@@ -333,12 +333,12 @@ struct TrendsView: View {
                                     if let effort = row.strain {
                                         LineMark(x: .value("Day", day),
                                                  y: .value("Effort", UnitFormatter.effortValue(effort, scale: effortScale) / maximumEffort * 100),
-                                                 series: .value("Effort observed run", referenceSegment(rows, index: index, metric: { $0.strain })))
+                                                 series: .value("Observed run", "effort" + referenceSegment(rows, index: index, metric: { $0.strain })))
                                             .foregroundStyle(ReferenceStyle.blue)
                                     }
                                     if let charge = row.recovery {
                                         LineMark(x: .value("Day", day), y: .value("Charge", charge),
-                                                 series: .value("Charge observed run", referenceSegment(rows, index: index, metric: { $0.recovery })))
+                                                 series: .value("Observed run", "charge" + referenceSegment(rows, index: index, metric: { $0.recovery })))
                                             .foregroundStyle(ReferenceStyle.green)
                                     }
                                 }
