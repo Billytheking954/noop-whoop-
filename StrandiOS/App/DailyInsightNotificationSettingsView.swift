@@ -14,9 +14,9 @@ struct DailyInsightNotificationSettingsView: View {
     @State private var denied = false
 
     var body: some View {
-        ScreenScaffold(title: "Insight notifications", subtitle: "Optional local alerts after reliable data is saved") {
-            NoopCard {
-                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+        ScreenScaffold(title: "Insights & Alerts", subtitle: nil) {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                     Toggle("Measured changes", isOn: $enabled)
                     Text("At most one alert per day. A new sync can update or withdraw a finding. Alerts are checked while NOOP is running; iOS may delay background work.")
                         .font(StrandFont.footnote)
@@ -28,16 +28,16 @@ struct DailyInsightNotificationSettingsView: View {
                     }
                 }
             }
-            NoopCard {
-                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                     Toggle("Resting heart rate", isOn: $rhr)
                     Toggle("Overnight HRV", isOn: $hrv)
                     Toggle("Sleep duration", isOn: $sleep)
                 }
                 .disabled(!enabled)
             }
-            NoopCard {
-                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                     Text("Quiet hours").font(StrandFont.headline)
                     Picker("From", selection: $startHour) {
                         ForEach(0..<24) { hour in Text(verbatim: String(format: "%02d:00", hour)).tag(hour) }
