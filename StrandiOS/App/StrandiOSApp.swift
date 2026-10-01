@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
+import WhoopStore
 import UserNotifications
 
 /// iOS entry point. Unlike the macOS app (which adds a `MenuBarExtra` scene), iOS uses a single

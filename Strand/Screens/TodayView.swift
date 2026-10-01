@@ -6429,7 +6429,11 @@ private struct ReferenceHealthSnapshot: View {
 
     private var eligible: [BodyVitalReading] {
         guard let day, flagsLoaded else { return [] }
-        let noon = ISO8601DateFormatter().date(from: day + "T12:00:00Z") ?? Date()
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        let midnight = parser.date(from: day) ?? Date()
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: midnight) ?? midnight
         return BodyVitalSigns.readings(sourceRows: repo.vitalMetricRows,
                                        temperatureUnit: temperatureUnit, now: noon,
                                        spo2CandidateByDay: [:], hrvOverCountByDay: overCounts)

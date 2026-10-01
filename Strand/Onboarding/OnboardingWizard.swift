@@ -86,10 +86,12 @@ public struct OnboardingWizard: View {
                 .padding(.horizontal, ReferenceStyle.page)
 
                 // Bottom: the thread (progress) + the forward CTA.
-                if !step.isFirst { bottomBar }
-                    .padding(.horizontal, 40)
-                    .padding(.top, ReferenceStyle.section)
-                    .padding(.bottom, ReferenceStyle.page)
+                if !step.isFirst {
+                    bottomBar
+                        .padding(.horizontal, ReferenceStyle.page)
+                        .padding(.top, ReferenceStyle.section)
+                        .padding(.bottom, ReferenceStyle.page)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
