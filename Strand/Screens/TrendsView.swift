@@ -409,7 +409,7 @@ struct TrendsView: View {
     private func referenceAverage(_ title: String, values: [Double], suffix: String) -> some View {
         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
             Text(title).font(ReferenceStyle.caption)
-            Text(values.isEmpty ? "—" : String(format: suffix == "h" ? "%.1f%@" : "%.0f%@", values.reduce(0, +) / Double(values.count), suffix))
+            Text(values.isEmpty ? "—" : (values.reduce(0, +) / Double(values.count)).formatted(.number.precision(.fractionLength(suffix == "h" ? 1 : 0))) + suffix)
                 .font(ReferenceStyle.value).monospacedDigit()
             Text("\(values.count) observed days").font(ReferenceStyle.caption)
                 .foregroundStyle(StrandPalette.textSecondary)
