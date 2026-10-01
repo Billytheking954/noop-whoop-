@@ -53,6 +53,9 @@ struct WorkoutDetailView: View {
     /// True when the zones bar came from imported WHOOP percentages (vs derived from raw strap HR).
     @State private var zonesFromImport = false
     @State private var loaded = false
+    @State private var editingReview = false
+    @State private var reviewBusy = false
+    @State private var reviewFeedback: String?
     /// #516: computed from the recorded workout-end + post-workout HR window. nil when the workout was
     /// not intense enough or the strap did not record enough post-workout coverage.
     @State private var heartRateRecovery: HeartRateRecovery.Result?
@@ -82,12 +85,13 @@ struct WorkoutDetailView: View {
                        // and every other liquid screen. Fixed and full-bleed; it does not scroll. This
                        // screen is presented in a sheet wrapped in a NavigationStack by WorkoutsView, so it
                        // needs no extra macOS NavigationStack of its own.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             headerCard
-            statStrip
-            routeCard
+            referenceRoute
+            referenceStats
             hrCurveCard
-            zonesCard
+            referenceZones
+            reviewCard
             heartRateRecoveryCard
             if let strain = row.strain {
                 effortCard(strain: strain)
@@ -100,6 +104,124 @@ struct WorkoutDetailView: View {
             }
         }
         .task { await load() }
+        .sheet(isPresented: $editingReview) {
+            ManualWorkoutSheet(editing: row) { edited, replacing in
+                Task {
+                    reviewBusy = true
+                    await repo.saveManualWorkout(edited, replacing: replacing)
+                    let saved = await repo.workoutRows(days: 4000)
+                    let exists = saved.contains { $0.startTs == edited.startTs && $0.sport == edited.sport && WorkoutSource.classify($0.source) == .manual }
+                    reviewBusy = false
+                    if exists { dismiss() } else { reviewFeedback = String(localized: "Unable to save this activity. Try again.") }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var referenceRoute: some View {
+        if route.count >= 2 {
+            routeCard
+        } else {
+            ReferenceCard {
+                VStack(spacing: ReferenceStyle.gap) {
+                    Image(systemName: "map").foregroundStyle(StrandPalette.textSecondary)
+                    Text(loaded ? "No route recorded" : "Loading route…")
+                        .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: ReferenceStyle.chartHeight)
+            }
+        }
+    }
+
+    private func compactStat(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            Text(label).font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+            Text(value).font(ReferenceStyle.value).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var referenceStats: some View {
+        ReferenceCard {
+            VStack(spacing: ReferenceStyle.padding) {
+                HStack(spacing: ReferenceStyle.gap) {
+                    compactStat("Duration", value: durationLabel(row.durationS ?? Double(row.endTs - row.startTs)))
+                    compactStat("Distance", value: distanceLabel(row.distanceM))
+                    compactStat("Effort", value: row.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—")
+                }
+                Divider()
+                HStack(spacing: ReferenceStyle.gap) {
+                    compactStat("Avg HR", value: row.avgHr.map { "\($0) bpm" } ?? "—")
+                    compactStat("Max HR", value: row.maxHr.map { "\($0) bpm" } ?? "—")
+                    compactStat("Calories", value: row.energyKcal.map { grouped($0) } ?? "—")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var referenceZones: some View {
+        if let zones = zoneMinutes, zones.count >= 5, zones.reduce(0, +) > 0 {
+            let total = zones.reduce(0, +)
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    Text("Heart rate zones").font(ReferenceStyle.headline)
+                    ForEach(0..<5) { index in
+                        HStack(spacing: ReferenceStyle.gap) {
+                            Text("Z\(index + 1)").font(ReferenceStyle.caption)
+                            ProgressView(value: zones[index] / total)
+                                .tint(StrandPalette.hrZoneColor(index + 1))
+                            Text(durationLabel(zones[index] * 60)).font(ReferenceStyle.caption)
+                        }
+                    }
+                    Text(zonesFromImport ? "Imported zone durations" : "Estimated from recorded heart rate")
+                        .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var reviewCard: some View {
+        if WorkoutSource.classify(row.source) == .detected {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
+                    Text("Possible activity").font(ReferenceStyle.headline)
+                    Text("Heart rate suggests a possible activity. Confirm it or choose a type; no route or sport is inferred from heart rate.")
+                        .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                    HStack {
+                        Button("Accept") { confirmReview() }
+                        Spacer()
+                        Button("Edit") { editingReview = true }
+                        Spacer()
+                        Button("Dismiss") { dismissReview() }
+                    }.font(ReferenceStyle.headline).frame(minHeight: ReferenceStyle.touch)
+                        .disabled(reviewBusy)
+                    if let reviewFeedback {
+                        Text(reviewFeedback).font(ReferenceStyle.caption).foregroundStyle(StrandPalette.statusWarning)
+                    }
+                }
+            }
+        }
+    }
+
+    private func confirmReview() {
+        reviewBusy = true
+        Task {
+            await repo.relabelDetected(row, sport: "Activity")
+            let saved = await repo.workoutRows(days: 4000)
+            let exists = saved.contains { $0.startTs == row.startTs && $0.sport == "Activity" && WorkoutSource.classify($0.source) == .manual }
+            reviewBusy = false
+            if exists { dismiss() } else { reviewFeedback = String(localized: "Unable to save this activity. Try again.") }
+        }
+    }
+
+    private func dismissReview() {
+        reviewBusy = true
+        Task {
+            await repo.dismissDetected(row)
+            let saved = await repo.workoutRows(days: 4000)
+            let exists = saved.contains { $0.startTs == row.startTs && $0.source == row.source && $0.sport == row.sport }
+            reviewBusy = false
+            if !exists { dismiss() } else { reviewFeedback = String(localized: "Unable to dismiss this activity. Try again.") }
+        }
     }
 
     // MARK: - Load
@@ -412,6 +534,7 @@ struct WorkoutDetailView: View {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 ChartCard(
                     title: "HEART RATE",
+                    height: ReferenceStyle.chartHeight,
                     subtitle: String(localized: "Beats per minute across the session"),
                     trailing: row.avgHr.map { String(localized: "avg \($0)") },
                     tint: StrandPalette.effortColor
