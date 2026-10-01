@@ -2053,10 +2053,7 @@ struct TodayView: View {
             ReferenceCard() {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     Text("Health Snapshot").font(ReferenceStyle.headline)
-                    Text(displayDay?.restingHr.map { "Resting HR \($0) bpm" }
-                         ?? (repo.loaded ? "No reading for this day" : "Loading…"))
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
+                    ReferenceHealthSnapshot(day: displayDay?.day, temperatureUnit: temperatureUnit)
                 }
                 .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
             }
@@ -6421,3 +6418,46 @@ private struct TodayStagePreview: View {
         .preferredColorScheme(.dark)
 }
 #endif
+
+/// Shares Health Monitor's evidence and banding rules; missing and unverified readings are not counted.
+private struct ReferenceHealthSnapshot: View {
+    let day: String?
+    let temperatureUnit: TemperatureUnit
+    @EnvironmentObject private var repo: Repository
+    @State private var overCounts: [String: Double] = [:]
+    @State private var flagsLoaded = false
+
+    private var eligible: [BodyVitalReading] {
+        guard let day, flagsLoaded else { return [] }
+        let noon = ISO8601DateFormatter().date(from: day + "T12:00:00Z") ?? Date()
+        return BodyVitalSigns.readings(sourceRows: repo.vitalMetricRows,
+                                       temperatureUnit: temperatureUnit, now: noon,
+                                       spo2CandidateByDay: [:], hrvOverCountByDay: overCounts)
+            .filter { ["rhr", "hrv", "resp", "spo2", "skin"].contains($0.key)
+                && $0.day == day && $0.value?.isFinite == true
+                && $0.caveat == nil && $0.banding.band != .noData }
+    }
+
+    var body: some View {
+        let readings = eligible
+        let within = readings.filter { $0.banding.band == .inRange }.count
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            Text(readings.isEmpty ? (repo.loaded && flagsLoaded ? "No data" : "Loading…")
+                                 : (within == readings.count ? "In range" : "Outside range"))
+                .font(ReferenceStyle.caption)
+                .foregroundStyle(readings.isEmpty ? StrandPalette.textSecondary
+                                 : within == readings.count ? ReferenceStyle.green : StrandPalette.statusWarning)
+            if !readings.isEmpty {
+                Text("\(within)/\(readings.count) eligible metrics")
+                    .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .task(id: repo.refreshSeq) {
+            flagsLoaded = false
+            let flags = await repo.exploreSeries(key: "hrv_rr_overcount", source: "my-whoop", days: 4000)
+            overCounts = Dictionary(flags.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+            flagsLoaded = true
+        }
+    }
+}
