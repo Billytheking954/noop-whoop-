@@ -158,7 +158,7 @@ struct SleepView: View {
                        // re-evaluates this heavy body.
                        onRefresh: { await repo.refresh() },
                        lazy: true,
-                       topBackground: resolved == nil ? nil : AnyView(sleepNightTopBackground)) {
+                       topBackground: nil) {
             Group {
                 if let resolved {
                     // Each top-level section fades + rises in sequence on first appear (Reduce-Motion safe).
@@ -168,13 +168,8 @@ struct SleepView: View {
                         // Bleed past ScreenScaffold's 16/24 gutters so the hero column is edge-to-edge
                         // in the upper band; the night scene itself is the fixed topBackground.
                         // Customize sits at the end of the hero (not floating in a blank band).
-                        restHero(resolved)
-                            .padding(.horizontal, -16)
-                            .padding(.top, -24)
-                            .staggeredAppear(index: 0)
-                        // #sleep-layout: the analytical cards render in the user's saved order minus the
-                        // hidden set, below the pinned Rest hero. Reordered via the Arrange sheet.
-                        ForEach(Array(sleepVisibleSections.enumerated()), id: \.element) { idx, section in
+                        referenceSleepContent(resolved)
+                        ForEach(Array(sleepVisibleSections.filter { $0 != .stages }.enumerated()), id: \.element) { idx, section in
                             sleepSectionView(section, resolved).staggeredAppear(index: idx + 1)
                         }
                     }
@@ -464,6 +459,120 @@ struct SleepView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    @State private var referenceNeed: Double?
+    @State private var referenceConsistency: Double?
+
+    private func referenceSleepContent(_ model: SleepModel) -> some View {
+        let night = heroNight(model)
+        let score = performanceScore(for: night)
+        let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(night.session.endTs)))
+        return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            HStack {
+                Text("Sleep").font(ReferenceStyle.title)
+                Spacer()
+                wakeEditButton(night)
+            }
+            HStack(spacing: ReferenceStyle.padding) {
+                Text("Rest").foregroundStyle(ReferenceStyle.blue)
+                NavigationLink("Charge", value: TabRoute.metric("recovery"))
+                NavigationLink("Effort", value: TabRoute.metric(HeroRingMetric.effort))
+            }
+            .font(ReferenceStyle.headline)
+            .frame(minHeight: ReferenceStyle.touch)
+            HStack(spacing: ReferenceStyle.section) {
+                ReferenceRing(progress: score.map { $0 / 100 }, color: ReferenceStyle.blue,
+                              value: score.map { "\(Int($0.rounded()))%" } ?? "—", label: "Rest")
+                    .frame(width: ReferenceStyle.chartHeight, height: ReferenceStyle.chartHeight)
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
+                    Text("Last night's sleep").font(ReferenceStyle.caption)
+                    Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
+                    Text("\(night.onsetText) – \(night.wakeText)")
+                        .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                    Text(day).font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            ReferenceCard {
+                HStack {
+                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                        Text("Sleep need").font(ReferenceStyle.headline)
+                        Text(referenceNeed.map { durationText($0) } ?? "Not available for this night")
+                            .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Spacer()
+                    Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
+                }
+            }
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    Text("Sleep stages").font(ReferenceStyle.headline)
+                    if night.intervals.count >= 2 {
+                        Hypnogram(intervals: night.intervals, height: ReferenceStyle.chartHeight,
+                                  showsStageAxis: false, showsHover: true,
+                                  nightStart: night.onsetDate, showsTimeAxis: true,
+                                  filled: false, stagePalette: .noop)
+                    } else {
+                        stageBar(night.stages).frame(height: ReferenceStyle.touch)
+                    }
+                    HStack(spacing: ReferenceStyle.gap) {
+                        referenceStage("Awake", minutes: night.stages.awake)
+                        referenceStage("Light", minutes: night.stages.light)
+                        referenceStage("Deep", minutes: night.stages.deep)
+                        referenceStage("REM", minutes: night.stages.rem)
+                    }
+                    Text(repo.activeDeviceIsOura ? "Raw on-device stages" : "Estimated sleep stages")
+                        .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            HStack(alignment: .top, spacing: ReferenceStyle.gap) {
+                ReferenceCard {
+                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                        Text("Consistency").font(ReferenceStyle.caption)
+                        Text(referenceConsistency.map { "\(Int($0.rounded()))%" } ?? "Unavailable")
+                            .font(ReferenceStyle.value)
+                    }
+                }
+                ReferenceCard {
+                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                        Text("Time in bed").font(ReferenceStyle.caption)
+                        Text(durationText(night.timeInBed)).font(ReferenceStyle.value)
+                    }
+                }
+            }
+            NavigationLink {
+                MetricExplorerView()
+            } label: {
+                ReferenceCard {
+                    HStack {
+                        Label("View All Sleep Metrics", systemImage: "chart.bar")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }.font(ReferenceStyle.headline)
+                }
+            }.buttonStyle(.plain)
+            if stageStagingIsLowConfidence(night) { stageLowConfidenceNote }
+            if stageStagingIsSparse(night) { stageIncompleteNote }
+            if let coverage = stageCoverage(night), coverage < HypnogramCoverage.minCoverage {
+                stagePartialNote(coverage)
+            }
+            nightNavHeader(trailing: night.spanLabel)
+            napSection(night)
+        }
+        .task(id: "\(day):\(repo.refreshSeq)") {
+            let needs = await repo.exploreSeries(key: "sleep_need_min", source: "my-whoop", days: 365)
+            let consistency = await repo.exploreSeries(key: "sleep_consistency", source: "my-whoop", days: 365)
+            referenceNeed = repo.importedSleep[day]?.needMin ?? needs.last { $0.day == day }?.value
+            referenceConsistency = repo.importedSleep[day]?.consistencyPct ?? consistency.last { $0.day == day }?.value
+        }
+    }
+
+    private func referenceStage(_ title: String, minutes: Double) -> some View {
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            Text(title).font(ReferenceStyle.caption)
+            Text(durationText(minutes)).font(ReferenceStyle.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Immersive Rest-world hero: compact Bevel-like hierarchy — centered "Sleep", muted circular
