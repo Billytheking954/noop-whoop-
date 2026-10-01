@@ -65,3 +65,30 @@ public struct ReferenceRing: View {
         .accessibilityValue(Text(value))
     }
 }
+
+public struct ReferenceStressGauge: View {
+    let score: Double
+    let category: String
+    public init(score: Double, category: String) { self.score = score; self.category = category }
+    public var body: some View {
+        ZStack {
+            Circle().trim(from: 0, to: 0.75)
+                .stroke(AngularGradient(colors: [ReferenceStyle.blue, ReferenceStyle.green, StrandPalette.statusWarning],
+                                        center: .center, startAngle: .degrees(0), endAngle: .degrees(270)),
+                        style: StrokeStyle(lineWidth: ReferenceStyle.ringWidth, lineCap: .round))
+                .rotationEffect(.degrees(135))
+            Circle().trim(from: 0, to: 0.006)
+                .stroke(StrandPalette.textPrimary, style: StrokeStyle(lineWidth: ReferenceStyle.ringWidth * 3, lineCap: .round))
+                .rotationEffect(.degrees(135 + min(3, max(0, score)) / 3 * 270))
+            VStack(spacing: ReferenceStyle.gap) {
+                Text(score, format: .number.precision(.fractionLength(1)))
+                    .font(StrandFont.display(48)).monospacedDigit()
+                Text(category).font(ReferenceStyle.headline).foregroundStyle(ReferenceStyle.green)
+            }
+        }
+        .frame(width: ReferenceStyle.chartHeight * 1.5, height: ReferenceStyle.chartHeight * 1.5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(category))
+        .accessibilityValue(Text(score, format: .number.precision(.fractionLength(1))))
+    }
+}
