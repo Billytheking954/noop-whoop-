@@ -59,13 +59,13 @@ public struct OnboardingWizard: View {
             VStack(spacing: 0) {
                 // Top chrome: a small back affordance + a step counter.
                 topBar
-                    .padding(.horizontal, 36)
-                    .padding(.top, 42)
+                    .padding(.horizontal, ReferenceStyle.page)
+                    .padding(.top, ReferenceStyle.gap)
 
                 // The paged content.
                 ZStack {
                     switch step {
-                    case .welcome:    WelcomeStep()
+                    case .welcome:    ReferenceConnectionIntro(onContinue: advance, onLater: advance)
                     case .what:       WhatItDoesStep()
                     case .expectations: ExpectationsStep()
                     case .bluetooth:  BluetoothStep()
@@ -82,13 +82,13 @@ public struct OnboardingWizard: View {
                 .frame(maxWidth: 620, maxHeight: .infinity)
                 .transition(stepTransition)
                 .id(step)                       // re-runs the transition per step
-                .padding(.horizontal, 40)
+                .padding(.horizontal, ReferenceStyle.page)
 
                 // Bottom: the thread (progress) + the forward CTA.
-                bottomBar
+                if !step.isFirst { bottomBar }
                     .padding(.horizontal, 40)
-                    .padding(.top, 24)
-                    .padding(.bottom, 36)
+                    .padding(.top, ReferenceStyle.section)
+                    .padding(.bottom, ReferenceStyle.page)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -108,29 +108,7 @@ public struct OnboardingWizard: View {
     // MARK: Backgrounds
 
     private var background: some View {
-        ZStack {
-            StrandPalette.surfaceBase
-            // A slow ambient bloom that breathes — the substrate feels alive. Kept subtle
-            // (≈⅓ the old gold opacity) so it's a minimal gold hint, not a wash.
-            RadialGradient(
-                colors: [StrandPalette.glowAmbient.opacity(0.18), .clear],
-                center: .center,
-                startRadius: 40,
-                endRadius: glow ? 620 : 480
-            )
-            .blendMode(.plusLighter)
-            .opacity(glow ? 0.4 : 0.28)
-            .animation(StrandMotion.breathe(reduced: poseStill), value: glow)
-            .ignoresSafeArea()
-
-            // A faint indigo wash from the top — instrument-grade depth.
-            LinearGradient(
-                colors: [StrandPalette.accentMuted.opacity(0.20), .clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            .ignoresSafeArea()
-        }
+        ReferenceStyle.canvas.ignoresSafeArea()
     }
 
     // MARK: Top bar
@@ -256,6 +234,64 @@ public struct OnboardingWizard: View {
             insertion: .move(edge: .trailing).combined(with: .opacity),
             removal: .move(edge: .leading).combined(with: .opacity)
         )
+    }
+}
+
+/// The first connection page keeps setup optional without inventing a nearby peripheral.
+private struct ReferenceConnectionIntro: View {
+    let onContinue: () -> Void
+    let onLater: () -> Void
+    @EnvironmentObject private var live: LiveState
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
+                Text("NOOP").font(ReferenceStyle.title)
+                    .frame(maxWidth: .infinity)
+                HStack(spacing: ReferenceStyle.gap) {
+                    ForEach(0..<3) { index in
+                        Capsule().fill(index == 0 ? ReferenceStyle.blue : ReferenceStyle.border)
+                            .frame(height: ReferenceStyle.ringWidth)
+                    }
+                }
+                Text("Connect your strap").font(StrandFont.title1)
+                Text("Pair your device to start syncing sleep, recovery and activity.")
+                    .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                Image(systemName: "wave.3.right")
+                    .font(StrandFont.display(72)).foregroundStyle(ReferenceStyle.blue)
+                    .frame(maxWidth: .infinity, minHeight: ReferenceStyle.chartHeight)
+                    .accessibilityHidden(true)
+                ReferenceCard {
+                    HStack(spacing: ReferenceStyle.padding) {
+                        Image(systemName: "applewatch.side.right")
+                            .font(ReferenceStyle.value).foregroundStyle(ReferenceStyle.blue)
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text(live.bonded ? "Strap connected" : "Find a nearby strap")
+                                .font(ReferenceStyle.headline)
+                            Text(live.bonded ? "Ready to sync" : "Continue to enable Bluetooth and scan.")
+                                .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: live.bonded ? "checkmark.circle.fill" : "chevron.right")
+                            .foregroundStyle(ReferenceStyle.blue)
+                    }
+                }
+                ReferenceCard {
+                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                        Label("Your data stays private", systemImage: "lock.shield")
+                            .font(ReferenceStyle.headline)
+                        Text("NOOP connects directly over Bluetooth. Your health data stays on your iPhone unless you choose to export it.")
+                            .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+                Button(action: onContinue) {
+                    Text("Continue").font(ReferenceStyle.headline)
+                        .frame(maxWidth: .infinity, minHeight: ReferenceStyle.touch)
+                }.buttonStyle(.borderedProminent).tint(ReferenceStyle.blue)
+                Button("Set up later", action: onLater)
+                    .font(ReferenceStyle.body)
+                    .frame(maxWidth: .infinity, minHeight: ReferenceStyle.touch)
+            }.padding(.vertical, ReferenceStyle.section)
+        }
     }
 }
 
