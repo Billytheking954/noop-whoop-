@@ -231,7 +231,7 @@ struct SettingsView: View {
     /// Opt-in "Auto-detect workouts" (default OFF). When ON, Today scans the last day or two of HR for a
     /// sustained-elevated window and offers — via a single dismissible card — to save it as a workout.
     /// Nothing is ever created automatically. Mirrors the Android `NoopPrefs.KEY_AUTO_DETECT_WORKOUTS`.
-    @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectWorkoutsEnabled = false
+    @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectWorkoutsEnabled = true
 
     /// "Journal reminder" (#627, default ON). When ON, Today shows the persistent journal widget
     /// (last-7-days strip + tap-through). Mirrors the Android `NoopPrefs.KEY_JOURNAL_REMINDER_ENABLED`.
@@ -344,10 +344,10 @@ struct SettingsView: View {
                        topBackground: liquidScaffoldSky()) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 // Everyday sections stay expanded (S3): the ones a first-run user actually needs.
-                profileCard.staggeredAppear(index: 0)
+                appearanceCard.staggeredAppear(index: 0)
                 unitsCard.staggeredAppear(index: 1)
-                appearanceCard.staggeredAppear(index: 2)
-                strapCard.staggeredAppear(index: 3)
+                strapCard.staggeredAppear(index: 2)
+                profileCard.staggeredAppear(index: 3)
                 streakCard.staggeredAppear(index: 4)
                 featuresCard.staggeredAppear(index: 5)
                 #if os(iOS)
@@ -450,20 +450,15 @@ struct SettingsView: View {
                 profilePhotoRow
                 rowDivider
                 FormRow(label: "Date of birth") {
-                    HStack(spacing: 12) {
-                        Text("\(profile.age)")
-                            .font(StrandFont.bodyNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(minWidth: 28, alignment: .trailing)
-                        // #146: age is derived from the date of birth, so it advances on its own.
-                        DatePicker("Date of birth",
-                                   selection: $profile.dateOfBirth,
-                                   in: ProfileStore.dateOfBirthRange,
-                                   displayedComponents: .date)
-                            .labelsHidden()
-                            .tint(StrandPalette.accent)
-                            .accessibilityLabel("Date of birth, age \(profile.age) years")
-                    }
+                    // Age remains derived from this date and is read aloud; the extra age number
+                    // previously crowded the visible date into the same narrow control row.
+                    DatePicker("Date of birth",
+                               selection: $profile.dateOfBirth,
+                               in: ProfileStore.dateOfBirthRange,
+                               displayedComponents: .date)
+                        .labelsHidden()
+                        .tint(StrandPalette.accent)
+                        .accessibilityLabel("Date of birth, age \(profile.age) years")
                 }
                 rowDivider
                 FormRow(label: "Sex") {
@@ -1768,7 +1763,7 @@ struct SettingsView: View {
                 .tint(StrandPalette.accent)
                 .accessibilityHint("Offers to save a workout when it spots sustained elevated heart rate")
 
-                Text("After a sync, NOOP looks over your recent heart rate for a sustained, raised stretch that looks like exercise and offers to save it. It only ever suggests. Nothing is saved until you tap Save, and you can dismiss any suggestion. Turning this off stops future suggestions but keeps your existing workout history. Deliberately conservative, so the odd workout may be missed. On \(Platform.deviceNounPhrase) only.")
+                Text("After a sync, NOOP checks the last two days of heart rate for possible activity. It offers a suggestion for you to confirm; heart rate alone cannot prove a workout. Nothing is saved until you tap Save. Turning this off stops checks but keeps your workout history. Short or gentle sessions may need to be added manually. On \(Platform.deviceNounPhrase) only.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1926,9 +1921,8 @@ struct SettingsView: View {
         rawSensorDiagnosticsCard
     }
 
-    /// Opt-in liquid Today redesign (default ON in this build). Off falls back to the
-    /// classic dashboard immediately, no rebuild. Same data either way.
-    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = true
+    /// The liquid prototype remains an opt-in alongside the live metric feed.
+    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = false
     private var liquidTodayCard: some View {
         SettingsSection(
             icon: "drop.fill",

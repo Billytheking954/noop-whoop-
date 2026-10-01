@@ -271,18 +271,16 @@ struct TrendsView: View {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                     // The main card list ripples in once on appear (Reduce-Motion safe).
                     Group {
-                        // Week-in-review digest (#208) with prev/next week browsing (#710) — self-hides
-                        // only when NO week in history has data. Past weeks render in the same format.
-                        weeklyDigestNav
-                            .staggeredAppear(index: 0)
-                        // The Charge / Effort / Rest trio, presented in NOOP's pip language.
-                        weekInReview(charge: recovery, effort: strain, rest: rest)
-                            .staggeredAppear(index: 1)
                         rangeBar(recovery: recovery)
-                            .staggeredAppear(index: 2)
+                            .staggeredAppear(index: 0)
                         heroRecovery(recovery: recovery)
-                            .staggeredAppear(index: 3)
+                            .staggeredAppear(index: 1)
                         smallMultiples(hrv: hrv, rhr: rhr, strain: strain)
+                            .staggeredAppear(index: 2)
+                        // Keep the browsable week and score digest below the primary labelled charts.
+                        weeklyDigestNav
+                            .staggeredAppear(index: 3)
+                        weekInReview(charge: recovery, effort: strain, rest: rest)
                             .staggeredAppear(index: 4)
                         // Long-horizon training load (CTL/ATL/TSB). Uses the FULL history, not the
                         // range window — chronic load is inherently a 42-day horizon. Self-hides its

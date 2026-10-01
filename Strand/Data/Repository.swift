@@ -3232,6 +3232,23 @@ final class Repository: ObservableObject {
             detectedDismissedTokens: dismissedDetectedSpans)
     }
 
+    /// Motion is supporting evidence only. The WHOOP 5/MG may bank HR without usable gravity;
+    /// absence of motion cannot turn an HR pattern into a confirmed workout or prove inactivity.
+    func autoDetectHasMotionEvidence(_ w: DetectedWorkout) async -> Bool {
+        let gravity = await gravitySamplesUnion(from: w.startSec, to: w.endSec, limit: 200_000)
+        guard gravity.count >= 30 else { return false }
+        let points = AutoWorkoutDetector.motionPoints(gravity)
+        let supported = zip(points.dropFirst(), points).filter { pair in
+            pair.0.ts - pair.1.ts <= 5 && pair.0.ts > pair.1.ts
+        }
+        guard supported.count >= 30,
+              (supported.last?.0.ts ?? 0) - (supported.first?.0.ts ?? 0) >= 6 * 60 else {
+            return false
+        }
+        let moving = supported.filter { $0.0.intensity >= AutoWorkoutDetector.motionConfirmMean }
+        return moving.count * 4 >= supported.count
+    }
+
     /// SAVE a suggested window as a manual-style "Workout" (generic sport , we don't claim a sport we
     /// didn't classify). Built through the same `WorkoutSource.buildManualRow` the manual sheet uses, so
     /// it persists exactly like a hand-entered session under the strap source. After saving, the screen
