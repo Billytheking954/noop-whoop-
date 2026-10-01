@@ -561,6 +561,7 @@ enum DemoScreens {
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())
         case "workouts": return AnyView(WorkoutsView())
+        case "activity": return AnyView(ReferenceActivityDemoHost())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsView())
         case "insightshub": return AnyView(InsightsHubView())
@@ -569,7 +570,7 @@ enum DemoScreens {
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
-        case "chargebreakdown": return AnyView(ChargeBreakdownDemoHost())
+        case "chargebreakdown": return AnyView(ChargeDetailView())
         case "restdetail":
             guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.rest }) else { return nil }
             return AnyView(MetricDetailView(metric: metric))
@@ -611,7 +612,7 @@ private struct ReferenceDemoTabHost: View {
         guard let index = args.firstIndex(of: "--demo-screen"), index + 1 < args.count else { return 0 }
         switch args[index + 1] {
         case "health": return 1
-        case "workouts": return 2
+        case "workouts", "activity": return 2
         case "settings", "devices", "insightshub", "insightdetail", "trends": return 3
         default: return 0
         }
@@ -635,6 +636,18 @@ private struct ReferenceDemoTabHost: View {
         }
         .tint(ReferenceStyle.blue)
         .onAppear { selection = screenTab }
+    }
+}
+
+private struct ReferenceActivityDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var row: WorkoutRow?
+    var body: some View {
+        Group {
+            if let row { WorkoutDetailView(row: row) }
+            else { Text("No saved activity") }
+        }
+        .task { row = await repo.workoutRows(days: 4000).first }
     }
 }
 
