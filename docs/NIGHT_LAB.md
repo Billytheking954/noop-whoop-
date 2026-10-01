@@ -85,6 +85,26 @@ The Night Lab window is half-open, `[start, end)`. WhoopStore's stream readers u
 so the bridge translates the read to `to = end - 1`. A sample exactly at wake/end therefore cannot leak
 into the archived night.
 
+### Wrist contact state and device integrity
+
+Every archived night records when the device was in contact with skin through `standardHRContacts` state
+transitions. This is not primarily for running the algorithm (the production V2 API does not accept it),
+but for **quality auditing and archival honesty**.
+
+Before sealing a night, `NightLabFileStore` must compute and record wrist contact coverage metrics:
+
+- total seconds where wrist contact was `on` versus `off` or `unknown`
+- largest continuous gap in contact
+- whether contact state is monotonic (on → off → on violates device physics)
+
+A night with >25% wrist-off time should be flagged in the manifest so evaluation can exclude it,
+rather than silently running baselines on corrupted data. If a night is known to have device-off
+periods (e.g., charging, restart), that should be explicit in provenance, not hidden.
+
+The `NightLabArchivedStreams` loader must verify that every HR/R-R/motion timestamp falls within a
+period of established wrist contact. If a spike in HR or a motion sample occurs during recorded
+device-off time, it is a data corruption and should fail validation before replay.
+
 ### Consistent snapshots while offload is running
 
 Historical offload can add old rows while a snapshot is being read. The bridge therefore reads a source
@@ -125,7 +145,9 @@ The loader never reads `references/`. Before returning rows it:
 2. reads each typed replay asset through `NightLabFileStore.rawData`, which verifies SHA-256;
 3. checks the stored signal kind;
 4. checks decoded row count against the manifest;
-5. rejects any decoded timestamp outside the manifest's half-open night window.
+5. rejects any decoded timestamp outside the manifest's half-open night window;
+6. **validates that every signal timestamp falls within a wrist-on interval** (device-off periods are not signal corruption, but unexplained signal during device-off is);
+7. **recomputes and verifies wrist contact coverage against manifest records** to detect post-hoc tampering.
 
 Coverage used for replay is recomputed from these verified archived rows, so replay describes the exact
 sealed bytes rather than trusting a transient capture-time report.
@@ -144,7 +166,8 @@ works in milliseconds and preserves multiple samples per second.
 
 If expected cadence is unknown or the signal is event-driven, coverage percentage is deliberately `nil`.
 The system must not manufacture precision it does not have. Wrist/contact state is sparse state-change data,
-so it also gets no fabricated per-second coverage percentage or gap count.
+so it also gets no fabricated per-second coverage percentage or gap count, but the off/unknown duration is
+always reported explicitly as "device contact time" in the manifest.
 
 ## SleepStagerV2 production baseline replay
 
@@ -155,7 +178,7 @@ The path is:
 
 ```text
 sealed archive
-  -> NightLabArchiveLoader
+  -> NightLabArchiveLoader (with wrist-contact validation)
   -> NightLabArchivedStreams
   -> SleepStagerV2ReplayAdapter
   -> SleepStagerV2.stageSession(...)
