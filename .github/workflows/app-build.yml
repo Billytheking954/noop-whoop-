@@ -39,6 +39,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: List reference screen source dependencies
+        run: |
+          rg -l 'struct (SleepModel|NightDetailCard|SleepDebtLedgerCard|ChargeBreakdownDemoHost)|struct HRSample' Strand Packages
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
