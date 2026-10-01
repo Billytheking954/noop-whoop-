@@ -307,6 +307,37 @@ A provider label records where a comparison came from. WHOOP output can be usefu
 is not treated as medical ground truth. PSG-grade labels, when available and legally/ethically obtained,
 should remain distinguishable from consumer-wearable labels.
 
+## Training data versus reference labels
+
+The distinction between raw evidence, reference labels, and algorithm training is fundamental:
+
+- **Raw evidence** (`raw/`) is immutable and blindly captured without knowledge of external answers.
+- **Reference labels** (`references/`) are comparison data imported after replay for evaluation.
+- **Algorithm training** requires a separate process that:
+  1. consumes validated reference datasets to identify retraining targets;
+  2. updates `SleepStagerV2.swift` source code, or updates a separate recovery/strain model when that is the target;
+  3. is tracked by a new `SleepStagerV2ImplementationIdentity` or `NightAlgorithmIdentity`;
+  4. produces deterministic baseline artifacts when rerun against sealed Night Lab archives.
+
+A 30-day WHOOP reference import alone does not retrain or change an algorithm. It creates validation evidence.
+It can still be valuable for identifying edge cases, measuring disagreement, and deciding whether a source
+change, calibration change, or separate recovery/strain model update is needed.
+
+For an initial consumer-product experiment, prefer more independent people over many additional days from one
+person. A practical starting target is approximately **10–20 people with 7–10 nights each** (roughly
+70–200 person-nights), with complete raw signals and matching reference data. Two 30-day sets provide 60
+nights but only two physiological baselines, so they are useful for a pilot or debugging and are not a strong
+generalization dataset. One 20-day set is even more limited for learning population-wide behavior.
+
+These numbers are planning targets, not proof of correctness or medical validation. Keep people—not nights—
+separated between development and final evaluation where possible, and include variation in age, sex, fitness,
+training load, sleep quality, schedules, and device wear quality. WHOOP labels should be treated as a consumer
+comparison signal rather than medical ground truth; PSG or carefully reviewed labels are stronger when legally
+and ethically available.
+
+The Night Lab archive remains blindly sealed throughout the evaluation process. Any improvement process happens
+offline, and the resulting model/source identity is recorded before a new baseline is generated.
+
 ## Phase 1 completion checklist
 
 - [x] Night manifest contract
