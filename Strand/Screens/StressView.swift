@@ -236,6 +236,13 @@ struct StressView: View {
             heroCard(model)
                 .staggeredAppear(index: 0)
 
+            // Keep the time-aware evidence beside the current value. A day without sufficient
+            // intraday samples falls through to the labelled trend and methodology below.
+            if let daytime, !daytime.scored.isEmpty {
+                daytimeSection(daytime)
+                    .staggeredAppear(index: 1)
+            }
+
             // 1b. ADVANCED HRV readouts (additive, on-demand). A separate, clearly-labelled card
             //     that appears only when at least one engine returned a value. It sits BELOW the
             //     hero and never alters the hero, the markers or the timeline.
@@ -250,13 +257,6 @@ struct StressView: View {
                 tileGrid(model)
             }
             .staggeredAppear(index: 1)
-
-            // 3. Today's intraday timeline — when in the day stress ran high, + a
-            //    passive Breathe suggestion when the recent hours stay elevated.
-            if let daytime, !daytime.scored.isEmpty {
-                daytimeSection(daytime)
-                    .staggeredAppear(index: 2)
-            }
 
             // 4. Trend over the chosen window.
             trendSection(model)

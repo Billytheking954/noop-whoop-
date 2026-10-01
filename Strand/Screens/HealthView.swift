@@ -25,7 +25,7 @@ struct HealthView: View {
 
     var body: some View {
         ScreenScaffold(title: "Health Monitor",
-                       subtitle: "Live vitals, streamed from the strap.",
+                       subtitle: "Live heart rate and saved vital signs.",
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header); builds the trailing vitals/skin-temp/age sections on
                        // demand instead of all up-front.
@@ -58,13 +58,14 @@ struct HealthView: View {
 private struct HealthSectionsStack: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-            // Manual "Sync now" + honest sync status (#364). Its own view so the ~1Hz HR stream
-            // doesn't re-render it; depends on `live` (connection/backfill state) + `model`.
-            SyncStatusSection()
             // The live HR section is its own view: it owns `live`/`profile`,
             // so the ~1Hz HR stream re-renders only this subtree — the static
             // vitals grid below does not re-render on each HR tick.
             HeartRateSection()
+            // Put measured vitals ahead of the longer weekly estimates. The status card remains
+            // reachable below them and never implies a connection that has not been observed.
+            VitalsSection()
+            SyncStatusSection()
             // Fitness Age (weekly, computed by IntelligenceEngine and read back from the
             // "fitness_age" metricSeries). Its own view depending only on `repo`/`profile`,
             // so the live HR stream never re-renders it.
@@ -76,9 +77,6 @@ private struct HealthSectionsStack: View {
             // labelled progress bars (HRV / Resting HR / Sleep / Respiratory), each
             // scored against the on-device baseline. Depends only on `repo`.
             RecoveryContributorsSection()
-            // The static vitals grid is its own view depending only on `repo`,
-            // so it is unaffected by live HR ticks.
-            VitalsSection()
             // v5 skin-temperature suite: the illness "heads-up", body clock, and (opt-in) cycle
             // awareness, each driven by a pure StrandAnalytics engine result the analytics pass
             // computed and AppModel publishes. Its own view depending on `model` + `repo`.
@@ -1341,17 +1339,14 @@ private struct VitalsSection: View {
         return UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
     }
 
-    // #103/queue-11a: SpO₂ candidate nightly means from metricSeries — WHOOP `spo2_candidate_82`, or an
-    // Oura owner's ceiling@100 `0x6F` mean (device-conditional, see IntelligenceEngine) — loaded when
-    // the experimental toggle is ON. Empty when the toggle is OFF or no candidate data exists.
-    @State private var spo2CandidateByDay: [String: Double] = [:]
     @State private var hrvOverCountByDay: [String: Double] = [:]   // #1118
 
     var body: some View {
         let readings = BodyVitalSigns.readings(
             sourceRows: repo.vitalMetricRows,
             temperatureUnit: temperatureUnit,
-            spo2CandidateByDay: spo2CandidateByDay,
+            // Health Monitor requires a validated percentage. Candidate optical codes stay in Night Lab.
+            spo2CandidateByDay: [:],
             hrvOverCountByDay: hrvOverCountByDay,
             skinTempPreferred: SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute   // #1846
         )
@@ -1376,26 +1371,17 @@ private struct VitalsSection: View {
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("Experimental blood-oxygen candidates are shown in Night Lab, not as a Health Monitor percentage.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
         }
-        .task(id: PuffinExperiment.spo2CandidateDisplayEnabled) {
+        .task {
             // #1118: load the per-night HRV over-count flags (always — no toggle) so the HRV tile can
             // caption an over-counted 4.0 night's reading "unverified". The engine writes "hrv_rr_overcount"
             // (1/0) under the "-noop" computed device ID; `exploreSeries` with source "my-whoop" reads it
             // from the computed metricSeries. Absent/0 on a clean or imported night → no caveat.
             let ocPts = await repo.exploreSeries(key: "hrv_rr_overcount", source: "my-whoop", days: 14)
             hrvOverCountByDay = Dictionary(ocPts.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
-            // #103/queue-11a: load the SpO₂ candidate nightly means from metricSeries when the toggle is
-            // ON. The engine writes "spo2_candidate" under the "-noop" computed device ID; `exploreSeries`
-            // with source "my-whoop" reads it from Layer 2 (computed metricSeries) — "my-whoop" is the
-            // generic active-strap sentinel, resolved through `computedReadIds`, so this already covers
-            // an Oura ring's own computed id. Empty when the toggle is OFF (the engine writes nothing) or
-            // the owner has no in-band reading for its device.
-            guard PuffinExperiment.spo2CandidateDisplayEnabled else {
-                spo2CandidateByDay = [:]
-                return
-            }
-            let pts = await repo.exploreSeries(key: "spo2_candidate", source: "my-whoop", days: 14)
-            spo2CandidateByDay = Dictionary(pts.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
         }
     }
 }

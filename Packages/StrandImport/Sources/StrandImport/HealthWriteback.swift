@@ -5,6 +5,16 @@ import Foundation
 /// the parsing/clamping logic is covered by `swift test` — HealthKit itself can't be unit-tested.
 public enum HealthWriteback {
 
+    /// Save a replacement before retiring the exact objects captured in the preceding query.
+    /// If the save throws, the old objects remain untouched. A failed retirement is surfaced so
+    /// the next sync can retry cleanup rather than silently reporting a complete write-back.
+    public static func replaceAfterSave<Old>(existing: [Old],
+                                             save: () async throws -> Void,
+                                             retire: ([Old]) async throws -> Void) async throws {
+        try await save()
+        if !existing.isEmpty { try await retire(existing) }
+    }
+
     /// A HealthKit-agnostic sleep stage. The bridge maps these onto `HKCategoryValueSleepAnalysis`
     /// (`awake → .awake`, `light → .asleepCore`, `deep → .asleepDeep`, `rem → .asleepREM`,
     /// `unspecified → .asleepUnspecified` — the honest block for a fragment whose `stagesJSON`

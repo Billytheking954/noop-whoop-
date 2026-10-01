@@ -81,6 +81,9 @@ struct StrandiOSApp: App {
         let router = NavRouter()
         _router = StateObject(wrappedValue: router)
         NotificationPresenter.shared.onCoachBriefTapped = { [weak router] in router?.openCoach() }
+        NotificationPresenter.shared.onDailyInsightTapped = { [weak router] id in
+            Task { @MainActor in router?.openDailyInsight(id: id) }
+        }
         let model = AppModel()
         _model = StateObject(wrappedValue: model)
         // Settings → "Keep screen on while syncing". Wired once here, not as another modifier on `body`.
@@ -558,10 +561,23 @@ enum DemoScreens {
         case "workouts": return AnyView(WorkoutsView())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsView())
+        case "insightshub": return AnyView(InsightsHubView())
+        case "insightalerts": return AnyView(DailyInsightNotificationSettingsView())
+        // A deterministic DEBUG-only finding for layout inspection. These values are synthetic and
+        // this route is absent from Release; the real Insights hub derives findings from saved rows.
+        case "insightdetail": return AnyView(DailyChangeDetailView(insight: .init(
+            metric: .restingHr, day: "2026-09-29", value: 70, median: 60,
+            comparisonDays: 10, windowStart: "2026-09-08", windowEnd: "2026-09-28")))
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
         case "chargebreakdown": return AnyView(ChargeBreakdownDemoHost())
+        case "restdetail":
+            guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.rest }) else { return nil }
+            return AnyView(MetricDetailView(metric: metric))
+        case "effortdetail":
+            guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.effort }) else { return nil }
+            return AnyView(MetricDetailView(metric: metric))
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())
         case "fitnessage": return AnyView(FitnessAgeDemoScreen())
