@@ -481,34 +481,33 @@ struct SleepView: View {
             }
             .font(ReferenceStyle.headline)
             .frame(minHeight: ReferenceStyle.touch)
-            HStack(spacing: ReferenceStyle.section) {
+            HStack(alignment: .center, spacing: ReferenceStyle.padding) {
                 ReferenceRing(progress: score.map { $0 / 100 }, color: ReferenceStyle.blue,
-                              value: score.map { "\(Int($0.rounded()))%" } ?? "—", label: "Rest")
+                              value: score.map { "\(Int($0.rounded()))%" } ?? "—", label: "Rest", valueSize: 40)
                     .frame(width: ReferenceStyle.chartHeight, height: ReferenceStyle.chartHeight)
-                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
-                    Text("Last night's sleep").font(ReferenceStyle.caption)
-                    Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
-                    Text("\(night.onsetText) – \(night.wakeText)")
-                        .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                    Text(day).font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
-            }
-            ReferenceCard {
-                HStack {
-                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                        Text("Sleep need").font(ReferenceStyle.headline)
-                        Text(referenceNeed.map { durationText($0) } ?? "Not available for this night")
-                            .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    ReferenceCard {
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Last night's sleep").font(ReferenceStyle.caption)
+                            Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
+                            Text("\(night.onsetText) – \(night.wakeText)")
+                                .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                        }
                     }
-                    Spacer()
-                    Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
+                    ReferenceCard {
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Sleep need").font(ReferenceStyle.headline)
+                            Text(referenceNeed.map { durationText($0) } ?? "Not available for this night")
+                                .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
                 }
             }
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     Text("Sleep stages").font(ReferenceStyle.headline)
                     if let intervals = night.realSegments, intervals.count >= 2 {
-                        Hypnogram(intervals: intervals, height: ReferenceStyle.chartHeight,
+                        Hypnogram(intervals: intervals, height: 112,
                                   showsStageAxis: false, showsHover: true,
                                   nightStart: night.onsetDate, showsTimeAxis: true,
                                   filled: false, stagePalette: .noop)
@@ -519,8 +518,8 @@ struct SleepView: View {
                     HStack(spacing: ReferenceStyle.gap) {
                         referenceStage("Awake", minutes: night.stages.awake)
                         referenceStage("Light", minutes: night.stages.light)
-                        referenceStage("Deep", minutes: night.stages.deep)
                         referenceStage("REM", minutes: night.stages.rem)
+                        referenceStage("Deep", minutes: night.stages.deep)
                     }
                     Text(repo.activeDeviceIsOura ? "Raw on-device stages" : "Estimated sleep stages")
                         .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)

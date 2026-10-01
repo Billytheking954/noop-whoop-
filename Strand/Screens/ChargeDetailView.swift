@@ -35,7 +35,7 @@ struct ChargeDetailView: View {
         ScrollView {
             VStack(spacing: ReferenceStyle.section) {
                 ReferenceRing(progress: row?.recovery.map { $0 / 100 }, color: ReferenceStyle.green,
-                              value: row?.recovery.map { "\(Int($0.rounded()))%" } ?? "—", label: "Charge")
+                              value: row?.recovery.map { "\(Int($0.rounded()))%" } ?? "—", label: "Charge", valueSize: 64)
                     .frame(width: ReferenceStyle.chartHeight * 1.4, height: ReferenceStyle.chartHeight * 1.4)
                 if let row {
                     Text(row.day).font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)

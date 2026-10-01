@@ -6,6 +6,7 @@ on:
     paths:
       - 'Strand/**'
       - 'StrandTests/**'
+      - 'StrandUITests/**'
       - 'StrandiOS/**'
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
@@ -59,8 +60,9 @@ jobs:
           xcodebuild -project Strand.xcodeproj -list
 
       - name: Build for iPhone Simulator
+        id: simulator-build
         run: >-
-          xcodebuild
+          xcodebuild -quiet
           -project Strand.xcodeproj
           -scheme NOOPiOS
           -configuration Debug
@@ -74,15 +76,18 @@ jobs:
           set -euo pipefail
           UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x.get("isAvailable") and x.get("name","").startswith("iPhone")))')"
           echo "Using iPhone simulator $UDID"
-          xcodebuild \
+          xcodebuild -quiet \
             -project Strand.xcodeproj \
             -scheme NOOPiOS \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$UDID" \
+            -resultBundlePath "$RUNNER_TEMP/noop-iphone-tests.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             test
 
       - name: Capture seeded iPhone design review screens
+        id: capture
+        if: always() && steps.simulator-build.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -149,7 +154,17 @@ jobs:
             xcrun simctl io "$UDID" screenshot "$EXTRA_DIR/$SCREEN-dark.png"
           done
 
+      - name: Upload iPhone test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-iphone-test-results
+          path: ${{ runner.temp }}/noop-iphone-tests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload seeded design review screenshots
+        if: always() && steps.capture.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: noop-iphone-ui-review
@@ -158,6 +173,7 @@ jobs:
           retention-days: 14
 
       - name: Upload additional screen routes
+        if: always() && steps.capture.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: noop-iphone-ui-review-extra

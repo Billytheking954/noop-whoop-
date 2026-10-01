@@ -44,6 +44,7 @@ extension View {
     /// Today detail pane and TrendsView's own macOS wrap).
     func tabRouteDestinations() -> some View {
         navigationDestination(for: TabRoute.self) { route in
+            Group {
             switch route {
             case .fullDayChart: FullDayChartView()
             case .metric(let key):
@@ -74,6 +75,10 @@ extension View {
             case .hydration: HydrationView()
             case .coupled: CoupledView()
             }
+            }
+            #if os(iOS)
+            .toolbar(.visible, for: .navigationBar)
+            #endif
         }
     }
 }

@@ -246749,6 +246749,538 @@
           }
         }
       }
+    },
+    "EVIDENCE LAB": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EVIDENZLABOR"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LABORATORIO DE EVIDENCIAS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LABORATOIRE DE DONNÉES"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LABORATÓRIO DE EVIDÊNCIA"
+          }
+        }
+      }
+    },
+    "Research Integrity & Signal Validation": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forschungsintegrität und Signalvalidierung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integridad de investigación y validación de señales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intégrité de la recherche et validation des signaux"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integridade da investigação e validação de sinais"
+          }
+        }
+      }
+    },
+    "Night Lab, device wear state, SpO2 candidate, and validation progress": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachtlabor, Tragezustand, SpO₂-Kandidat und Validierungsfortschritt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laboratorio nocturno, estado de uso, candidato de SpO₂ y progreso de validación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laboratoire nocturne, état de port, candidat SpO₂ et progression de validation"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laboratório noturno, estado de utilização, candidato SpO₂ e progresso de validação"
+          }
+        }
+      }
+    },
+    "Night Lab Core Principle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grundprinzip des Nachtlabors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principio básico del laboratorio nocturno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principe fondamental du laboratoire nocturne"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Princípio fundamental do laboratório noturno"
+          }
+        }
+      }
+    },
+    "TONIGHT'S EVIDENCE STATUS": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EVIDENZSTATUS DIESER NACHT"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ESTADO DE EVIDENCIAS DE ESTA NOCHE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ÉTAT DES DONNÉES DE CETTE NUIT"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ESTADO DA EVIDÊNCIA DESTA NOITE"
+          }
+        }
+      }
+    },
+    "Night Quality Assessment": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertung der Nachtqualität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evaluación de calidad nocturna"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Évaluation de la qualité nocturne"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avaliação da qualidade noturna"
+          }
+        }
+      }
+    },
+    "This night is ready for algorithm evaluation": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nacht ist für die Algorithmusbewertung bereit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta noche está lista para evaluar el algoritmo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette nuit est prête pour l’évaluation de l’algorithme"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta noite está pronta para avaliar o algoritmo"
+          }
+        }
+      }
+    },
+    "RESEARCH TIMELINE": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FORSCHUNGSZEITPLAN"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CRONOLOGÍA DE INVESTIGACIÓN"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CHRONOLOGIE DE RECHERCHE"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CRONOLOGIA DA INVESTIGAÇÃO"
+          }
+        }
+      }
+    },
+    "Phase %lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phase %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fase %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phase %lld"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fase %lld"
+          }
+        }
+      }
+    },
+    "SIGNAL COVERAGE FOR TONIGHT": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SIGNALABDECKUNG DIESER NACHT"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "COBERTURA DE SEÑALES DE ESTA NOCHE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "COUVERTURE DES SIGNAUX DE CETTE NUIT"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "COBERTURA DE SINAIS DESTA NOITE"
+          }
+        }
+      }
+    },
+    "Coverage is calculated per signal, never as one magical quality number that hides what went missing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Abdeckung wird pro Signal berechnet, nicht als einzelne Qualitätszahl, die fehlende Daten verdeckt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cobertura se calcula por señal, nunca como una única cifra de calidad que oculte los datos ausentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La couverture est calculée par signal, jamais sous forme d’un score unique qui masque les données manquantes."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cobertura é calculada por sinal, nunca como um único valor de qualidade que esconda os dados em falta."
+          }
+        }
+      }
+    },
+    "EXPERIMENTAL": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EXPERIMENTELL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EXPERIMENTAL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EXPÉRIMENTAL"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EXPERIMENTAL"
+          }
+        }
+      }
+    },
+    "SpO2 Candidate Signal Status": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status des SpO₂-Kandidatensignals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de la señal candidata de SpO₂"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "État du signal candidat SpO₂"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado do sinal candidato SpO₂"
+          }
+        }
+      }
+    },
+    "TONIGHT'S @82 VALUES": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@82-WERTE DIESER NACHT"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VALORES @82 DE ESTA NOCHE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VALEURS @82 DE CETTE NUIT"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VALORES @82 DESTA NOITE"
+          }
+        }
+      }
+    },
+    "Validation Path to Production": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validierungspfad zur Produktion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validación hasta producción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcours de validation vers la production"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Percurso de validação até produção"
+          }
+        }
+      }
+    },
+    "Learn more: See \"SpO2 Validation Framework\" in Docs tab": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr dazu: „SpO2 Validation Framework“ im Dokumente-Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más información: consulta «SpO2 Validation Framework» en Documentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En savoir plus : consultez « SpO2 Validation Framework » dans Documents"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saiba mais: consulte «SpO2 Validation Framework» no separador Documentos"
+          }
+        }
+      }
+    },
+    "BUILT-IN RESEARCH DOCUMENTATION": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "INTEGRIERTE FORSCHUNGSDOKUMENTATION"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DOCUMENTACIÓN DE INVESTIGACIÓN INTEGRADA"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DOCUMENTATION DE RECHERCHE INTÉGRÉE"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DOCUMENTAÇÃO DE INVESTIGAÇÃO INTEGRADA"
+          }
+        }
+      }
+    },
+    "KEY CONCEPTS": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GRUNDBEGRIFFE"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CONCEPTOS CLAVE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CONCEPTS CLÉS"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CONCEITOS PRINCIPAIS"
+          }
+        }
+      }
+    },
+    "Phase %lld: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phase %lld: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fase %lld: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phase %lld : %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fase %lld: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

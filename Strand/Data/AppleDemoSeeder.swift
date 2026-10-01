@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - DEBUG-only demo seed (Apple parity with Android's DemoSeeder)
 // Seeds a comprehensive, self-contained synthetic dataset so a DEBUG build can walk every screen —
@@ -104,7 +105,7 @@ enum AppleDemoSeeder {
             let hrv = (gauss(&rng, 78.0 + fitness * 1.5, 12.0) + (weekend ? 6 : 0) - Double(nWorkouts) * 4)
                 .clamped(28.0, 150.0)
             let rhr = Int((gauss(&rng, 56.0 - fitness * 0.4, 3.0) + Double(nWorkouts) * 1.2).clamped(42.0, 70.0))
-            let spo2 = gauss(&rng, 96.5, 0.8).clamped(93.0, 100.0)
+            _ = gauss(&rng, 96.5, 0.8) // Preserve deterministic RNG; no validated oxygen fixture.
             let skinTempDev = gauss(&rng, 0.0, 0.25).clamped(-1.2, 1.4)
             let resp = gauss(&rng, 14.6, 0.9).clamped(11.0, 19.0)
 
@@ -125,7 +126,7 @@ enum AppleDemoSeeder {
                 deepMin: round1(deep), remMin: round1(rem), lightMin: round1(light),
                 disturbances: disturbances, restingHr: rhr, avgHrv: round1(hrv),
                 recovery: round1(recovery), strain: round1(strain), exerciseCount: nWorkouts,
-                spo2Pct: round1(spo2), skinTempDevC: round2(skinTempDev), respRateBpm: round1(resp)))
+                spo2Pct: nil, skinTempDevC: round2(skinTempDev), respRateBpm: round1(resp)))
 
             // --- sleep session: previous night ~23:10 → wake, with a REAL stage timeline so the
             //     hypnogram renders the computed segment path (not just the proportional bar). ---
@@ -171,7 +172,10 @@ enum AppleDemoSeeder {
                 let durSec = gauss(&rng, 48.0, 16.0).clamped(18.0, 110.0) * 60
                 let hour = weekend ? 9 : 18
                 let dayStart = cal.startOfDay(for: date)
-                let start = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
+                let scheduledStart = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
+                let start = i == DAYS - 1
+                    ? min(scheduledStart, Int(Date().timeIntervalSince1970) - Int(durSec) - 3600 - k * 7200)
+                    : scheduledStart
                 let avg = Int(gauss(&rng, 138.0, 12.0))
                 let src = rng.nextDouble() < 0.7 ? whoop : apple
                 let zonesJSON: String? = src == whoop ? {
@@ -228,6 +232,27 @@ enum AppleDemoSeeder {
         _ = try await store.upsertAppleDaily(appleRows, deviceId: apple)
         if !workouts.isEmpty { _ = try await store.upsertWorkouts(workouts, deviceId: whoop) }
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
+        // Only DEBUG demo stores receive these samples. The normal query and chart paths
+        // read the persisted fixture, including an intentional gap, just as they read real data.
+        let now = Int(Date().timeIntervalSince1970)
+        let midnight = Int(cal.startOfDay(for: Date()).timeIntervalSince1970)
+        var heartRates: [HRSample] = []
+        var intervals: [RRInterval] = []
+        for ts in stride(from: midnight, through: now, by: 2) {
+            let hour = Double(ts - midnight) / 3600
+            if hour >= 10 && hour < 10.5 { continue }
+            let activity = workouts.first { ts >= $0.startTs && ts <= $0.endTs }
+            let bpm = activity?.avgHr ?? (hour < 7 ? 55 : 72)
+            let wave = sin(Double(ts - midnight) / 180) * 5
+            if (ts - midnight).isMultiple(of: 30) {
+                heartRates.append(HRSample(ts: ts, bpm: max(40, bpm + Int(wave))))
+            }
+            let rr = 60000.0 / Double(max(40, bpm)) + sin(Double(ts - midnight) / 7) * 42
+            intervals.append(RRInterval(ts: ts, rrMs: Int(rr)))
+        }
+        let samples = Streams(hr: heartRates, rr: intervals)
+        _ = try await store.insert(samples, deviceId: whoop)
+        _ = try await store.insert(samples, deviceId: apple)
         NSLog("AppleDemoSeeder: seeded \(daily.count) days, \(workouts.count) workouts.")
     }
 

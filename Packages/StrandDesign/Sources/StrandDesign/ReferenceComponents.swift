@@ -6,7 +6,7 @@ public enum ReferenceStyle {
     public static let surface = Color(light: "#FFFFFF", dark: "#19262C")
     public static let border = Color(light: "#DBE3E6", dark: "#29373D")
     public static let blue = Color(light: "#2379B8", dark: "#62B3EE")
-    public static let green = Color(light: "#218150", dark: "#62CF8B")
+    public static let green = Color(light: "#218150", dark: "#21EA3C")
     public static let purple = Color(light: "#7155AF", dark: "#B79BE4")
     public static let page: CGFloat = 16
     public static let padding: CGFloat = 12
@@ -44,8 +44,10 @@ public struct ReferenceRing: View {
     let color: Color
     let value: String
     let label: String
-    public init(progress: Double?, color: Color, value: String, label: String) {
+    @ScaledMetric(relativeTo: .largeTitle) private var valueSize = 22.0
+    public init(progress: Double?, color: Color, value: String, label: String, valueSize: Double = 22) {
         self.progress = progress; self.color = color; self.value = value; self.label = label
+        self._valueSize = ScaledMetric(wrappedValue: valueSize, relativeTo: .largeTitle)
     }
     public var body: some View {
         ZStack {
@@ -56,7 +58,8 @@ public struct ReferenceRing: View {
                     .rotationEffect(.degrees(-90))
             }
             VStack(spacing: ReferenceStyle.gap) {
-                Text(value).font(ReferenceStyle.value).monospacedDigit()
+                Text(value).font(.system(size: valueSize, weight: .bold)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.6)
                 Text(label).font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
             }
         }

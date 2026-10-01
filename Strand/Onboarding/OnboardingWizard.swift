@@ -135,7 +135,7 @@ public struct OnboardingWizard: View {
 
             Spacer()
 
-            Text("\(step.rawValue + 1) / \(Step.allCases.count)")
+            Text("\(step.rawValue < 7 ? 1 : (step.rawValue < 9 ? 2 : 3)) / \(3)")
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(StrandPalette.textTertiary)
         }
@@ -256,21 +256,21 @@ private struct ReferenceConnectionIntro: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ReferenceStyle.section) {
-                Text("NOOP").font(ReferenceStyle.title)
-                    .frame(maxWidth: .infinity)
-                HStack(spacing: ReferenceStyle.gap) {
+                HStack(spacing: ReferenceStyle.section) {
                     ForEach(0..<3) { index in
-                        Capsule().fill(index == 0 ? ReferenceStyle.blue : ReferenceStyle.border)
-                            .frame(height: ReferenceStyle.ringWidth)
+                        Circle().fill(index == 0 ? ReferenceStyle.blue : ReferenceStyle.border)
+                            .frame(width: 10, height: 10)
+                        if index < 2 {
+                            Rectangle().fill(ReferenceStyle.border).frame(width: 32, height: 1)
+                        }
                     }
-                }
+                }.frame(maxWidth: .infinity).padding(.vertical, ReferenceStyle.section)
                 Text("Connect your strap").font(StrandFont.title1)
+                    .frame(maxWidth: .infinity).multilineTextAlignment(.center)
                 Text("Pair your device to start syncing sleep, recovery and activity.")
                     .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
-                Image(systemName: "wave.3.right")
-                    .font(StrandFont.display(72)).foregroundStyle(ReferenceStyle.blue)
-                    .frame(maxWidth: .infinity, minHeight: ReferenceStyle.chartHeight)
-                    .accessibilityHidden(true)
+                    .frame(maxWidth: .infinity).multilineTextAlignment(.center)
+                    .padding(.bottom, ReferenceStyle.section)
                 ReferenceCard {
                     HStack(spacing: ReferenceStyle.padding) {
                         Image(systemName: "applewatch.side.right")
@@ -297,7 +297,9 @@ private struct ReferenceConnectionIntro: View {
                 Button(action: onContinue) {
                     Text("Continue").font(ReferenceStyle.headline)
                         .frame(maxWidth: .infinity, minHeight: ReferenceStyle.touch)
-                }.buttonStyle(.borderedProminent).tint(ReferenceStyle.blue)
+                }.buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(ReferenceStyle.blue, in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
                 Button("Set up later", action: onLater)
                     .font(ReferenceStyle.body)
                     .frame(maxWidth: .infinity, minHeight: ReferenceStyle.touch)

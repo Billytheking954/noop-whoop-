@@ -1216,9 +1216,9 @@ struct TodayView: View {
         // but raw `selectedLogicalDay` formatting could read a calendar day ahead (#15). Past offsets, and
         // a not-yet-banked today, fall back to the logical day.
         if selectedDayOffset == 0, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
-            return date.formatted(date: .numeric, time: .omitted)
+            return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
         }
-        return selectedLogicalDay.formatted(date: .numeric, time: .omitted)
+        return selectedLogicalDay.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 
     /// Periodic one-word hint shown in place of the date for ~1.5s every ~10s (nil = show the date). With the
@@ -1303,7 +1303,7 @@ struct TodayView: View {
                     .font(StrandFont.headline)
                     .tracking(2)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text(dayNavHint ?? dayNavDateText)
+                Text(dayNavDateText)
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
@@ -1323,6 +1323,7 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
+            .accessibilityIdentifier("noop.today.calendar")
             .popover(isPresented: $showDayPicker) {
                 DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
                            displayedComponents: [.date])
@@ -1422,6 +1423,7 @@ struct TodayView: View {
                 // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
                 // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).
                 todayTopBar
+                    .toolbar(.hidden, for: .navigationBar)
                 HealthAlertBanner()
                 #else
                 HealthAlertBanner()
@@ -2206,7 +2208,7 @@ struct TodayView: View {
     @ViewBuilder private var editorialActivitySection: some View {
         let recent = Self.recentWorkoutsFeed(workouts)
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Recent activity", overline: "Activity")
+            
             if let row = recent.max(by: { $0.startTs < $1.startTs }) {
                 Button { workoutDetail = WorkoutDetailTarget(row: row) } label: {
                     NoopCard(tint: StrandPalette.effortColor) {
@@ -3620,6 +3622,7 @@ struct TodayView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Self.domainDetailAccessibilityLabel(domain))
+                .accessibilityIdentifier("noop.today.ring." + (provenanceKey ?? "strain"))
                 .accessibilityAddTraits(.isButton)
             } else if let onOpenBreakdown {
                 Button(action: onOpenBreakdown) {
@@ -3722,16 +3725,16 @@ struct TodayView: View {
     @ViewBuilder
     private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
         if let s = score {
-            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))%" },
+                     color: ReferenceStyle.green, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
         } else if recoveryCalibration == nil, let carried = lastScoredCharge {
             // #802: a CARRIED last-night Charge draws as a real (dimmed) ring, matching the Rest ring, rather
             // than a bare number on a faint track, which read as broken next to Rest's filled ring. Same
             // diameter, so the #762 self-sizing hero row is untouched; the dim + the row-level "Last night"
             // caption already beneath the rings mark it as carried, not today's fresh score.
-            GlowRing(fraction: carried.value / 100, value: carried.value, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+            GlowRing(fraction: carried.value / 100, value: carried.value, format: { "\(Int($0.rounded()))%" },
+                     color: ReferenceStyle.green, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
                 .opacity(0.8)
         } else {
@@ -3769,8 +3772,8 @@ struct TodayView: View {
         // it may change once the full night lands and `analyzeRecent` re-scores it. That is now SAID, in
         // the column's caption, rather than shown by withholding the number. Past days are final.
         if let s = restScore {
-            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.restColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))%" },
+                     color: ReferenceStyle.blue, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
                      outlined: true)
         } else if displayDay?.recovery != nil {
             // #898: an aggregate-import user (a daily HRV/RHR import, no in-bed session) gets a Charge from
