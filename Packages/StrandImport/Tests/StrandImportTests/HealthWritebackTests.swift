@@ -3,6 +3,32 @@ import XCTest
 
 final class HealthWritebackTests: XCTestCase {
 
+    func testFailedReplacementPreservesPreviousObjects() async {
+        enum SaveError: Error { case rejected }
+        var retired: [Int] = []
+        do {
+            try await HealthWriteback.replaceAfterSave(existing: [7, 8],
+                save: { throw SaveError.rejected },
+                retire: { retired = $0 })
+            XCTFail("A rejected HealthKit save must fail the sync")
+        } catch SaveError.rejected {
+            XCTAssertTrue(retired.isEmpty)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testSuccessfulReplacementRetiresOnlyCapturedObjectsAfterSave() async throws {
+        var events: [String] = []
+        try await HealthWriteback.replaceAfterSave(existing: [7, 8],
+            save: { events.append("save") },
+            retire: { old in
+                XCTAssertEqual(old, [7, 8])
+                events.append("retire")
+            })
+        XCTAssertEqual(events, ["save", "retire"])
+    }
+
     private let start = 1_700_000_000
     private var end: Int { start + 8 * 3600 }
 
