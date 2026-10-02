@@ -85,7 +85,9 @@ jobs:
         run: |
           set -euo pipefail
           CAPTURE_DIR="$RUNNER_TEMP/noop-ui-review"
+          EXTRA_DIR="$RUNNER_TEMP/noop-ui-review-extra"
           mkdir -p "$CAPTURE_DIR"
+          mkdir -p "$EXTRA_DIR"
           UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; phones=[x for runtime in d.values() for x in runtime if x.get("isAvailable") and x.get("name", "").startswith("iPhone")]; mini=next((x for x in phones if "mini" in x["name"].lower()), None); print((mini or phones[0])["udid"])')"
           # Hosted images may ship only a large iPhone. Create a mini when its device type is
           # installed, so the review catches narrow-screen clipping rather than silently skipping it.
@@ -114,7 +116,7 @@ jobs:
           xcrun simctl install "$UDID" "$APP"
           for APPEARANCE in light dark; do
             xcrun simctl ui "$UDID" appearance "$APPEARANCE"
-            for SCREEN in liquidtoday trends sleep workouts health settings; do
+            for SCREEN in today liquidtoday trends sleep workouts health settings; do
               xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
               # `--demo-seed` uses the app's DEBUG-only synthetic dataset; no values are presented as live data.
               xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
@@ -128,11 +130,35 @@ jobs:
               xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/$SCREEN-$APPEARANCE.png"
             done
           done
+          # Check the redesigned Today at an accessibility text size as well as the standard shots.
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen today \
+            -UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityM
+          sleep 18
+          xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/today-accessibility-medium-dark.png"
+          # Cover the remaining DEBUG screenshot routes without inflating the main archive beyond
+          # the review client's download limit. These are entry states, not every reachable sheet.
+          xcrun simctl ui "$UDID" appearance dark
+          for SCREEN in live stress insights explore compare chargebreakdown devices devicescatalog fitnessage vitality addwizard ouraonboarding ouradevice bondrefused; do
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
+            sleep 12
+            xcrun simctl io "$UDID" screenshot "$EXTRA_DIR/$SCREEN-dark.png"
+          done
 
       - name: Upload seeded design review screenshots
         uses: actions/upload-artifact@v4
         with:
           name: noop-iphone-ui-review
           path: ${{ runner.temp }}/noop-ui-review/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload additional screen routes
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-iphone-ui-review-extra
+          path: ${{ runner.temp }}/noop-ui-review-extra/*.png
           if-no-files-found: error
           retention-days: 14
