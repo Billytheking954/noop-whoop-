@@ -1,4 +1,4 @@
-name: Recover exact NOOP 12 V2 tree
+name: Recover exact NOOP 12 V2 tree (macOS)
 
 on:
   push:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   recover:
     if: ${{ github.ref == 'refs/heads/integration/noop12-v2' }}
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - name: Checkout recovery bootstrap
         uses: actions/checkout@v5
