@@ -4,10 +4,10 @@
 
 <h1 align="center">NOOP V2 for iPhone</h1>
 
-<p align="center"><b>Offline iPhone WHOOP companion based on NOOP 11.8 · Night Lab · HealthKit · local data · evidence-first research</b></p>
+<p align="center"><b>Offline iPhone WHOOP companion based on NOOP 12.0.0 · Night Lab · HealthKit · local data · evidence-first research</b></p>
 
 > [!IMPORTANT]
-> **NOOP V2 is an iPhone-only personal development fork of NOOP 11.8.** It is not the canonical upstream repository and is not affiliated with WHOOP, Inc. The supported end-user product in this repository is the iPhone app. Android, macOS, iPad-universal and standalone watchOS products are not release targets.
+> **NOOP V2 is an iPhone-only personal development fork of NOOP 12.0.0.** It is not the canonical upstream repository and is not affiliated with WHOOP, Inc. The supported end-user product in this repository is the iPhone app. Android, macOS, iPad-universal and standalone watchOS products are not release targets.
 
 ## Product scope
 
@@ -31,9 +31,9 @@ The repository intentionally does **not** ship an Android app, macOS app, standa
 
 | Area | Status |
 |---|---|
-| Upstream baseline | NOOP 11.8 |
-| App version | 11.8.0 |
-| Build number | 400 |
+| Upstream baseline | NOOP 12.0.0 |
+| App version | 12.0.0 |
+| Build number | 435 |
 | Supported device family | iPhone only |
 | iPhone widget | Retained |
 | Night Lab foundation/replay/archive validation | Integrated |
@@ -164,7 +164,7 @@ Use the `NOOPiOS` scheme. The generated project declares `TARGETED_DEVICE_FAMILY
 The only user-facing application artifact for a formal V2 release is:
 
 ```text
-NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
+NOOP-V2-12.0-base-<real-short-sha>-iphone.ipa
 ```
 
 The authoritative workflow is [`.github/workflows/iphone-final-release.yml`](.github/workflows/iphone-final-release.yml).
@@ -172,7 +172,7 @@ The authoritative workflow is [`.github/workflows/iphone-final-release.yml`](.gi
 A formal release is fail-closed. It must:
 
 1. use the exact current `main` SHA,
-2. prove ancestry from the recorded NOOP 11.8 baseline,
+2. prove ancestry from the recorded NOOP 12.0.0 baseline,
 3. regenerate the Xcode project,
 4. rerun release-critical validation,
 5. create a fresh generic physical-iPhone Release archive,

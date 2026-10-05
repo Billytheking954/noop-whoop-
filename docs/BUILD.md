@@ -1,6 +1,6 @@
 # Building NOOP V2 for iPhone
 
-NOOP V2 is an offline iPhone WHOOP companion based on NOOP 11.8. The supported end-user product in this fork is the iPhone app plus its required iPhone widget extension.
+NOOP V2 is an offline iPhone WHOOP companion based on NOOP 12.0.0. The supported end-user product in this fork is the iPhone app plus its required iPhone widget extension.
 
 It is not a macOS, Android, iPad-universal or standalone watchOS product.
 
@@ -122,7 +122,7 @@ A simulator `.app`, unsigned archive, old upstream IPA, cached artifact or manua
 The formal artifact name is:
 
 ```text
-NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
+NOOP-V2-12.0-base-<real-short-sha>-iphone.ipa
 ```
 
 The release also generates:
@@ -158,7 +158,7 @@ The profiles must match the configured app, widget and App Group identities. The
 Before publication, the release workflow verifies at least:
 
 - exact source SHA equals current `main`
-- ancestry from the recorded NOOP 11.8 baseline
+- ancestry from the recorded NOOP 12.0.0 baseline
 - iPhone-only project invariants
 - fresh XcodeGen generation
 - release-critical Swift/Python/localisation validation

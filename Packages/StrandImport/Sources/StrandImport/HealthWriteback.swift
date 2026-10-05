@@ -5,6 +5,16 @@ import Foundation
 /// the parsing/clamping logic is covered by `swift test` — HealthKit itself can't be unit-tested.
 public enum HealthWriteback {
 
+    /// Save a replacement before retiring the exact objects captured in the preceding query.
+    /// If the save throws, the old objects remain untouched. A failed retirement is surfaced so
+    /// the next sync can retry cleanup rather than silently reporting a complete write-back.
+    public static func replaceAfterSave<Old>(existing: [Old],
+                                             save: () async throws -> Void,
+                                             retire: ([Old]) async throws -> Void) async throws {
+        try await save()
+        if !existing.isEmpty { try await retire(existing) }
+    }
+
     /// A HealthKit-agnostic sleep stage. The bridge maps these onto `HKCategoryValueSleepAnalysis`
     /// (`awake → .awake`, `light → .asleepCore`, `deep → .asleepDeep`, `rem → .asleepREM`,
     /// `unspecified → .asleepUnspecified` — the honest block for a fragment whose `stagesJSON`
@@ -179,6 +189,25 @@ public enum HealthWriteback {
     /// The vitals key: `noop:<metricId>:<day>`.
     public static func appleHealthVitalKey(metricId: String, day: String) -> String {
         appleHealthExternalUUID(kind: metricId, identity: day)
+    }
+
+    /// How close to the newest heart rate a night may end and still be read as unfinished.
+    public static let openNightMarginSeconds = 20 * 60
+
+    /// How long after its end a night is final even with no newer heart rate, so a strap taken off at
+    /// wake (charging, say) does not hold the night back indefinitely.
+    public static let openNightMaxHoldSeconds = 2 * 3_600
+
+    /// Whether a detected night may still be growing: it ends where the synced heart rate ends.
+    ///
+    /// A night is detected from whatever has synced so far, so a pass during the night ends it at the
+    /// newest sample. That truncated night used to reach Apple Health like a finished one, and a reader
+    /// took its end as the wake: a field night slept to 09:36 was in Health as ending 06:53, with vitals
+    /// scored from the first six hours, until a later write-back replaced it. Holding a night whose end
+    /// sits within `openNightMarginSeconds` of the newest heart rate keeps it out until the strap has
+    /// seen the wearer awake; after `openNightMaxHoldSeconds` it is written regardless.
+    public static func nightIsStillOpen(endTs: Int, newestHeartRateTs: Int, now: Int) -> Bool {
+        newestHeartRateTs - endTs < openNightMarginSeconds && now - endTs < openNightMaxHoldSeconds
     }
 
     /// The sleep key: `noop:sleep:<startTs>`.

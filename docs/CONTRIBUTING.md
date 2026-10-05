@@ -1,6 +1,6 @@
 # Contributing to NOOP V2
 
-NOOP V2 is an offline, iPhone-only WHOOP companion based on NOOP 11.8. The supported end-user product is the iPhone application plus its required widget extension.
+NOOP V2 is an offline, iPhone-only WHOOP companion based on NOOP 12.0.0. The supported end-user product is the iPhone application plus its required widget extension.
 
 > This project is not affiliated with WHOOP, Inc. and is not a medical device. Preserve `LICENSE`, `NOTICE`, `ATTRIBUTION.md` and the repository's safety boundaries.
 

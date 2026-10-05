@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
+import WhoopStore
 import UserNotifications
 
 /// iOS entry point. Unlike the macOS app (which adds a `MenuBarExtra` scene), iOS uses a single
@@ -24,11 +25,14 @@ struct StrandiOSApp: App {
     /// Shared cross-screen navigation hook (e.g. Live → Devices). The iOS shell (`RootTabView`)
     /// observes it and presents the Devices manager.
     @StateObject private var router: NavRouter
-    @State private var liveActivity = LiveActivityController()
+    /// NOOP's live heart rate banner. Built in `init` and fed from there (`LiveActivityController.follow`), not from
+    /// a view: a process iOS starts in the background need not build one.
+    @State private var liveActivity: LiveActivityController
     /// The Lift Log session's own Live Activity. Separate from the live-HR one above: while a gym
     /// session is open this is the banner that matters (it carries the heart rate too), so the HR
-    /// activity is suppressed rather than stacked beside it.
-    @State private var liftActivity = LiftLiveActivityController()
+    /// activity is suppressed rather than stacked beside it. Built in `init`, where the strap log it
+    /// writes to exists.
+    @State private var liftActivity: LiftLiveActivityController
     /// The live gym session. Owned HERE, at the app root, rather than by the screen that shows it:
     /// swiping the workout sheet away must not stop the clock, silence the strap or drop the
     /// double-tap handler. See `LiftSessionController`.
@@ -81,22 +85,56 @@ struct StrandiOSApp: App {
         let router = NavRouter()
         _router = StateObject(wrappedValue: router)
         NotificationPresenter.shared.onCoachBriefTapped = { [weak router] in router?.openCoach() }
+        NotificationPresenter.shared.onDailyInsightTapped = { [weak router] id in
+            Task { @MainActor in router?.openDailyInsight(id: id) }
+        }
         let model = AppModel()
         _model = StateObject(wrappedValue: model)
+        CoachBriefScheduler.register(generateBrief: { [weak coach = model.coach] in
+            await coach?.generateBrief()
+        }, log: { [weak model] line in
+            model?.live.append(log: AppModel.stamped(line))
+        })
         // Settings → "Keep screen on while syncing". Wired once here, not as another modifier on `body`.
         SyncKeepAwake.shared.attach(to: model.live)
         // The strap-sync Live Activity (Lock Screen + Dynamic Island). Same placement, same reason — and
         // it must also run in a process the Sync Strap shortcut launched with no scene.
         SyncLiveActivityController.shared.attach(to: model.live)
+        // iOS's own daily report of NOOP's CPU, memory, disk writes, hangs and exits, and its crash/hang reports,
+        // one strap-log line each. Registering is the whole cost; iOS gathers and delivers them (MetricKitLog).
+        MetricKitLog.shared.attach(to: model.live)
         // The buzz and the strap-gesture claim are injected, so the controller itself knows nothing
         // about BLE and stays testable.
-        _liftSession = StateObject(wrappedValue: LiftSessionController(
+        let liftSession = LiftSessionController(
             buzz: { [weak model] loops in
                 model?.buzz(loops: loops, gate: HapticPrefs.liftRest)
             },
             setStrapHandler: { [weak model] handler in
                 model?.strapDoubleTapOverride = handler
-            }))
+            },
+            log: { [weak model] line in
+                model?.live.append(log: AppModel.stamped(line))
+            })
+        _liftSession = StateObject(wrappedValue: liftSession)
+        let liftActivity = LiftLiveActivityController(log: { [weak model] line in
+            model?.live.append(log: AppModel.stamped(line))
+        })
+        _liftActivity = State(initialValue: liftActivity)
+        // The live heart rate banner makes room only for the Lift Log banner actually on screen, which carries the
+        // heart rate itself — not for a sync (`LiveHRBannerLifecycle`).
+        let liveActivity = LiveActivityController()
+        liveActivity.follow(model, standsAside: { [weak liftActivity] in liftActivity?.isShowing == true })
+        _liveActivity = State(initialValue: liveActivity)
+        // A gym session keeps ONE banner on the Lock Screen, its own — as the live-HR banner already
+        // stands aside for it. A sync started in the foreground mid-session starts no sync banner.
+        // Held back only for a gym banner that will actually show: with its switch off, a session leaves the
+        // Lock Screen to the sync, rather than to nothing.
+        SyncLiveActivityController.shared.holdsBackNewBanner = { [weak liftSession] in
+            liftSession?.isActive == true && UnitPrefs.liftLiveActivityEnabled()
+        }
+        // Before any view or publisher exists: the first push to the Lock Screen banner must find the
+        // session already running, or it ends the banner iOS kept alive across the restart.
+        liftSession.resumeSaved()
         // #1538: a strap offload completes while the app is BACKGROUNDED — it stays alive as a
         // bluetooth-central to receive it — and the re-score it triggers took nearly eight minutes on the
         // reporter's install, far longer than that wake survives. The pass is all-or-nothing, so being
@@ -109,6 +147,12 @@ struct StrandiOSApp: App {
         }, onExpire: { [weak model] in
             model?.live.append(log: "re-score: background processing time expired before the pass finished (#1538)")
         })
+        // #2556: its own wake, because every existing one is conditional on something the missing strap
+        // makes false. Registered unconditionally and re-armed from inside its own handler.
+        StaleBatteryBackgroundScheduler.register(perform: { [weak model] in
+            await model?.checkStrapNotSeen()
+        })
+        StaleBatteryBackgroundScheduler.schedule()
         let bridge = HealthKitBridge(
             repo: model.repo,
             appleDeviceId: model.appleDeviceId,
@@ -204,7 +248,11 @@ struct StrandiOSApp: App {
                 // fixed-geometry tiles/gauges stay legible at the largest accessibility sizes rather than
                 // clipping; the common Larger-Text range still scales fully.
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                .onReceive(model.live.$heartRate) { _ in
+                // `hr` is the value being written: this runs in willSet, when `live.heartRate` still holds the old one.
+                .onReceive(model.live.$heartRate) { hr in
+                    // The gym banner's own cheap path: no presentation is built here, and a heart rate moves
+                    // the banner only when `LiftBannerPushPolicy` says it is worth a push. Everything else
+                    // about the session pushes through `pushLiftActivity` below, carrying the current number.
                     // #911: anchor the Live Activity on the SAME shared `Repository.widgetAnchor` the
                     // Home/Lock widget and the watch snapshot use, so this fourth surface can't drift to a
                     // different day at the rollover (it previously read `days.last(where: recovery != nil)`,
@@ -213,32 +261,22 @@ struct StrandiOSApp: App {
                     // scanned the whole history + hit the DateFormatter lock ~1-3x/sec (#1051-shaped).
                     let day = model.repo.cachedWidgetAnchor()
                     liveActivity.update(
-                        bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
+                        bpm: model.live.connected ? (model.bpm ?? hr) : nil,
                         recovery: day?.recovery.map { Int($0.rounded()) },
                         // While a sync runs its own activity is the useful banner; don't stack the HR one.
                         connected: model.live.connected && !liftSession.isActive && !model.live.backfilling,
                         effort: day?.strain.map { Int($0.rounded()) }
                     )
+                    liftActivity.updateHeartRate(model.live.connected ? (model.bpm ?? hr) : nil)
                     pushLiftActivity()
                 }
-                // End the Live Activity the moment the link drops, even if no further HR tick arrives.
-                .onReceive(model.live.$connected) { isConnected in
-                    // #911: same shared anchor as the heartRate site above, so the Live Activity, the
-                    // widget, the watch and Today never disagree about which day they describe. Memoized
-                    // (shares the heartRate site's cache; recomputes only on a data refresh or day-roll).
-                    let day = model.repo.cachedWidgetAnchor()
-                    liveActivity.update(
-                        bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
-                        recovery: day?.recovery.map { Int($0.rounded()) },
-                        connected: isConnected && !liftSession.isActive && !model.live.backfilling,
-                        effort: day?.strain.map { Int($0.rounded()) }
-                    )
-                }
-                // The gym session's own banner. Driven off the session's 1 Hz tick so a stage change
-                // reaches the Lock Screen promptly; the controller decides what is actually worth
-                // pushing, since the widget's clocks tick on their own.
-                .onReceive(liftSession.$now) { _ in pushLiftActivity() }
-                .onReceive(liftSession.$engine) { _ in pushLiftActivity() }
+                // The gym session's own banner follows each change to the session once it has landed —
+                // a stage, typed numbers, a rest's end — and the heart rate above; the controller decides
+                // what is worth pushing, and the banner's clocks tick on their own. A strap step is pushed
+                // at once, with its light-up alert, below.
+                .onReceive(liftSession.changesSettled) { _ in pushLiftActivity() }
+                // A strap double-tap lights the Lock Screen on the step it took.
+                .onReceive(liftSession.strapStepTaken) { _ in pushLiftActivity(alert: true) }
                 // #911/#759: republish the Home/Lock-Screen widget whenever the dashboard caches actually
                 // change mid-session. The only other publish site is the scenePhase .active handler, so
                 // during a long foreground session the widget froze at the last-foreground snapshot while
@@ -326,9 +364,15 @@ struct StrandiOSApp: App {
         // access (it only reads write/share status, never prompts) so background syncs resume; and
         // HealthKitBridge.sync guards on `auth == .authorized`, so the scenePhase trigger stays a
         // safe no-op until the user opts in.
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active {
+                CoachBriefScheduler.activateIfEnabled { await model.coach.generateBrief() }
                 model.drainPendingIntents(router: router)
+                // iOS starts a Lift Log banner only for an app on screen, so a banner lost while NOOP was in
+                // the background comes back now, whether or not the strap is sending anything.
+                pushLiftActivity()
+                // Only the foreground may start the live heart rate banner: offer it now.
+                liveActivity.appBecameActive()
                 // End a "Connecting…" sync island whose sync never came, rather than leave it greyed.
                 SyncLiveActivityController.shared.reconcile(live: model.live)
                 // Re-arm the strap's smart alarm on foreground: the firmware alarm is a single instant
@@ -394,25 +438,28 @@ struct StrandiOSApp: App {
     /// The wording and the numbers come from `LiftSessionController.presentation`, the same
     /// resolution the in-app minimised bar renders, so the two surfaces cannot disagree. The heart
     /// rate is the app's smoothed value, and only while the strap is actually connected — a frozen
-    /// last-known bpm on a Lock Screen reads as live and is not.
+    /// last-known bpm on a Lock Screen reads as live and is not. `alert` lights the Lock Screen for this
+    /// push — see `LiftLiveActivityController.update`.
     @MainActor
-    private func pushLiftActivity() {
+    private func pushLiftActivity(alert: Bool = false) {
         let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
         guard let p = liftSession.presentation(system: system) else {
-            liftActivity.update(programName: "", state: nil)
+            liftActivity.update(state: nil)
             return
         }
-        liftActivity.update(
-            programName: liftSession.programName ?? String(localized: "Session"),
+        let lightUp = liftActivity.update(
             state: LiftActivityAttributes.ContentState(
                 isResting: p.isResting,
                 exercise: p.exercise,
                 status: p.status,
                 detail: p.detail,
                 bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
-                progress: String(localized: "\(p.setsDone) of \(p.setsPlanned) sets done"),
+                next: p.next,
                 stageStartedAt: p.stageStartedAt,
-                restEndsAt: p.restEndsAt))
+                restEndsAt: p.restEndsAt),
+            alert: alert)
+        // One line per strap step into NOOP's strap log: whether the Lock Screen was asked to light.
+        if let lightUp { model.live.append(log: AppModel.stamped(lightUp.logLine)) }
     }
 }
 
@@ -441,10 +488,12 @@ private struct iOSRootView: View {
             // Inherit the app appearance (set via the Theme picker, or `-theme.appearance light|dark`
             // in the launch arguments) so demo/marketing shots can be taken in either scheme.
             return AnyView(
-                NavigationStack {
-                    demo
-                        .background(StrandPalette.surfaceBase.ignoresSafeArea())
-                        .navigationBarTitleDisplayMode(.inline)
+                Group {
+                    if CommandLine.arguments.contains("addwizard") {
+                        demo
+                    } else {
+                        ReferenceDemoTabHost(screen: demo)
+                    }
                 }
             )
         }
@@ -556,17 +605,25 @@ enum DemoScreens {
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())
         case "workouts": return AnyView(WorkoutsView())
+        case "activity": return AnyView(ReferenceActivityDemoHost())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsView())
+        case "insightshub": return AnyView(InsightsHubView())
+        case "insightalerts": return AnyView(DailyInsightNotificationSettingsView())
+        case "insightdetail": return AnyView(DailyInsightDemoHost())
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
-        case "chargebreakdown": return AnyView(ChargeBreakdownDemoHost())
+        case "chargebreakdown": return AnyView(ChargeDetailView())
+        case "restdetail": return AnyView(SleepView())
+        case "effortdetail":
+            guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.effort }) else { return nil }
+            return AnyView(MetricDetailView(metric: metric))
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())
         case "fitnessage": return AnyView(FitnessAgeDemoScreen())
         case "vitality": return AnyView(VitalityDemoScreen())
-        case "addwizard": return AnyView(AddWizardDemoHost())
+        case "addwizard": return AnyView(OnboardingWizard(onFinished: {}))
         // Oura onboarding: the Add-device wizard deep-linked straight to the Oura factory-reset-and-adopt
         // prep step (the Beta banner + get/lose card + the red irreversible-consent gate), screenshot-able
         // WITHOUT a ring.
@@ -589,6 +646,64 @@ enum DemoScreens {
 /// DEBUG-only host so `--demo-screen addwizard` can render the multi-step Add-a-device wizard.
 /// A SwiftUI View body is main-actor, so it can pull the injected LiveState and hand it to the
 /// wizard's `init(live:)` (the nonisolated DemoScreens switch can't construct a LiveState itself).
+private struct ReferenceDemoTabHost: View {
+    let screen: AnyView
+    @State private var selection = 0
+    private var screenTab: Int {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--demo-screen"), index + 1 < args.count else { return 0 }
+        switch args[index + 1] {
+        case "health": return 1
+        case "workouts", "activity": return 2
+        case "settings", "devices", "insightshub", "insightdetail", "trends": return 3
+        default: return 0
+        }
+    }
+    private func root<V: View>(_ view: V, tag: Int) -> some View {
+        NavigationStack {
+            Group {
+                if tag == screenTab { screen } else { AnyView(view) }
+            }
+            .tabRouteDestinations()
+            .background(ReferenceStyle.canvas.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+    var body: some View {
+        TabView(selection: $selection) {
+            root(TodayView(), tag: 0).tabItem { Label("Today", systemImage: "house") }.tag(0)
+            root(HealthView(), tag: 1).tabItem { Label("Health", systemImage: "heart") }.tag(1)
+            root(WorkoutsView(), tag: 2).tabItem { Label("Activity", systemImage: "chart.bar") }.tag(2)
+            root(SettingsView(), tag: 3).tabItem { Label("More", systemImage: "ellipsis") }.tag(3)
+        }
+        .tint(ReferenceStyle.blue)
+        .onAppear { selection = screenTab }
+    }
+}
+
+private struct ReferenceActivityDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var row: WorkoutRow?
+    var body: some View {
+        Group {
+            if let row { WorkoutDetailView(row: row) }
+            else { Text("No saved activity") }
+        }
+        .task { row = await repo.workoutRows(days: 4000).first }
+    }
+}
+
+private struct DailyInsightDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    var body: some View {
+        if let insight = DailyChangeInsight.derive(from: repo.days).first {
+            DailyChangeDetailView(insight: insight)
+        } else {
+            Text("No baseline comparison available")
+        }
+    }
+}
+
 private struct AddWizardDemoHost: View {
     @EnvironmentObject var live: LiveState
     var body: some View { AddDeviceWizard(live: live, onClose: {}) }

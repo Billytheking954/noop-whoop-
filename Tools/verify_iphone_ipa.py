@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--git-sha", required=True)
-    parser.add_argument("--baseline", default="NOOP 11.8")
+    parser.add_argument("--baseline", default="NOOP 12.0.0")
     parser.add_argument("--release-family", default="NOOP V2")
     parser.add_argument("--expected-filename")
     return parser.parse_args()

@@ -95,7 +95,7 @@ struct ActiveWorkoutIndicatorModel: Equatable {
     }
 }
 
-private struct ActiveWorkoutIndicatorCard: View {
+struct ActiveWorkoutIndicatorCard: View {
     let model: ActiveWorkoutIndicatorModel
     let onReturn: () -> Void
 
@@ -165,19 +165,23 @@ private struct ActiveWorkoutIndicatorCard: View {
 
 /// Leaf-isolated so an in-progress workout's ~per-sample `AppModel` churn (the elapsed clock tick + the
 /// rewritten `activeWorkout`) re-renders ONLY this card, never the whole Today dashboard, the same
-/// leaf-isolation pattern the file documents for the live status/sync rows. Renders nothing when no workout
-/// is active, so the card auto-appears/clears purely off `AppModel.activeWorkout`.
+/// leaf-isolation pattern the file documents for the live status/sync rows. With `showStart`, today's
+/// idle state offers the shared workout picker; past days only show an active-workout indicator.
 ///
 /// Non-private so the liquid Home (`LiquidTodayView`) renders the SAME leaf — the liquid rewrite dropped this
 /// indicator (#105), and sharing one implementation keeps the two Today screens (and Android's
 /// `WorkoutInProgressCard`) from drifting. It carries its own `app`/`router` environment objects, so a caller
 /// only needs to place `ActiveWorkoutIndicatorSection()` in its body.
 struct ActiveWorkoutIndicatorSection: View {
+    var showStart = false
     @EnvironmentObject var app: AppModel
     @EnvironmentObject var router: NavRouter
 
     var body: some View {
-        if let model = ActiveWorkoutIndicatorModel.make(from: app.activeWorkout) {
+        if showStart {
+            // Keep this host mounted when a workout starts so its picker and live view survive the update.
+            WorkoutStartControl(showsActiveIndicator: true)
+        } else if let model = ActiveWorkoutIndicatorModel.make(from: app.activeWorkout) {
             ActiveWorkoutIndicatorCard(model: model) {
                 StrandHaptic.selection.play()
                 router.openActiveWorkout()
@@ -273,6 +277,15 @@ struct TodayView: View {
     @AppStorage(LiveSessionPrefs.betaKey) private var liveSessionsBeta = true
     private var sectionOrder: [TodaySection] {
         TodayLayoutPrefs.visibleOrder(orderRaw: sectionOrderRaw, hiddenRaw: hiddenSectionsRaw)
+    }
+    /// A saved layout still uses the user's exact order. The fresh iPhone layout groups the existing
+    /// live sections around the three score rings; macOS and existing custom layouts keep their shell.
+    private var usesEditorialToday: Bool {
+        #if os(iOS)
+        return sectionOrderRaw.isEmpty && hiddenSectionsRaw.isEmpty
+        #else
+        return false
+        #endif
     }
     @State private var customizationDestination: TodayCustomizationDestination?
     // Hydration tracker (opt-in, default OFF). When off the hydration dashboard card is hidden even if a
@@ -390,6 +403,7 @@ struct TodayView: View {
     // cheap heart-rate fingerprint, so a refresh that changed nothing costs one indexed COUNT and no
     // rows, and the iOS widget shares the same computation rather than scoring the day twice.
     @State private var hostedStressHours: [DaytimeStress.HourPoint] = []
+    @State private var hostedStressActivityMaskedHours = 0
 
     // TODAY's in-progress Effort (NOOP 0–100 axis), recomputed over the day's HR (local-midnight→now)
     // each load so the gauge tracks today as it accumulates rather than waiting on the heavy daily pass
@@ -705,6 +719,20 @@ struct TodayView: View {
         return min(upper, max(0, current + delta))
     }
 
+    /// #2378 - the day step a horizontal swipe of `dx` points asks for: +1 OLDER, -1 NEWER.
+    ///
+    /// Rightward (dx > 0) is OLDER and leftward is NEWER, which is direct manipulation — dragging the
+    /// content left brings the page to its right, the later day, into view — and the direction the
+    /// Kotlin twin already takes (`dayNavSwipeTarget`, pinned by `DayNavTest`). Apple ran the opposite
+    /// way in both shells, so the same gesture moved the day backwards here and forwards there.
+    ///
+    /// Pure and shared by both Apple shells so the direction is pinned by a test rather than living
+    /// twice inside gesture closures, which is how the two platforms drifted apart unnoticed.
+    /// Mirror EXACTLY in Kotlin.
+    static func daySwipeDelta(dx: CGFloat) -> Int {
+        dx > 0 ? 1 : -1
+    }
+
     /// #16 - whole days-back offset for a date chosen in the day-nav picker, measured from the LOGICAL day
     /// (not raw Date()). Pure + unit-testable so the 00:00-04:00 rollover case is locked: in that window the
     /// logical day is the PREVIOUS calendar day, so anchoring the offset here (rather than on raw Date())
@@ -819,20 +847,20 @@ struct TodayView: View {
 
     /// The ordered "What shaped it" Charge drivers for the displayed Charge ring, PLUS the confidence tier
     /// computed from the SAME folded HRV baseline. PURE derivation from the SAME `displayDay` (post-#814
-    /// union-read row) the ring already shows, plus the HRV/RHR/resp baselines folded from `repo.days`
-    /// (exactly the inputs `AnalyticsEngine` scored with), so a row can NEVER describe a term the ring's
-    /// number didn't use. This is NOT a second store read: it reads only data already resolved into
-    /// `repo.days`/`displayDay`. nil for a calibrating / cold-start night (no usable HRV baseline or no
-    /// value), so the sheet gates through to the calibration countdown instead.
+    /// union-read row) the ring already shows, plus the HRV/RHR/resp baselines `repo.chargeBaselines`
+    /// resolved with the engine's own rule (#2525), so a row can NEVER describe a term the ring's number
+    /// didn't use. This is NOT a second store read: it reads only data already resolved into
+    /// `repo.chargeBaselines`/`displayDay`. nil for a calibrating / cold-start night (no usable HRV baseline
+    /// or no value), so the sheet gates through to the calibration countdown instead.
     ///
     /// PERF: this replaces the two separate computed properties (`chargeDrivers` +
     /// `chargeBreakdownConfidence`) that EACH re-folded the full `repo.days` history per body evaluation of
-    /// the open sheet — four O(n) passes per eval, with the confidence's doc claiming it reused the drivers'
-    /// fold while actually recomputing it. One call folds each series exactly once (three passes), and the
-    /// sheet reads drivers + confidence out of a single sheet-local `let`.
+    /// the open sheet. The baselines are now resolved once per refresh, so a body evaluation folds nothing,
+    /// and the sheet reads drivers + confidence out of a single sheet-local `let`.
     private func chargeBreakdown() -> (drivers: [ChargeDriver], confidence: ScoreConfidence)? {
         guard let row = chargeBreakdownRow else { return nil }
-        return ChargeBreakdownWiring.breakdown(days: repo.days, row: row, sleepPerfPercent: restScore)
+        guard let baselines = repo.chargeBaselines else { return nil }
+        return ChargeBreakdownWiring.breakdown(baselines: baselines, row: row, sleepPerfPercent: restScore)
     }
 
     /// The night's relative skin-temp marker for the displayed row (A5), or nil. Surfaced verbatim from
@@ -1034,7 +1062,12 @@ struct TodayView: View {
         switch metricKey {
         case "recovery":
             // Same HRV-baseline gate the Charge engine uses, fed by the loaded nightly SDNN history.
-            let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), cfg: Baselines.hrvCfg)
+            // #2315: with the recalibration epoch, which is what makes the claim above true. Without it this
+            // gate folded the whole history while the Charge engine folded from the epoch, so the pill could
+            // read solid off nights the ring is no longer using.
+            let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), dayKeys: repo.days.map(\.day),
+                                                cfg: Baselines.hrvCfg,
+                                                baselineEpoch: Baselines.hrvBaselineEpoch())
             conf = ScoreConfidence.charge(recovery: displayDay?.recovery, hrvBaseline: hrvBase)
         case "sleep_performance":
             // A watch night with a Rest score reads as built; without one it's still calibrating.
@@ -1122,8 +1155,8 @@ struct TodayView: View {
 
     private func computeCalibration() -> Int? {
         guard selectedDayOffset == 0 else { return nil }
-        return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
-                                                dayKeys: repo.days.map(\.day),
+        return RecoveryScorer.calibrationNights(nightlyHrv: repo.chargeBaselines?.hrvHistory.values ?? [],
+                                                dayKeys: repo.chargeBaselines?.hrvHistory.dayKeys ?? [],
                                                 hasRecovery: repo.today?.recovery != nil)
     }
 
@@ -1207,9 +1240,9 @@ struct TodayView: View {
         // but raw `selectedLogicalDay` formatting could read a calendar day ahead (#15). Past offsets, and
         // a not-yet-banked today, fall back to the logical day.
         if selectedDayOffset == 0, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
-            return date.formatted(date: .numeric, time: .omitted)
+            return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
         }
-        return selectedLogicalDay.formatted(date: .numeric, time: .omitted)
+        return selectedLogicalDay.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 
     /// Periodic one-word hint shown in place of the date for ~1.5s every ~10s (nil = show the date). With the
@@ -1245,8 +1278,8 @@ struct TodayView: View {
                 let dy = value.translation.height
                 // Horizontal-dominant and far enough to count as a deliberate day flip.
                 guard abs(dx) > abs(dy) * 1.5, abs(dx) > 50 else { return }
-                // Swipe LEFT (dx < 0) -> OLDER day (+1 offset); swipe RIGHT -> NEWER day (-1 offset).
-                let delta = dx < 0 ? 1 : -1
+                // Swipe RIGHT (dx > 0) -> OLDER day (+1 offset); swipe LEFT -> NEWER day (-1 offset).
+                let delta = Self.daySwipeDelta(dx: dx)
                 let next = Self.clampedDayOffset(current: selectedDayOffset, delta: delta,
                                                  maxOffset: earliestDayOffset)
                 guard next != selectedDayOffset else { return }
@@ -1275,93 +1308,54 @@ struct TodayView: View {
     /// Apple-style large-title header: a tappable "Today ⌄" + full date on the left (taps to change day),
     /// then updates / quick-add / and an OBVIOUS menu avatar (opens Settings) on the right.
     @ViewBuilder private var todayTopBar: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Button { showDayPicker = true } label: {
-                // Just the date, small (locale numeric), no relative word and no prev/next arrows. Every ~10s
-                // it swaps for ~1.5s to a one-word "Swipe" / "Tap" hint in the accent colour so users learn
-                // they can change the day by swiping across or tapping here. fixedSize makes it claim its own
-                // width so a tight top bar never compresses it, and the trailing icon cluster keeps its room.
-                Text(dayNavHint ?? dayNavDateText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(dayNavHint != nil ? StrandPalette.accent : StrandPalette.textPrimary)
+        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+            Menu {
+                Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
+                Button { showUpdatesInbox = true } label: { Label("Updates", systemImage: "bell") }
+                Button { router.openDevices() } label: { Label("Devices", systemImage: "sensor.tag.radiowaves.forward") }
+            } label: {
+                ProfileAvatarView(imageData: profile.avatarImageData, size: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Menu and settings")
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: NoopMetrics.space1) {
+                Text("NOOP")
+                    .font(StrandFont.headline)
+                    .tracking(2)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(dayNavDateText)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
-                    .fixedSize()
+                    .minimumScaleFactor(0.85)
                     .contentTransition(.opacity)
+            }
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 0)
+
+            Button { showDayPicker = true } label: {
+                Image(systemName: "calendar")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .layoutPriority(1)
             .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
+            .accessibilityIdentifier("noop.today.calendar")
             .popover(isPresented: $showDayPicker) {
-                // Cap at the LOGICAL day (not raw Date()) so the calendar never offers a day ahead of the
-                // data in the 00:00-04:00 window, matching the visible date + a11y label (#16).
                 DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
                            displayedComponents: [.date])
                     .datePickerStyle(.graphical).labelsHidden().padding(12)
-                    // #840, give the graphical picker an explicit size so the iPad popover bubble doesn't
-                    // clip the calendar grid (anchored to a 13pt label it otherwise sizes too small).
                     .frame(minWidth: 320, minHeight: 360)
             }
-
-            Spacer(minLength: 8)
-
-            // Uniform 36pt circular icon set: recording-status light, updates bell, quick-add (+), menu.
-            HStack(spacing: 8) {
-                // Recording status, a colour-coded light (green recording / amber synced / red not
-                // recording), replacing the old full-width banner. Taps to Devices to connect. Its OWN
-                // subview observes LiveState so a ~1 Hz HR tick re-renders just this 36pt dot, not all of
-                // Today (the scroll-stutter fix, see the @EnvironmentObject note at the top of the type).
-                RecordingStatusLight(selectedDayOffset: selectedDayOffset) {
-                    StrandHaptic.selection.play(); router.openDevices()
-                }
-                // Updates bell.
-                Button { showUpdatesInbox = true } label: {
-                    Image(systemName: updateStore.unreadCount > 0 ? "bell.badge" : "bell")
-                        .font(.system(size: 15, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(StrandPalette.surfaceInset))
-                        .overlay(alignment: .topTrailing) {
-                            if updateStore.unreadCount > 0 {
-                                Text("\(min(updateStore.unreadCount, 99))")
-                                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                                    .monospacedDigit()
-                                    .foregroundStyle(StrandPalette.goldDeepText)
-                                    .padding(.horizontal, 3.5).padding(.vertical, 1)
-                                    .frame(minWidth: 14)
-                                    .background(Capsule().fill(StrandPalette.statusCritical))
-                                    .offset(x: 2, y: -1)
-                            }
-                        }
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Updates")
-                // Quick-action + (the accented primary, gold, same 36 size as the rest).
-                Button { router.requestQuickActions() } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(StrandPalette.goldDeepText)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(StrandPalette.accent))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Quick actions")
-                .accessibilityHint("Start a workout, log your journal, or breathe")
-                // Menu (Settings), the avatar, same 36 size.
-                Button { showSettings = true } label: {
-                    ProfileAvatarView(imageData: profile.avatarImageData, size: 36)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Menu and settings")
-            }
         }
-        .frame(height: 46)
-        // Cycle the swipe/tap hint: roughly every 10s flash a one-word hint for ~1.5s, alternating "Swipe" /
-        // "Tap", then return to the date. One async loop, auto-cancelled when Today goes away (no leaked timer).
+        .frame(minHeight: 46)
         .task {
             var i = 0
             while !Task.isCancelled {
@@ -1446,16 +1440,19 @@ struct TodayView: View {
                        // second offscreen pass DOUBLED its cost and re-rasterised it on every TodayView
                        // body re-eval (the masked image is itself one offscreen pass). That was a v7.0.2
                        // lag regression; removing the flatten restores native layer caching.
-                       topBackground: showDayCycleBackground
+                       topBackground: showDayCycleBackground && !usesEditorialToday
                            ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 #if os(iOS)
                 // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
                 // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).
                 todayTopBar
-                HealthAlertBanner()
+                    .toolbar(.hidden, for: .navigationBar)
+                if selectedDayOffset == 0, let currentDay = repo.today?.day,
+                   currentDay == repo.days.last?.day { HealthAlertBanner() }
                 #else
-                HealthAlertBanner()
+                if selectedDayOffset == 0, let currentDay = repo.today?.day,
+                   currentDay == repo.days.last?.day { HealthAlertBanner() }
                 // Browse past days: chevrons + a date jump capped at today (no future days). Anchored to
                 // the LOGICAL day (the same anchor `selectedLogicalDay` uses) so the full-date label tracks
                 // the data shown in the 00:00-04:00 window instead of jumping a calendar day ahead (#14).
@@ -1465,7 +1462,7 @@ struct TodayView: View {
                 // A "workout in progress" indicator whenever a manual workout is active. A tap routes to Live
                 // and opens the in-exercise screen. Its own leaf owns the AppModel observation + per-second
                 // clock, so the live tick never re-renders TodayView.body.
-                ActiveWorkoutIndicatorSection()
+                ActiveWorkoutIndicatorSection(showStart: selectedDayOffset == 0)
                 // The "still building" and "new here?" prompts are about getting today's scores going,
                 // so they stay anchored to today rather than reappearing on every navigated past day.
                 if selectedDayOffset == 0 && repo.today?.recovery == nil {
@@ -1501,8 +1498,12 @@ struct TodayView: View {
                 // The same full order/visibility registry as Liquid Today and Android. Every editor row maps
                 // to one real section here, so a change saved from the shared sheet immediately affects this
                 // reference implementation too.
-                ForEach(sectionOrder) { section in
-                    todaySection(section)
+                if usesEditorialToday {
+                    editorialTodaySections
+                } else {
+                    ForEach(sectionOrder) { section in
+                        todaySection(section)
+                    }
                 }
                 // Opt-in "looks like a workout?" suggestion (default OFF). Renders only when the
                 // Settings toggle is on AND the detector finds a recent unsaved, un-dismissed window.
@@ -1690,69 +1691,6 @@ struct TodayView: View {
     }
 
     // MARK: First-run scoring-guide card (one-time, dismissible)
-
-    /// "New here?", a single, dismissible card that points first-time users at the guide. Tapping the
-    /// card opens the guide; the ✕ closes it. Either action sets `scoringGuideCardSeen`, so it shows
-    /// once and never again. Follows the in-flow, never-modal card pattern.
-    private var scoringGuideFirstRunCard: some View {
-        NoopCard {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18))
-                    .foregroundStyle(StrandPalette.accent)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("New here?")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("See how Charge, Effort and Rest are calculated, and how they differ from WHOOP.")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button {
-                        scoringGuideCardSeen = true
-                        showGuideTop = true
-                    } label: {
-                        Label("How your scores work", systemImage: "arrow.right")
-                            .font(StrandFont.subhead)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(StrandPalette.accent)
-                    .padding(.top, 2)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    // Dismiss INTO the Updates inbox (restorable), rather than permanently hiding.
-                    withAnimation(StrandMotion.interactive) {
-                        dismissTodayCard(
-                            id: "newHere",
-                            title: String(localized: "New here?"),
-                            message: String(localized: "How Charge, Effort and Rest are calculated, and how they differ from WHOOP.")
-                        )
-                    }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(6)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss")
-            }
-            // The whole card is tappable as the primary action; the ✕ stops the tap from also firing.
-            .contentShape(Rectangle())
-            .onTapGesture {
-                #if os(iOS)
-                StrandHaptic.selection.play()
-                #endif
-                scoringGuideCardSeen = true
-                showGuideTop = true
-            }
-        }
-        // Press-down feedback for the tappable card surface.
-        .strandPressable()
-    }
 
     // MARK: Readiness, on-device training-readiness synthesis (HRV / resting-HR / load).
 
@@ -2002,14 +1940,283 @@ struct TodayView: View {
         }
     }
 
+    /// The iPhone's default scroll uses the same stored rows and detail destinations as the existing
+    /// cards. Optional tools remain in the expandable area, and a saved custom layout remains intact.
+    private var editorialTodaySections: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            classicHeroSection
+            editorialGlanceSection
+            editorialInsightsSection
+            editorialSleepSection
+            editorialActivitySection
+            editorialOvernightSection
+            editorialStressSection
+            editorialHealthSection
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                    liveSessionStartSection
+                    synthesisSection
+                    metricsSection
+                    heartRateTrendSection
+                    yourCardsSection
+                    if selectedDayOffset == 0 { MenstrualCycleHomeCard(); JournalReminderCard() }
+                    hostedCardsSection
+                }
+                .padding(.top, NoopMetrics.space3)
+            } label: {
+                Text("More metrics and tools")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+            }
+            .tint(StrandPalette.accent)
+            NavigationLink(value: TabRoute.metricExplorer) {
+                NoopCard(tint: StrandPalette.accent) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                                Text("Explore trends").font(StrandFont.headline)
+                                Text("Browse your saved metrics over time")
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .accessibilityHidden(true)
+                        }
+                        if let hrvHistory = sparks["hrv"], hrvHistory.count > 1 {
+                            HStack(spacing: NoopMetrics.space4) {
+                                Text("HRV")
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                Sparkline(values: Array(hrvHistory.suffix(7)),
+                                          gradient: Gradient(colors: [StrandPalette.metricCyan.opacity(0.55),
+                                                                      StrandPalette.metricCyan]),
+                                          showsHover: false)
+                                    .frame(height: 36)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// A compact first hop to the measured health and stress screens. A missing reading stays missing;
+    /// no sample value from the concept sheet is used as a fallback.
+    private var editorialGlanceSection: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: NoopMetrics.space3) { editorialGlanceCards }
+            VStack(spacing: NoopMetrics.space3) { editorialGlanceCards }
+        }
+    }
+
+    @ViewBuilder private var editorialGlanceCards: some View {
+        NavigationLink(value: TabRoute.health) {
+            ReferenceCard() {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    Text("Health Snapshot").font(ReferenceStyle.headline)
+                    ReferenceHealthSnapshot(day: displayDay?.day, temperatureUnit: temperatureUnit)
+                }
+                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        NavigationLink(value: TabRoute.stress) {
+            ReferenceCard() {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    Text("Stress Monitor").font(ReferenceStyle.headline)
+                    Text(selectedDayOffset == 0
+                         ? stressToday.map { String(format: "Day average %.1f", locale: AppLanguage.activeLocale, $0) }
+                           ?? (repo.loaded ? "No supported reading" : "Loading…")
+                         : "Open selected-day detail")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var editorialInsightsSection: some View {
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            HStack {
+                Text("My Day").font(ReferenceStyle.title)
+                Spacer()
+                Button { router.requestQuickActions() } label: {
+                    Image(systemName: "plus")
+                        .font(ReferenceStyle.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(StrandPalette.surfaceRaised,
+                                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Quick actions")
+            }
+            Button { router.openInsightsHub() } label: {
+                ReferenceCard() {
+                    HStack(spacing: ReferenceStyle.gap) {
+                        Image(systemName: "moon.stars")
+                            .foregroundStyle(StrandPalette.restColor)
+                            .accessibilityHidden(true)
+                        Text("Day in review").font(ReferenceStyle.headline)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var editorialSleepSection: some View {
+        NavigationLink(value: TabRoute.sleep) {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
+                    HStack {
+                        Label("Last night's sleep", systemImage: "bed.double")
+                            .font(ReferenceStyle.headline)
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    HStack(alignment: .top, spacing: ReferenceStyle.gap) {
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Bedtime").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            if selectedDayOffset == 0, let model = hostedSleepModel {
+                                Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs)), style: .time)
+                                    .font(ReferenceStyle.headline)
+                            } else { Text("—").font(ReferenceStyle.headline) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Time asleep").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            if let minutes = displayDay?.totalSleepMin, minutes > 0 {
+                                Text("\(Int(minutes) / 60)h \(Int(minutes) % 60)m")
+                                    .font(ReferenceStyle.headline).monospacedDigit()
+                            } else { Text("—").font(ReferenceStyle.headline) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text("Wake up").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            if selectedDayOffset == 0, let model = hostedSleepModel {
+                                Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs)), style: .time)
+                                    .font(ReferenceStyle.headline)
+                            } else { Text("—").font(ReferenceStyle.headline) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if displayDay?.totalSleepMin == nil {
+                        Text(repo.loaded ? "No saved sleep for this day" : "Loading sleep…")
+                            .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+            }
+        }.buttonStyle(.plain)
+    }
+
+    private var editorialOvernightSection: some View {
+        let hrvDay = selectedDayOffset == 0 && displayDay?.avgHrv == nil ? lastHrvDay : displayDay
+        let rhrDay = selectedDayOffset == 0 && displayDay?.restingHr == nil ? lastRestingHrDay : displayDay
+        return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Overnight signals", overline: "Recovery")
+            TodayMetricSummaryRow(title: "HRV", value: hrvDay?.avgHrv.map { "\(Int($0.rounded())) ms" },
+                                  sourceDay: hrvDay?.day, tint: StrandPalette.metricCyan,
+                                  route: .metric("hrv"))
+            TodayMetricSummaryRow(title: "Resting heart rate",
+                                  value: rhrDay?.restingHr.map { "\($0) bpm" },
+                                  sourceDay: rhrDay?.day, tint: StrandPalette.metricRose,
+                                  route: .metric("rhr"))
+        }
+    }
+
+    private var editorialStressSection: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Through the day", overline: "Stress")
+            NavigationLink(value: TabRoute.stress) {
+                NoopCard(tint: StrandPalette.stressColor) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        Text("Daytime pattern").font(StrandFont.headline)
+                        if selectedDayOffset == 0 && hostedStressHours.contains(where: { $0.level != nil }) {
+                            DaytimeLoadLine(hours: hostedStressHours)
+                        } else {
+                            Text(repo.loaded ? "No daytime pattern available for this date" : "Loading stress…")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Text("See measured periods and data coverage")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private var editorialActivitySection: some View {
+        let recent = Self.recentWorkoutsFeed(workouts)
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+
+            if let row = recent.max(by: { $0.startTs < $1.startTs }) {
+                Button { workoutDetail = WorkoutDetailTarget(row: row) } label: {
+                    NoopCard(tint: StrandPalette.effortColor) {
+                        HStack(spacing: NoopMetrics.space4) {
+                            Image(systemName: "figure.run")
+                                .foregroundStyle(StrandPalette.effortColor)
+                            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                                Text(WorkoutSource.displaySport(row.sport)).font(StrandFont.headline)
+                                Text("\(workoutDuration(row)) · \(workoutCaption(row))")
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink(value: TabRoute.workouts) {
+                    NoopCard { Text(repo.loaded ? "No recent activities · Open workouts" : "Loading activities…") }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var editorialHealthSection: some View {
+        let respiratoryDay = selectedDayOffset == 0 && displayDay?.respRateBpm == nil
+            ? lastRespDay : displayDay
+        let temperatureDay = [displayDay, lastVitalsDay, lastSkinTempReadingDay]
+            .compactMap { $0 }
+            .first { $0.skinTempC != nil || $0.skinTempDevC != nil }
+        return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Health snapshot", overline: "Vitals")
+            TodayMetricSummaryRow(title: "Respiratory rate",
+                                  value: respiratoryDay?.respRateBpm.map {
+                                      String(format: "%.1f / min", locale: AppLanguage.activeLocale, $0)
+                                  }, sourceDay: respiratoryDay?.day,
+                                  tint: StrandPalette.accent, route: .metric("resp_rate"))
+            TodayMetricSummaryRow(title: "Skin temperature",
+                                  value: skinTempLeadReading.map {
+                                      Self.skinTempCardValue(reading: $0,
+                                          fahrenheit: temperatureUnit == .fahrenheit)
+                                  }, sourceDay: temperatureDay?.day, tint: StrandPalette.metricAmber,
+                                  route: .health)
+            Text("Experimental SpO₂ is available only in Night Lab.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+    }
+
     private var classicHeroSection: some View {
         heroSection
-            .padding(.vertical, NoopMetrics.space4)
+            .padding(.vertical, NoopMetrics.space1)
             .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                    .fill(StrandPalette.surfaceBase.opacity(0.72))
-            )
     }
 
     private var liveSessionStartSection: some View {
@@ -2064,7 +2271,7 @@ struct TodayView: View {
             // scorable beats at all, the Deep-window note would name a window that was never reached and
             // send the wearer to a setting that cannot help.
             if chargeLegacyRRGap {
-                chargeLegacyRRGapNote
+                ChargeLegacyRRGapNote()
             } else if chargeDeepWindowGap {
                 chargeDeepWindowGapNote
             } else if selectedDayOffset == 0 && !chargeScoreState.isCalibrating {
@@ -2112,31 +2319,6 @@ struct TodayView: View {
                                               firstRecordedDay: firstRecordedRRDay,
                                               firstScorableDay: firstScorableRRDay,
                                               avgHrv: d.avgHrv, totalSleepMin: d.totalSleepMin)
-    }
-
-    /// #1505: the note shown instead of a bare "-" when this night's beats predate transport labelling.
-    /// Same card shape as the #233 note it sits beside, on today AND a navigated past day alike, since a
-    /// past day is where this one is almost always read.
-    private var chargeLegacyRRGapNote: some View {
-        NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(StrandPalette.chargeColor)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ChargeBreakdownFormat.chargeLegacyRRGapTitle)
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(ChargeBreakdownFormat.chargeLegacyRRGapDetail)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ChargeBreakdownFormat.chargeLegacyRRGapAccessibility)
     }
 
     /// #233: whether the SELECTED day's empty Charge is explained by the Deep-sleep HRV window finding no
@@ -2247,7 +2429,7 @@ struct TodayView: View {
                         // taps through to its own explanation rather than the generic empty note. Same
                         // precedence as the note above the rings: no scorable beats outranks no deep sleep.
                         if chargeLegacyRRGap {
-                            chargeLegacyRRGapNote
+                            ChargeLegacyRRGapNote()
                         } else if chargeDeepWindowGap {
                             chargeDeepWindowGapNote
                         } else if let banked = recoveryCalibration {
@@ -2569,6 +2751,12 @@ struct TodayView: View {
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
+                    }
+                    if let maskedCaption = stressActivityMaskedHoursCaption(hostedStressActivityMaskedHours) {
+                        Text(maskedCaption)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -3148,14 +3336,6 @@ struct TodayView: View {
         return hrvInsightDetail(d, score: score)
     }
 
-    /// The Synthesis status colour, keyed on the carried prior recovery when carrying, else today's.
-    private func synthesisCardColor(score: Double?) -> Color {
-        if let rec = lastScoredRecoveryDay?.recovery {
-            return StrandPalette.recoveryColor(rec)
-        }
-        return score.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textTertiary
-    }
-
     /// Screen-4 insight headline, when the HRV baseline is established, the gold "primed" read
     /// keyed on how far today's HRV sits above/below the learned baseline ("HRV 12% over baseline");
     /// otherwise the recovery-state word. Purely a re-presentation of the existing recovery + HRV
@@ -3251,8 +3431,7 @@ struct TodayView: View {
         // and never clips. Until the first layout measures width, fall back to a sensible phone width so the
         // rings render at a reasonable size on the very first frame rather than collapsing.
         let measured = heroRingRowWidth > 1 ? heroRingRowWidth : 345
-        // Design Reset: three EQUAL clean rings (no glow, faint track) in Charge / Effort / Rest order with
-        // generous spacing, mirroring the flat mockup. Sized off width so they stay equal on any phone.
+        // Three equal rings in the concept's Rest / Charge / Effort order, sized to the available width.
         let ring = Self.heroRingDiameter(rowWidth: measured)
         HStack(alignment: .top, spacing: 22) {
             // Component 4: Charge/Rest badge their real per-day merge winner; Effort has no badge.
@@ -3270,18 +3449,16 @@ struct TodayView: View {
             // have and both rings open it, exactly as Android's do. The keys are the ones
             // `HeroRingDetailRouteTests` pins against `MetricCatalog`; `TabRoute.metric` falls back to the
             // Health screen on an unknown key rather than failing, which is why they are pinned.
+            heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance",
+                           detailRoute: .sleep,
+                           caption: restIsPendingSync ? "Pending sync" : nil,
+                           captionWidth: ring) { restRing(diameter: ring) }
             heroRingColumn(section: .charge, domain: .charge, provenanceKey: "recovery",
-                           onOpenBreakdown: { showChargeBreakdown = true }) {
+                           detailRoute: .charge(day: displayDay?.day)) {
                 chargeRing(score: score, d: d, diameter: ring)
             }
             heroRingColumn(section: .effort, domain: .effort,
                            detailRoute: .metric(HeroRingMetric.effort)) { effortRing(d: d, diameter: ring) }
-            // `provenanceKey` spells the same string the route does and stays a literal on purpose: it
-            // asks which SOURCE won this day, not which catalog entry to open. See `HeroRingMetric`.
-            heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance",
-                           detailRoute: .metric(HeroRingMetric.rest),
-                           caption: restIsPendingSync ? "Pending sync" : nil,
-                           captionWidth: ring) { restRing(diameter: ring) }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         // Zero-impact width reader: a clear background that publishes the row's width up via preference. It
@@ -3369,6 +3546,7 @@ struct TodayView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Self.domainDetailAccessibilityLabel(domain))
+                .accessibilityIdentifier("noop.today.ring." + (provenanceKey ?? "strain"))
                 .accessibilityAddTraits(.isButton)
             } else if let onOpenBreakdown {
                 Button(action: onOpenBreakdown) {
@@ -3419,7 +3597,7 @@ struct TodayView: View {
             // Apple Watch (M1): a watch-sourced score reads "Apple Watch" with its confidence bound to the
             // shared ScoreStatePill dot/label, and a calibrating watch score shows "Needs more data" rather
             // than a bare ring, the honest "the watch can't support this yet" state, never a fake number.
-            if let key = provenanceKey {
+            if let key = provenanceKey, !usesEditorialToday {
                 if ringHasValue(key), isWatchSourced(key) {
                     VStack(spacing: 4) {
                         SourceBadge("\(watchProvenanceLabel(key))", tint: StrandPalette.metricCyan)
@@ -3471,15 +3649,17 @@ struct TodayView: View {
     @ViewBuilder
     private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
         if let s = score {
-            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10)
+            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))%" },
+                     color: ReferenceStyle.green, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+                     outlined: true)
         } else if recoveryCalibration == nil, let carried = lastScoredCharge {
             // #802: a CARRIED last-night Charge draws as a real (dimmed) ring, matching the Rest ring, rather
             // than a bare number on a faint track, which read as broken next to Rest's filled ring. Same
             // diameter, so the #762 self-sizing hero row is untouched; the dim + the row-level "Last night"
             // caption already beneath the rings mark it as carried, not today's fresh score.
-            GlowRing(fraction: carried.value / 100, value: carried.value, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10)
+            GlowRing(fraction: carried.value / 100, value: carried.value, format: { "\(Int($0.rounded()))%" },
+                     color: ReferenceStyle.green, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+                     outlined: true)
                 .opacity(0.8)
         } else {
             emptyHeroRing(diameter: diameter) { ringEmptyOverlay(d: d, diameter: diameter) }
@@ -3493,7 +3673,8 @@ struct TodayView: View {
         if effortStrain(d) != nil, let gv = effortGaugeValue(d) {
             GlowRing(fraction: gv / effortGaugeMax, value: gv,
                      format: { effortScale == .whoop ? String(format: "%.1f", locale: AppLanguage.activeLocale, $0) : "\(Int($0.rounded()))" },
-                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: diameter * 0.10)
+                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+                     outlined: true)
         } else {
             emptyHeroRing(diameter: diameter) { ringNoData(diameter: diameter) }
         }
@@ -3515,8 +3696,9 @@ struct TodayView: View {
         // it may change once the full night lands and `analyzeRecent` re-scores it. That is now SAID, in
         // the column's caption, rather than shown by withholding the number. Past days are final.
         if let s = restScore {
-            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.restColor, diameter: diameter, lineWidth: diameter * 0.10)
+            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))%" },
+                     color: ReferenceStyle.blue, diameter: diameter, lineWidth: ReferenceStyle.ringWidth,
+                     outlined: true)
         } else if displayDay?.recovery != nil {
             // #898: an aggregate-import user (a daily HRV/RHR import, no in-bed session) gets a Charge from
             // WatchRecovery but NO sleep_performance, so Rest read a bare "No data" next to a lit Charge ,
@@ -3547,7 +3729,7 @@ struct TodayView: View {
     private func emptyHeroRing<Overlay: View>(diameter: CGFloat, @ViewBuilder overlay: () -> Overlay) -> some View {
         ZStack {
             Circle().stroke(StrandPalette.textPrimary.opacity(0.10),
-                            style: StrokeStyle(lineWidth: diameter * 0.10, lineCap: .round))
+                            style: StrokeStyle(lineWidth: ReferenceStyle.ringWidth, lineCap: .round))
             overlay()
         }
         .frame(width: diameter, height: diameter)
@@ -4656,21 +4838,28 @@ struct TodayView: View {
     ///
     /// The same "hosting none pays nothing" rule the sleep model above follows. `StressDayCurve` does
     /// the gating: it reads nothing until a cheap heart-rate fingerprint says today's heart rate moved,
-    /// and it memoises, so the iOS widget publishing from the same producer shares this computation
-    /// rather than scoring the day a second time.
+    /// and it memoises. The foreground lens is part of that memo's identity: Today shares the default
+    /// computation with the widget when the toggle is off, and recomputes with the selected personal
+    /// lens when it is on so this card and Stress detail cannot disagree.
     private func loadHostedStress() async {
-        guard HostedCardPrefs.decodeEnabled(hostedCardsRaw).contains(.stressToday) else {
+        guard usesEditorialToday || HostedCardPrefs.decodeEnabled(hostedCardsRaw).contains(.stressToday) else {
             hostedStressHours = []
+            hostedStressActivityMaskedHours = 0
             return
         }
         // `timeline`, not `hours`: the half-step display series, so the curve tracks the day rather
         // than stepping through it, matching the widget and the Android card.
-        hostedStressHours = await StressDayCurve.today(repo: repo)?.result.timeline ?? []
+        let result = await StressDayCurve.today(
+            repo: repo,
+            personalBaseline: PuffinExperiment.stressPersonalBaselineEnabled
+        )?.result
+        hostedStressHours = result?.timeline ?? []
+        hostedStressActivityMaskedHours = result?.activityMaskedHours ?? 0
     }
 
     private func loadHostedSleepModel() async {
         let sleepOrigin = String(localized: "Sleep")
-        guard HostedCardPrefs.decodeEnabled(hostedCardsRaw).contains(where: { $0.origin == sleepOrigin }) else {
+        guard usesEditorialToday || HostedCardPrefs.decodeEnabled(hostedCardsRaw).contains(where: { $0.origin == sleepOrigin }) else {
             hostedSleepModel = nil
             return
         }
@@ -5087,10 +5276,20 @@ struct TodayView: View {
             // other whole-window HR consumer already passes.
             let todayHr = await repo.hrSamples(from: effortStart, to: windowEndInclusive,
                                                limit: 200_000)
-            let maxHR = profile.age > 0 ? StrainScorer.tanakaHRmax(age: Double(profile.age)) : nil
+            // #2460: the manual HR-max override, then Tanaka, exactly as AnalyticsEngine resolves it
+            // for the STORED day. These two numbers meet in `effectiveEffort`, which takes the larger,
+            // so a live value on the formula's yardstick outvoted an override set because the real
+            // maximum is above it. See `ProfileStore.effortHRmax`.
+            let maxHR = profile.effortHRmax
             let restHR = displayDay?.restingHr.map(Double.init) ?? StrainScorer.defaultRestingHR
-            liveStrainLocal = StrainScorer.strain(todayHr, maxHR: maxHR, restingHR: restHR,
-                                        method: PuffinExperiment.effortMethod, sex: profile.sex)
+            let method = PuffinExperiment.effortMethod
+            let sex = profile.sex
+            // The full-day fingerprint and score are pure; do not occupy the main actor
+            // while the Today cards are scrolling or responding to touch.
+            liveStrainLocal = await Task.detached(priority: .utility) {
+                StrainScorer.strain(todayHr, maxHR: maxHR, restingHR: restHR,
+                                    method: method, sex: sex)
+            }.value
         } else {
             liveStrainLocal = nil
         }
@@ -5256,27 +5455,6 @@ struct TodayView: View {
         }
     }
 
-    private var dateLine: String {
-        // The selected day's date when navigated; today's banked-row date (or today) at offset 0.
-        if selectedDayOffset == 0, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
-            return date.formatted(
-                .dateTime.weekday(.wide).day().month(.wide).locale(AppLanguage.activeLocale)
-            )
-        }
-        return selectedLogicalDay.formatted(
-            .dateTime.weekday(.wide).day().month(.wide).locale(AppLanguage.activeLocale)
-        )
-    }
-
-    /// Hero title that names the selected day, "Today's"/"Yesterday's"/"Day's" Synthesis.
-    private var synthesisTitle: LocalizedStringKey {
-        switch selectedDayOffset {
-        case 0:  return "Today’s Synthesis"
-        case 1:  return "Yesterday’s Synthesis"
-        default: return "Synthesis"
-        }
-    }
-
     /// Section overline naming the selected day, "Today"/"Yesterday"/"EEE d MMM".
     private var selectedDayOverline: String {
         switch selectedDayOffset {
@@ -5335,12 +5513,6 @@ struct TodayView: View {
             case nil:    return String(localized: "Charge is strong.")
             }
         }
-    }
-
-    private func ringSupporting(_ d: DailyMetric?) -> String {
-        let hrv = d?.avgHrv.map { String(localized: "\(Int($0.rounded())) ms") } ?? " - ms"
-        let rhr = d?.restingHr.map { "\($0)" } ?? "—"
-        return String(localized: "HRV \(hrv) · RHR \(rhr)")
     }
 
     private func sleepValue(_ d: DailyMetric?) -> String {
@@ -6020,6 +6192,117 @@ enum RecordingState: Equatable {
     }
 }
 
+/// A common destination-backed row for the new iPhone feed. A value never borrows another day's
+/// caption: the producing daily row supplies its own date, and absence stays explicit.
+private struct TodayMetricSummaryRow: View {
+    let title: LocalizedStringKey
+    let value: String?
+    let sourceDay: String?
+    let tint: Color
+    let route: TabRoute
+
+    var body: some View {
+        NavigationLink(value: route) {
+            NoopCard(tint: tint) {
+                HStack(alignment: .center, spacing: NoopMetrics.space3) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        Text(title)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Text(value ?? String(localized: "No recent data"))
+                            .font(value == nil ? StrandFont.subhead : StrandFont.title2.monospacedDigit())
+                            .foregroundStyle(value == nil ? StrandPalette.textSecondary : StrandPalette.textPrimary)
+                            .lineLimit(2)
+                        if value != nil, let sourceDay {
+                            Text(String(format: String(localized: "Saved for %@"), sourceDay))
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Compact daily glance over the Sleep tab's actual stage totals. The full editable night,
+/// detailed intervals, provenance, and coverage remain in the Sleep destination.
+private struct TodayStagePreview: View {
+    let stages: Stages
+
+    private struct Part: Identifiable {
+        let id: String
+        let title: LocalizedStringKey
+        let minutes: Double
+        let color: Color
+    }
+
+    private var parts: [Part] {
+        [Part(id: "awake", title: "Awake", minutes: stages.awake, color: StrandPalette.sleepAwake),
+         Part(id: "light", title: "Light", minutes: stages.light, color: StrandPalette.sleepLight),
+         Part(id: "deep", title: "Deep", minutes: stages.deep, color: StrandPalette.sleepDeep),
+         Part(id: "rem", title: "REM", minutes: stages.rem, color: StrandPalette.sleepREM)]
+            .filter { $0.minutes > 0 }
+    }
+
+    var body: some View {
+        let visibleParts = parts
+        NoopCard(tint: StrandPalette.restColor) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                HStack {
+                    Text("Stages").font(StrandFont.headline)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .accessibilityHidden(true)
+                }
+                GeometryReader { geometry in
+                    HStack(spacing: 2) {
+                        ForEach(visibleParts) { part in
+                            Capsule()
+                                .fill(part.color)
+                                .frame(width: max(0, (geometry.size.width - CGFloat(visibleParts.count - 1) * 2)
+                                                    * CGFloat(part.minutes / stages.total)))
+                        }
+                    }
+                }
+                .frame(height: 10)
+                .accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: NoopMetrics.space4) {
+                        ForEach(visibleParts.filter { $0.id != "awake" }) { part in stageValue(part) }
+                    }
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        ForEach(visibleParts.filter { $0.id != "awake" }) { part in stageValue(part) }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func stageValue(_ part: Part) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(part.title)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+            HStack(spacing: NoopMetrics.space1) {
+                Text(Int(part.minutes.rounded()).formatted())
+                    .font(StrandFont.bodyNumber)
+                Text("min").font(StrandFont.footnote)
+            }
+            .foregroundStyle(part.color)
+        }
+    }
+}
+
 // MARK: - Preview
 
 #if DEBUG
@@ -6052,3 +6335,50 @@ enum RecordingState: Equatable {
         .preferredColorScheme(.dark)
 }
 #endif
+
+/// Shares Health Monitor's evidence and banding rules; missing and unverified readings are not counted.
+private struct ReferenceHealthSnapshot: View {
+    let day: String?
+    let temperatureUnit: TemperatureUnit
+    @EnvironmentObject private var repo: Repository
+    @State private var overCounts: [String: Double] = [:]
+    @State private var flagsLoaded = false
+
+    private var eligible: [BodyVitalReading] {
+        guard let day, flagsLoaded else { return [] }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        let midnight = parser.date(from: day) ?? Date()
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: midnight) ?? midnight
+        return BodyVitalSigns.readings(sourceRows: repo.vitalMetricRows,
+                                       temperatureUnit: temperatureUnit, now: noon,
+                                       spo2CandidateByDay: [:], hrvOverCountByDay: overCounts)
+            .filter { ["rhr", "hrv", "resp", "spo2", "skin"].contains($0.key)
+                && $0.day == day && $0.value?.isFinite == true
+                && $0.caveat == nil && $0.banding.band != .noData }
+    }
+
+    var body: some View {
+        let readings = eligible
+        let within = readings.filter { $0.banding.band == .inRange }.count
+        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+            Text(readings.isEmpty ? (repo.loaded && flagsLoaded ? "No data" : "Loading…")
+                                 : (within == readings.count ? "In range" : "Outside range"))
+                .font(ReferenceStyle.caption)
+                .foregroundStyle(readings.isEmpty ? StrandPalette.textSecondary
+                                 : within == readings.count ? ReferenceStyle.green : StrandPalette.statusWarning)
+            if !readings.isEmpty {
+                Text("\(within)/\(readings.count) eligible metrics")
+                    .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .task(id: repo.refreshSeq) {
+            flagsLoaded = false
+            let flags = await repo.exploreSeries(key: "hrv_rr_overcount", source: "my-whoop", days: 4000)
+            overCounts = Dictionary(flags.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+            flagsLoaded = true
+        }
+    }
+}

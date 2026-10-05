@@ -1,4 +1,12 @@
-# NOOP V2 Build & IPA Integration Plan
+# Archived pre-v12 NOOP V2 Build & IPA Integration Plan
+
+> **Do not execute this plan as a release procedure.** It predates the exact NOOP 12.0.0
+> integration and contains exploratory, incomplete work items. The authoritative current
+> instructions are [`BUILD.md`](BUILD.md), [`IPHONE_RELEASE_POLICY.md`](IPHONE_RELEASE_POLICY.md),
+> `.github/workflows/iphone-sideload-ipa.yml`, and
+> `.github/workflows/iphone-final-release.yml`. An unsigned IPA is not installable proof: it must
+> be freshly built from the exact source SHA, structurally verified, and re-signed by an appropriate
+> sideloading/signing process before installation. Experimental SpO₂ remains instrumentation-only.
 
 ## Objective
 Build a new unsigned iPhone IPA that integrates:
@@ -475,7 +483,7 @@ git commit -m "feat(night-lab): add device wear validation and quality gates
 
 See commit message for full details"
 
-git tag -a v11.8-research-$(date +%Y%m%d) -m "Unsigned research IPA with Night Lab quality gates and SpO2 validation framework"
+git tag -a noop-v2-12.0-research-$(date +%Y%m%d) -m "Research-only Night Lab evidence checkpoint; not a release IPA"
 
 git push origin main --tags
 ```
