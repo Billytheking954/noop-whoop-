@@ -20,15 +20,18 @@ public struct GlowRing: View {
     public var color: Color
     public var diameter: CGFloat
     public var lineWidth: CGFloat
+    /// Today's three-up hero can opt into a restrained colour rim without changing other gauges.
+    public var outlined: Bool
 
     public init(fraction: Double, value: Double, format: @escaping (Double) -> String,
-                color: Color, diameter: CGFloat, lineWidth: CGFloat) {
+                color: Color, diameter: CGFloat, lineWidth: CGFloat, outlined: Bool = false) {
         self.fraction = fraction
         self.value = value
         self.format = format
         self.color = color
         self.diameter = diameter
         self.lineWidth = lineWidth
+        self.outlined = outlined
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -56,6 +59,15 @@ public struct GlowRing: View {
 
             // Design Reset: NO glow. A flat, crisp solid arc only — the clean Material-style look.
             arc.stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .shadow(color: outlined ? color.opacity(0.25) : .clear,
+                        radius: outlined ? lineWidth * 0.55 : 0)
+
+            if outlined {
+                Circle()
+                    .stroke(color.opacity(0.55), lineWidth: 0.75)
+                    .padding(-lineWidth * 0.32)
+                    .accessibilityHidden(true)
+            }
 
             // Centred rolling number.
             Text(format(shown))

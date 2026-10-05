@@ -49,7 +49,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             // Unified side margins matching the floating navigation bar so every page's cards + header line up
             // to the same edges (2026-07-02); macOS keeps the classic 28 in the #else branch.
             .padding(.horizontal, NoopMetrics.screenHPadding)
-            .padding(.top, NoopMetrics.space6)
+            .padding(.top, ReferenceStyle.gap)
             // The tab bar floats over the scroll content, so the last card sat hidden behind it.
             // Reserve extra bottom scroll room so every screen's final card clears the floating bar.
             .padding(.bottom, NoopMetrics.tabBarClearance)
@@ -102,12 +102,12 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// the previous layout. `@ViewBuilder` lets the two stack types resolve to one opaque return.
     @ViewBuilder private var column: some View {
         if lazy {
-            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            LazyVStack(alignment: .leading, spacing: ReferenceStyle.section) {
                 if title != nil || subtitle != nil { header }
                 content()
             }
         } else {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
                 if title != nil || subtitle != nil { header }
                 content()
             }
@@ -120,7 +120,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
                 if let title {
                     // Match the liquid home's title face (SF Rounded 28) so every page's header reads
                     // identically (2026-07-02 cohesion pass).
-                    Text(title).font(StrandFont.rounded(28)).foregroundStyle(StrandPalette.textPrimary)
+                    Text(title).font(ReferenceStyle.title).foregroundStyle(StrandPalette.textPrimary)
                 }
                 if let subtitle {
                     Text(subtitle).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)

@@ -92,6 +92,17 @@ final class AutoWorkoutDetectorTests: XCTestCase {
         XCTAssertEqual(out.count, 2)
     }
 
+    func testUnobservedGapCannotBecomeAWorkoutOrMergeTwoBouts() {
+        let start = 6_500_000
+        let sparse = [(ts: start, bpm: 140), (ts: start + 20 * 60, bpm: 140)]
+        XCTAssertTrue(AutoWorkoutDetector.detect(hr: sparse, restingBpm: 60).isEmpty)
+
+        let first = block(start, 13 * 60, 140)
+        let second = block(start + 16 * 60, 13 * 60, 140)
+        let bouts = AutoWorkoutDetector.detect(hr: first + second, restingBpm: 60)
+        XCTAssertEqual(bouts.count, 2, "An unobserved three-minute gap must not join two bouts")
+    }
+
     func testWindowOverlappingSavedWorkoutIsExcluded() {
         // A clean 20 min bout, but a saved workout already covers the middle of it → suggestion suppressed.
         let start = 7_000_000

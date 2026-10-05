@@ -14,11 +14,13 @@ final class RescoreBackgroundPolicyTests: XCTestCase {
     private func decide(background: Bool = true,
                         realUpdate: Bool = true,
                         unfinished: Bool = false,
-                        running: Bool = false) -> RescoreBackgroundPolicy.Decision {
+                        running: Bool = false,
+                        attemptedSecondsAgo: Double? = 60) -> RescoreBackgroundPolicy.Decision {
         RescoreBackgroundPolicy.decide(isBackground: background,
                                        isRealUpdate: realUpdate,
                                        rescoreAlreadyOwed: unfinished,
-                                       passInProgress: running)
+                                       passInProgress: running,
+                                       secondsSinceLastAttempt: attemptedSecondsAgo)
     }
 
     private func isDeferred(_ d: RescoreBackgroundPolicy.Decision) -> Bool {
@@ -38,11 +40,51 @@ final class RescoreBackgroundPolicyTests: XCTestCase {
 
     // MARK: - A real update runs, paced
 
-    /// An offload in the background runs now. It paces itself under the CPU limit and resumes across
-    /// wakes, so how long it takes is no longer a reason to hand it to a processing task that iOS may not
-    /// grant until the afternoon — which is when last night's scores used to appear.
+    /// An offload in the background runs now once the spacing since the last pass has passed. It paces
+    /// itself under the CPU limit and resumes across wakes, so how long it takes is no longer a reason to
+    /// hand it to a processing task that iOS may not grant until the afternoon — which is when last
+    /// night's scores used to appear.
     func testABackgroundOffloadRuns() {
-        XCTAssertEqual(decide(), .run)
+        XCTAssertEqual(decide(attemptedSecondsAgo: RescoreBackgroundPolicy.backgroundSpacingSeconds), .run)
+        // No recorded attempt (a first pass, or an install from before the attempt time existed).
+        XCTAssertEqual(decide(attemptedSecondsAgo: nil), .run)
+    }
+
+    // MARK: - Spacing
+
+    /// A strap offloads about every ten minutes, and a pass after each one re-scored the whole window in
+    /// the background all day and night. Within the spacing the offload defers, and says why.
+    func testABackgroundOffloadWithinTheSpacingDefers() {
+        let spacing = RescoreBackgroundPolicy.backgroundSpacingSeconds
+        guard case .deferToBackgroundTask(let reason) = decide(attemptedSecondsAgo: 9 * 60) else {
+            return XCTFail("expected an offload 9 min after the last pass to defer")
+        }
+        XCTAssertEqual(reason, "the last pass started 9 min ago; a backgrounded offload re-scores at most every 30 min")
+        XCTAssertTrue(isDeferred(decide(attemptedSecondsAgo: 0)))
+        XCTAssertTrue(isDeferred(decide(attemptedSecondsAgo: spacing - 1)))
+        XCTAssertEqual(decide(attemptedSecondsAgo: spacing), .run)
+    }
+
+    /// The spacing is for the background only: an open app re-scores every offload, as before.
+    func testSpacingNeverHoldsBackAForegroundPass() {
+        XCTAssertEqual(decide(background: false, attemptedSecondsAgo: 0), .run)
+    }
+
+    /// A trigger while a pass runs here still reaches the engine, which queues one follow-up. Deferring it
+    /// would record a debt the running pass could not settle (#1681); the spacing leaves that path alone.
+    func testSpacingLeavesATriggerDuringARunningPassAlone() {
+        XCTAssertEqual(decide(running: true, attemptedSecondsAgo: 0), .run)
+    }
+
+    /// A clock set back makes the last start look like the future. That is not a recent pass, and waiting
+    /// on it could hold scoring back for as long as the clock moved.
+    func testALastStartInTheFutureDoesNotDefer() {
+        XCTAssertEqual(decide(attemptedSecondsAgo: -600), .run)
+    }
+
+    /// The shipped spacing; pinned so a change is deliberate.
+    func testTheShippedSpacing() {
+        XCTAssertEqual(RescoreBackgroundPolicy.backgroundSpacingSeconds, 30 * 60)
     }
 
     // MARK: - The livelock
@@ -51,6 +93,16 @@ final class RescoreBackgroundPolicyTests: XCTestCase {
     /// was killed. Attempting it again on every offload is what burned the phone in #1538.
     func testAnInterruptedPriorAttemptDefersInsteadOfRetrying() {
         XCTAssertTrue(isDeferred(decide(unfinished: true)))
+    }
+
+    /// ...but only for a while. A suspended app is routinely terminated for memory, so an unfinished pass
+    /// is ordinary; deferring on it forever left a night unscored for 19 hours on one phone.
+    func testAnInterruptedAttemptIsRetriedOnceTheCooldownHasPassed() {
+        let cooldown = RescoreBackgroundPolicy.interruptedRetryCooldownSeconds
+        XCTAssertTrue(isDeferred(decide(unfinished: true, attemptedSecondsAgo: cooldown - 1)))
+        XCTAssertEqual(decide(unfinished: true, attemptedSecondsAgo: cooldown), .run)
+        // No recorded attempt (an install from before the attempt time existed) is not a recent one.
+        XCTAssertEqual(decide(unfinished: true, attemptedSecondsAgo: nil), .run)
     }
 
     /// A pass running in THIS process reads as owed through its own started-mark. That is not a killed
@@ -75,7 +127,16 @@ final class RescoreBackgroundPolicyTests: XCTestCase {
 
     /// Resting as long as it worked holds a backgrounded pass near 50% CPU, under the 80% iOS kills at.
     func testABackgroundedPassRestsAsLongAsItWorked() {
-        XCTAssertEqual(RescoreBackgroundPolicy.restSeconds(afterWorkSeconds: 6, isBackground: true), 6)
+        XCTAssertEqual(RescoreBackgroundPolicy.restSeconds(afterWorkSeconds: 12, isBackground: true), 12)
+    }
+
+    /// Short units run back to back until a quantum of work has built up: every rest is a chance for iOS to
+    /// suspend the process until the next wake, so resting after each night advanced a pass one night a wake.
+    func testWorkUnderAQuantumDoesNotRest() {
+        let quantum = RescoreBackgroundPolicy.backgroundWorkQuantumSeconds
+        XCTAssertEqual(RescoreBackgroundPolicy.restSeconds(afterWorkSeconds: 0.05, isBackground: true), 0)
+        XCTAssertEqual(RescoreBackgroundPolicy.restSeconds(afterWorkSeconds: quantum - 0.01, isBackground: true), 0)
+        XCTAssertEqual(RescoreBackgroundPolicy.restSeconds(afterWorkSeconds: quantum, isBackground: true), quantum)
     }
 
     /// No CPU limit applies in the foreground, and the user is waiting on the result.
