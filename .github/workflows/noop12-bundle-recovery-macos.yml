@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: noop12-v2-bundle-recovery
+  group: noop12-v2-bundle-recovery-macos
   cancel-in-progress: false
 
 jobs:
@@ -85,4 +85,10 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'recovery: restore exact verified NOOP 12 V2 tree'
           test "$(git show -s --format=%T HEAD)" = '238fa6c4598921477ef66f4f178d0aa19ca96324'
+          git fetch origin integration/noop12-v2
+          REMOTE_TREE="$(git show -s --format=%T origin/integration/noop12-v2)"
+          if [[ "$REMOTE_TREE" == '238fa6c4598921477ef66f4f178d0aa19ca96324' ]]; then
+            echo 'Remote branch already has the exact recovered tree; no push needed.'
+            exit 0
+          fi
           git push origin HEAD:refs/heads/integration/noop12-v2
