@@ -58,7 +58,8 @@ struct ChargeDetailView: View {
                         VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                             Text("Baseline: median of eligible saved readings in the preceding 30 days. At least seven readings are required.")
                                 .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
-                            if let breakdown = ChargeBreakdownWiring.breakdown(days: repo.days, row: row, sleepPerfPercent: rest(row)) {
+                            if let baselines = repo.chargeBaselines,
+                               let breakdown = ChargeBreakdownWiring.breakdown(baselines: baselines, row: row, sleepPerfPercent: rest(row)) {
                                 ChargeBreakdownSection(drivers: breakdown.drivers, confidence: breakdown.confidence)
                             } else {
                                 Text("More comparable nights are needed for a scoring breakdown.")
