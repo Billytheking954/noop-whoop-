@@ -613,7 +613,7 @@ struct SleepView: View {
                 }
             }.buttonStyle(.plain)
             if stageStagingIsLowConfidence(night) { stageLowConfidenceNote }
-            if stageStagingIsSparse(night) { stageIncompleteNote }
+            if stageShowsIncompleteNote(night) { stageIncompleteNote }
             if let coverage = stageCoverage(night), coverage < HypnogramCoverage.minCoverage {
                 stagePartialNote(coverage)
             }
