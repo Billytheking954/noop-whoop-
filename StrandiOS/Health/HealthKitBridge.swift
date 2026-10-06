@@ -1387,7 +1387,7 @@ final class HealthKitBridge: ObservableObject {
                 if let workout,
                    Self.distanceTypeId(forSport: row.sport) != nil,
                    store.authorizationStatus(for: HKSeriesType.workoutRoute()) == .sharingAuthorized,
-                   let route = RouteStore.loadWithPoints(startTs: row.startTs, sport: row.sport),
+                   let route = RouteStore.loadWithPoints(startTs: row.startTimestamp, sport: row.sport),
                    !route.polyline.isEmpty,
                    route.hasExportableMeasurements,
                    let points = route.points {
