@@ -260,13 +260,13 @@ struct StrandiOSApp: App {
                     // Memoized: this closure fires on EVERY live-HR tick, so re-deriving the anchor here
                     // scanned the whole history + hit the DateFormatter lock ~1-3x/sec (#1051-shaped).
                     let day = model.repo.cachedWidgetAnchor()
-                    liveActivity.update(
-                        bpm: model.live.connected ? (model.bpm ?? hr) : nil,
-                        recovery: day?.recovery.map { Int($0.rounded()) },
-                        // While a sync runs its own activity is the useful banner; don't stack the HR one.
-                        connected: model.live.connected && !liftSession.isActive && !model.live.backfilling,
-                        effort: day?.strain.map { Int($0.rounded()) }
-                    )
+                    let bpm: Int? = model.live.connected ? (model.bpm ?? hr) : nil
+                    let recovery: Int? = day?.recovery.map { Int($0.rounded()) }
+                    let effort: Int? = day?.strain.map { Int($0.rounded()) }
+                    // While a sync runs its own activity is the useful banner; don't stack the HR one.
+                    let showHRActivity = model.live.connected && !liftSession.isActive && !model.live.backfilling
+                    liveActivity.update(bpm: bpm, recovery: recovery,
+                                        connected: showHRActivity, effort: effort)
                     liftActivity.updateHeartRate(model.live.connected ? (model.bpm ?? hr) : nil)
                     pushLiftActivity()
                 }
