@@ -129,7 +129,8 @@ jobs:
             assert any(n.startswith('Payload/NOOP.app/PlugIns/NOOPWidgets.appex/_CodeSignature/') for n in entries)
             assert not any('/Watch/' in n or '/MacOS/' in n for n in entries)
           PY
-          shasum -a 256 "release-out/$NAME" > "release-out/$NAME.sha256.txt"
+          IPA_SHA="$(shasum -a 256 "release-out/$NAME" | awk '{print $1}')"
+          printf '%s  %s\\n' "$IPA_SHA" "$NAME" > "release-out/$NAME.sha256.txt"
           python3 - "$NAME" "$SHA" <<'PY'
           import hashlib, json, os, pathlib, sys
           name, sha = sys.argv[1:]
