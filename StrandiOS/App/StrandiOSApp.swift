@@ -248,25 +248,9 @@ struct StrandiOSApp: App {
                 // fixed-geometry tiles/gauges stay legible at the largest accessibility sizes rather than
                 // clipping; the common Larger-Text range still scales fully.
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                // `hr` is the value being written: this runs in willSet, when `live.heartRate` still holds the old one.
+                // The HR banner follows the strap through LiveActivityController.follow(model) in init.
+                // The Lift Log banner receives the same settled heart-rate changes here.
                 .onReceive(model.live.$heartRate) { hr in
-                    // The gym banner's own cheap path: no presentation is built here, and a heart rate moves
-                    // the banner only when `LiftBannerPushPolicy` says it is worth a push. Everything else
-                    // about the session pushes through `pushLiftActivity` below, carrying the current number.
-                    // #911: anchor the Live Activity on the SAME shared `Repository.widgetAnchor` the
-                    // Home/Lock widget and the watch snapshot use, so this fourth surface can't drift to a
-                    // different day at the rollover (it previously read `days.last(where: recovery != nil)`,
-                    // which kept pointing at yesterday's scored row after Today had moved on).
-                    // Memoized: this closure fires on EVERY live-HR tick, so re-deriving the anchor here
-                    // scanned the whole history + hit the DateFormatter lock ~1-3x/sec (#1051-shaped).
-                    let day = model.repo.cachedWidgetAnchor()
-                    let bpm: Int? = model.live.connected ? (model.bpm ?? hr) : nil
-                    let recovery: Int? = day?.recovery.map { Int($0.rounded()) }
-                    let effort: Int? = day?.strain.map { Int($0.rounded()) }
-                    // While a sync runs its own activity is the useful banner; don't stack the HR one.
-                    let showHRActivity = model.live.connected && !liftSession.isActive && !model.live.backfilling
-                    liveActivity.update(bpm: bpm, recovery: recovery,
-                                        connected: showHRActivity, effort: effort)
                     liftActivity.updateHeartRate(model.live.connected ? (model.bpm ?? hr) : nil)
                     pushLiftActivity()
                 }
