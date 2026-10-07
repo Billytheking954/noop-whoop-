@@ -20,9 +20,9 @@ No production code changed.
 | ID | Component | Severity | Confidence | Status | Evidence and next action |
 |---|---|---:|---:|---|---|
 | AUDIT-CI-01 | iPhone UI test / notification permission | P3 | 0.65 | PROBABLE | Test toggles “Measured changes,” expects the value to change, and only conditionally taps the SpringBoard “Allow” button. Production view resets the preference to false on denied authorization. This creates a plausible permission-state/test-order dependency. Await rerun and obtain exact .xcresult failure before changing the test. No production defect established. |
-| AUDIT-TIME-01 | Physiological-day bucketing around DST | P2 | 0.75 | PROBABLE | AnalyticsEngine.analyzeDay uses fixed-offset 86,400-second windows. LocalDayWindows.swift explicitly documents that it is not wired to scoring and that the answers diverge by an hour around DST; its tests pin the disagreement. Confirm the scoring caller’s offset selection and quantify affected assignments before proposing the larger boundary correction. No code changed. |
+| AUDIT-TIME-01 | Physiological-day bucketing around DST | P2 | 0.95 | CONFIRMED; fix pending | Deterministic test evidence: LocalDayWindowsTests.testResolvedStartDiffersFromFixedOffsetArithmeticAcrossATransition pins America/New_York 2025-10-19 at 04:00Z (correct local midnight) versus 05:00Z from the shipped fixed-offset arithmetic when recomputed on 2025-11-10. AnalyticsEngine.analyzeDay still buckets by fixed 86,400-second bounds. Delayed sync/reanalysis can therefore include or omit up to an hour of samples on the affected local day. Fix requires routing a time-zone-rule-aware day window through the production scoring callers and cross-platform parity tests; a one-line offset tweak risks reassigning historical days. No production code changed because caller tracing and iPhone regression/build validation are still incomplete. |
 
-No confirmed production bugs at this checkpoint.
+One confirmed P2 time-bucketing defect is pending a scoped, validated correction. No production code has been changed.
 
 ## Work completed in this continuation
 
@@ -74,3 +74,12 @@ Keep 12.0.0 for now. Do not prepare 12.0.1 unless the audit confirms a productio
 This remains a partial source audit. Migration registration itself, every persistence mutation path, end-to-end timezone selection, full HealthKit permission/revocation behavior, all BLE/background lifecycle paths, and sideload re-signing have not been fully traced. Existing package tests provide broad coverage for sleep totals, activity detection, HealthWriteback, timestamp repair, and migrations, but this continuation could not execute them locally because Swift/Xcode are not installed and no repository checkout is available.
 
 The current rerun has passed simulator build and is still running iPhone-hosted tests. Revisit this checkpoint after job 112911485898 finishes.
+
+
+## Severity count at this checkpoint
+
+- Confirmed: P2 1 (AUDIT-TIME-01)
+- Probable: P3 1 (AUDIT-CI-01)
+- P0: 0
+- P1: 0
+- P4: 0
