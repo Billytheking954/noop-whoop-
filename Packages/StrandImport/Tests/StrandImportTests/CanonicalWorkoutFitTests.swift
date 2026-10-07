@@ -211,6 +211,113 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         XCTAssertEqual(first.data, second.data)
     }
 
+    func testRealisticThirtyMinuteRunCarriesFullHRAndTimestampedGPS() throws {
+        let start = 1_800_070_000
+        let hr = (0...1_800).map { offset in
+            CanonicalWorkout.HRSample(
+                timestamp: start + offset,
+                bpm: 120 + (offset % 51),
+                provenance: measured
+            )
+        }
+        let route = stride(from: 0, through: 1_800, by: 30).enumerated().map { index, offset in
+            CanonicalWorkout.TrackPoint(
+                timestamp: start + offset,
+                latitude: 51.7500 + Double(index) * 0.00008,
+                longitude: -0.3400 + Double(index) * 0.00010,
+                distanceM: Double(index) * 50,
+                provenance: location
+            )
+        }
+        let workout = CanonicalWorkout(
+            stableID: "realistic-30m",
+            source: .whoopBLE,
+            sport: "run",
+            startTimestamp: start,
+            endTimestamp: start + 1_800,
+            elapsedDurationS: 1_800,
+            movingDurationS: 1_740,
+            heartRateSamples: hr,
+            averageHeartRate: Int((Double(hr.map(\.bpm).reduce(0, +)) / Double(hr.count)).rounded()),
+            maximumHeartRate: hr.map(\.bpm).max(),
+            distanceM: 3_000,
+            energyKcal: 275,
+            route: route
+        )
+
+        let export = CanonicalFitExporter.render(workout)
+        XCTAssertTrue(export.stravaUploadReady)
+        XCTAssertEqual(export.recordCount, 1_801, "1 Hz HR must survive; GPS records merge into matching seconds")
+        XCTAssertLessThan(export.data.count, 25 * 1_024 * 1_024, "normal activity must stay below Strava's file ceiling")
+        try assertValidTrailingCRC(export.data)
+
+        let activity = try XCTUnwrap(
+            ActivityFileImporter.parse(data: export.data, filename: "realistic.fit").activity
+        )
+        XCTAssertEqual(activity.hrSamples.count, 1_801)
+        XCTAssertEqual(activity.hrSamples.first?.ts, start)
+        XCTAssertEqual(activity.hrSamples.last?.ts, start + 1_800)
+        XCTAssertEqual(activity.gpsPointCount, route.count)
+        XCTAssertEqual(activity.distanceM ?? -1, 3_000, accuracy: 0.01)
+        XCTAssertEqual(activity.energyKcal ?? -1, 275, accuracy: 0.01)
+    }
+
+    func testDuplicateSecondHRProducesOneDeterministicRecord() throws {
+        let start = 1_800_080_000
+        let workout = CanonicalWorkout(
+            stableID: "duplicate-hr",
+            source: .whoopBLE,
+            sport: "run",
+            startTimestamp: start,
+            endTimestamp: start + 10,
+            heartRateSamples: [
+                .init(timestamp: start + 5, bpm: 141, provenance: measured),
+                .init(timestamp: start + 5, bpm: 199, provenance: measured),
+                .init(timestamp: start + 6, bpm: 143, provenance: measured),
+            ]
+        )
+
+        let first = CanonicalFitExporter.render(workout)
+        let second = CanonicalFitExporter.render(workout)
+        XCTAssertEqual(first.data, second.data)
+        XCTAssertEqual(first.recordCount, 2)
+        let activity = try XCTUnwrap(ActivityFileImporter.parse(data: first.data, filename: "dupe.fit").activity)
+        XCTAssertEqual(activity.hrSamples.map(\.ts), [start + 5, start + 6])
+        XCTAssertEqual(activity.hrSamples.map(\.bpm), [141, 143],
+                       "first source-resolved sample wins a duplicate FIT second")
+    }
+
+    func testCorruptAndOutOfWindowRecordsAreOmittedNotSerialized() throws {
+        let start = 1_800_090_000
+        let workout = CanonicalWorkout(
+            stableID: "dirty",
+            source: .whoopBLE,
+            sport: "run",
+            startTimestamp: start,
+            endTimestamp: start + 20,
+            heartRateSamples: [
+                .init(timestamp: start - 1, bpm: 140, provenance: measured),
+                .init(timestamp: start + 10, bpm: 300, provenance: measured),
+                .init(timestamp: start + 11, bpm: 144, provenance: measured),
+                .init(timestamp: start + 21, bpm: 145, provenance: measured),
+            ],
+            route: [
+                .init(timestamp: start + 5, latitude: .nan, longitude: .nan, provenance: location),
+                .init(timestamp: start + 25, latitude: 51.0, longitude: -0.1, provenance: location),
+            ]
+        )
+
+        let export = CanonicalFitExporter.render(workout)
+        XCTAssertTrue(export.stravaUploadReady)
+        XCTAssertEqual(export.recordCount, 1)
+        let records = try FitInspector(export.data).messages().filter { $0.global == 20 }
+        XCTAssertEqual(records.count, 1)
+        XCTAssertNotNil(records[0].fields[3])
+        XCTAssertNil(records[0].fields[0])
+        XCTAssertNil(records[0].fields[1])
+        try assertValidTrailingCRC(export.data)
+    }
+
     func testFieldSpecificPrecedenceKeepsLocationAndHROwnershipExplicit() {
         XCTAssertEqual(CanonicalWorkout.sourcePrecedence(for: .route).first, .coreLocation)
         XCTAssertEqual(CanonicalWorkout.sourcePrecedence(for: .heartRateSamples).first, .whoopBLE)
