@@ -35,6 +35,26 @@ final class HealthKitDayKeyTests: XCTestCase {
         XCTAssertEqual(midnight.timeIntervalSince1970, 1_762_056_000, accuracy: 0.5) // 2025-11-02 04:00:00Z
     }
 
+    func testObserverDeletionOnlyDeltaRewindsToBoundedHorizon() {
+        let horizon = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertEqual(HealthKitBridge.observerTouchedDate(oldestAdded: nil,
+                                                           hadDeletions: true,
+                                                           deletionHorizon: horizon),
+                       horizon)
+    }
+
+    func testObserverAdditionKeepsExactOldestTouchedDate() {
+        let added = Date(timeIntervalSince1970: 1_700_123_456)
+        let horizon = Date(timeIntervalSince1970: 1_699_000_000)
+        XCTAssertEqual(HealthKitBridge.observerTouchedDate(oldestAdded: added,
+                                                           hadDeletions: false,
+                                                           deletionHorizon: horizon),
+                       added)
+        XCTAssertNil(HealthKitBridge.observerTouchedDate(oldestAdded: nil,
+                                                         hadDeletions: false,
+                                                         deletionHorizon: horizon))
+    }
+
     func testSleepSampleQueryFailureIsClassifiedAsFailedNotEmpty() {
         XCTAssertEqual(HealthKitBridge.sampleQueryReadOutcome(hadError: true), .failed)
         XCTAssertEqual(HealthKitBridge.sampleQueryReadOutcome(hadError: false), .read)
