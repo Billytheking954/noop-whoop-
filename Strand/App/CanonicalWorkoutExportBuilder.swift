@@ -32,7 +32,12 @@ enum CanonicalWorkoutExportBuilder {
         let timer = timerDuration(row.durationS, elapsed: elapsed)
         let hr = canonicalHeartRate(rawHeartRate, from: row.startTs, to: row.endTs,
                                     provenance: heartRateProvenance(row.source))
-        let track = canonicalTrackPoints(storedRoute?.points ?? [],
+        // RouteStore is persisted data, so re-apply its complete integrity gate here rather than relying
+        // on the UI's earlier visibility probe. A corrupt/legacy route is omitted wholesale; HR can still
+        // make the workout exportable without laundering bad GPS into FIT.
+        let routePoints = storedRoute?.hasExportableMeasurements == true
+            ? (storedRoute?.points ?? []) : []
+        let track = canonicalTrackPoints(routePoints,
                                          from: row.startTs, to: row.endTs,
                                          provenance: routeProvenance(row.source))
 
