@@ -1,85 +1,163 @@
-# NOOP V2 12.0.0 Reliability Audit — Checkpoint
+# NOOP V2 12.0.0 Reliability Audit — Live Checkpoint
 
 Status: IN PROGRESS  
 Audit branch: audit/noop-v2-12-full-bug-review  
-Baseline: af9079012ddd4c9023720f4e9eb7ef12c0cd33d4  
-Release: 12.0.0 (435), frozen reference  
-No production code changed.
+Current audit head before this report update: 50555efd5e1bacfcc2ee0eeea6d42af9cc56cf1c  
+Frozen main baseline: af9079012ddd4c9023720f4e9eb7ef12c0cd33d4  
+Release baseline: 12.0.0 (435)
 
-## Live state
+## Guardrails
 
-- main remains at the known-good baseline at this checkpoint.
-- The audit branch remains based on the same baseline.
-- The merge from ff6fd86fb0317549b2e5cca87d5fe714a62c32b7 to the baseline has zero changed files.
-- App build workflow run 37651029136 failed its iPhone-hosted test step. A job rerun is in progress (attempt 2; job 112911485898).
-- Initial failed test: ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch(). The 80,174,580-byte test-results artifact is available, but the current file-transfer tool rejects artifacts over 32 MiB. Job logs show the failing test name but not its XCTest assertion/stack.
-- The successful pre-merge run 37501984692 used the same source tree (zero-file diff) and matching macOS 26 / Xcode 26.6 / iPhone 17 Pro iOS 26.4.1 environment.
+- `main` remains frozen at `af9079012ddd4c9023720f4e9eb7ef12c0cd33d4`.
+- No merge to `main` has been performed.
+- Audit fixes are confined to `audit/noop-v2-12-full-bug-review`.
+- Production SpO₂ scoring has not been changed.
+- The audit continues after the two initial findings; 12.0.1 is not justified merely by the existence of a bug fix.
 
-## Current findings
+## Resolved / classified findings
 
-| ID | Component | Severity | Confidence | Status | Evidence and next action |
+| ID | Component | Severity | Confidence | Classification | Current state |
 |---|---|---:|---:|---|---|
-| AUDIT-CI-01 | iPhone UI test / notification permission | P3 | 0.65 | PROBABLE | Test toggles “Measured changes,” expects the value to change, and only conditionally taps the SpringBoard “Allow” button. Production view resets the preference to false on denied authorization. This creates a plausible permission-state/test-order dependency. Await rerun and obtain exact .xcresult failure before changing the test. No production defect established. |
-| AUDIT-TIME-01 | Physiological-day bucketing around DST | P2 | 0.95 | CONFIRMED; fix pending | Deterministic test evidence: LocalDayWindowsTests.testResolvedStartDiffersFromFixedOffsetArithmeticAcrossATransition pins America/New_York 2025-10-19 at 04:00Z (correct local midnight) versus 05:00Z from the shipped fixed-offset arithmetic when recomputed on 2025-11-10. AnalyticsEngine.analyzeDay still buckets by fixed 86,400-second bounds. Delayed sync/reanalysis can therefore include or omit up to an hour of samples on the affected local day. Fix requires routing a time-zone-rule-aware day window through the production scoring callers and cross-platform parity tests; a one-line offset tweak risks reassigning historical days. No production code changed because caller tracing and iPhone regression/build validation are still incomplete. |
+| AUDIT-TIME-01 | Physiological local-day bucketing across DST | P2 | 0.98 | CONFIRMED | FIXED on audit branch at `50555ef`; regression coverage added; package CI, iPhone app build/tests and unsigned IPA workflow all pass. |
+| AUDIT-CI-01 | Insight-alert relaunch UI test / notification authorization | P3 | 0.85 | PROBABLE TEST-HARNESS / ENVIRONMENT DEPENDENCY | Original app job attempt failed only `ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch()`; rerun of the same `af9079` source passed. Test was hardened at `91ecdce` to treat granted and denied notification authorization as supported outcomes; branch-head iPhone-hosted test now passes. No production defect established. |
 
-One confirmed P2 time-bucketing defect is pending a scoped, validated correction. No production code has been changed.
+## AUDIT-CI-01 evidence
 
-## Work completed in this continuation
+- Workflow run `37651029136`, attempt 1 job `112894089378`: iPhone-hosted test step failed, with the log naming only `ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch()`.
+- Workflow run `37651029136`, attempt 2 job `112911485898`: passed all steps.
+- Both attempts checked out `af9079012ddd4c9023720f4e9eb7ef12c0cd33d4`; the rerun did not contain a source fix.
+- The old UI test assumed that tapping the switch would necessarily change its value after at most a short SpringBoard permission prompt.
+- Production behavior legitimately resets the switch when notification authorization is denied.
+- Commit `91ecdce33a8525f8e1b856619260ba3f3799c53b` changes only the UI test so it waits for and accepts either the authorized persisted-on state or the denied/reset-with-guidance state.
+- Exact XCTest assertion text from the first failed `.xcresult` is still unavailable through the currently exposed evidence route; therefore authorization-state causality is probable rather than claimed as proven fact.
+- Because an unchanged rerun passed, the evidence rejects a deterministic production regression.
 
-- Refreshed the live run and job state; inspected the first attempt’s job steps/logs, artifacts, and the successful pre-merge run.
-- Inspected the failed UI test, notification settings view, scheduler, and policy.
-- Reviewed WhoopStore open/migration serialization, WAL setup, foreign-database quarantine, sleep deduplication/merge, and timestamp-heal logic.
-- Reviewed AnalyticsEngine day filtering and day-cycle implementation/tests, including the disconnected DST-aware helper.
-- Reviewed HealthKit permission handling, observer registration/coalescing, anchored sync sequencing, failed-read write guards, save-before-retire, stable external UUID keys, and workout orphan reconciliation.
-- Reviewed the HealthKit observation provider’s anchored batch/cursor design; it is explicitly not wired into the shipping bridge.
-- Reviewed activity detector decision paths and existing deterministic tests; no confirmed defect found.
-- Reviewed strain-score input guards and tests; no production-reachable invalid-input defect established.
+## AUDIT-TIME-01 root cause and fix
 
-## Validation available
+Root cause:
 
-- Earlier audit checkpoint: Swift package CI passed 13 jobs; unsigned IPA workflow passed.
-- Earlier app workflow: simulator build passed; iPhone-hosted tests failed as above.
-- Current job rerun is pending. No local checkout/Xcode runtime is available in this workspace, so local iOS builds and XCTest runs cannot be reproduced here.
-- No regression tests or production fixes have been added.
+- Production score enumeration used a single current fixed GMT offset and advanced historical local-day boundaries in fixed 86,400-second increments.
+- Across DST, a civil day is 23 or 25 hours. Delayed sync/recalculation could therefore shift a historical local midnight by one hour and include or omit samples around the boundary.
 
-## Remaining audit work
+Fix at `50555efd5e1bacfcc2ee0eeea6d42af9cc56cf1c`:
 
-- Diagnose the current rerun and extract exact XCTest failure evidence if available.
-- Complete migration-registration and schema-upgrade review.
-- Trace the live scoring caller’s timezone offset and test DST/timezone-change behavior end to end.
-- Complete persistence write/update/dedup callsite review and sleep-stage/recalculation audit.
-- Complete HealthKit partial-read/revocation and duplicate-write review.
-- Complete concurrency/task-cancellation and background lifecycle review.
-- Complete end-to-end activity overlap/retry and scoring-input invariants review.
-- Inspect iPhone UI state, entitlements, and sideload/re-signing behavior.
-- Run relevant tests and full iPhone build/IPA workflows after any justified changes.
-- Capture real-device WHOOP sync, reconnect, sleep, activity, and timestamp comparisons before trial expiry.
+- Production scoring now enumerates dates with `LocalDayWindows` using `TimeZone.current` and the time zone's rule-aware calendar boundaries.
+- `AnalyticsEngine.analyzeDay` accepts exact `calendarDayBounds` for production callers while retaining the legacy fixed-offset fallback for pure callers that do not own a `TimeZone`.
+- Daily HR/step reads, sleep read-window end, edited-sleep day assignment, cache windows, legacy score snapshots and step-calibration windows now use the resolved next local midnight rather than blindly adding 86,400 seconds.
+- The cache signature now includes `timeZone` as well as the legacy offset, preventing reuse across a zone-identity change with the same instantaneous offset.
+- No unrelated scoring architecture was refactored.
+
+Regression coverage includes:
+
+- America/New_York fall-back: 25-hour day.
+- Europe/London spring-forward: 23-hour day.
+- Asia/Kathmandu ordinary non-DST day: unchanged 24-hour behavior.
+- Delayed recalculation after New York fall-back retaining the historical 04:00Z midnight rather than recomputing it as 05:00Z.
+- Samples in the repeated fall-back hour and samples just beyond the spring-forward day's real next midnight.
+- Sleep read-window end using the actual next local midnight.
+
+## Validation at audit head 50555ef
+
+All observed branch-head workflows completed successfully:
+
+- Swift Packages CI — run `37663060299`: PASS.
+- App build (iPhone) — run `37663060277`: PASS.
+  - `iphone-build-and-tests` job `112935198224`: PASS.
+- Unsigned iPhone sideload IPA — run `37663060388`: PASS.
+- Source Hygiene — run `37663060392`: PASS.
+- iPhone i18n Coverage — run `37663060358`: PASS.
+- Tools Python CI — run `37663060265`: PASS.
+
+This is sufficient CI evidence to treat AUDIT-TIME-01 as fixed on the audit branch, not merely patched.
+
+## Persistence / deduplication review
+
+Reviewed:
+
+- `WhoopStore` file-backed open/migration serialization through `StoreOpenGate`.
+- WAL-backed `DatabasePool` use and single-writer GRDB semantics.
+- Natural-key/idempotent inserts for decoded streams.
+- R-R duplicate handling, sequence keys, emission ordering and source-channel promotion.
+- Sleep-session merge/dedup and timestamp-heal protections reviewed in the prior checkpoint.
+- Cross-stream analysis fingerprints used to force rescoring after delayed non-HR data lands.
+
+Current classification:
+
+- No new P0/P1/P2 persistence corruption or duplicate-scoring defect confirmed in this pass.
+- Existing R-R migration/test coverage explicitly pins equal-beat retention, emission order, legacy rows and the known batch-local ordering behavior.
+
+### AUDIT-STORE-01 — instrumentation retention cap can drift across repeated short process lifetimes
+
+- Component: `ppgWaveformSample` / `v18AuxSample` retention.
+- Severity: P4.
+- Confidence: 0.95.
+- Classification: CONFIRMED design limitation, low severity.
+- Evidence: retention sweeps are triggered by in-memory per-store row counters. A process that repeatedly writes fewer than the prune threshold before termination can reset the counter each launch and remain above the nominal newest-N cap indefinitely. The source comments explicitly acknowledge this behavior.
+- Impact: storage growth only; no score, sleep, recovery, strain, stress or SpO₂ production calculation is changed.
+- Action: documented, not fixed under the audit's automatic-fix threshold. A once-per-session/open bounded sweep would be the narrow future remedy if storage growth becomes material.
+
+## Migration registration / safety review
+
+Reviewed the ordered GRDB migrator through current schema migrations, including the higher-risk rebuild/update migrations:
+
+- v24 R-R PK rebuild copies every previously representable row with `seq = 0` before replacing the table.
+- v26 efficiency heal is predicate-scoped to values (> 1.5), leaving valid 0–1 fractions unchanged and has dedicated upgrade testing.
+- Later schema changes are predominantly additive nullable columns/new tables, preserving old rows and absence semantics.
+- Migration tests pin R-R primary-key shape, equal-beat preservation, v30 ordering behavior, legacy-null behavior and the v26 data heal.
+- Concurrent file open/migration is serialized before construction of a pre-migrated `WhoopStore`.
+
+Current classification:
+
+- No migration-registration or destructive-upgrade P0/P1/P2 defect confirmed.
+- Continue auditing latest migration tails and backup/restore compatibility, but no speculative production change is justified.
+
+## Rejected / downgraded false positives
+
+- Pre-merge → release merge changed zero files, so the first UI-test failure was not caused by merge content.
+- `SleepStagerV2.respRegularity` forced unwraps are guarded by the minimum beat count.
+- A theoretical future-sleep empty/reversed active window is blocked by upstream timestamp plausibility/heal gates on the production ingest paths reviewed so far.
+- The experimental `HealthKitObservationProvider` is not wired into the shipping bridge and is not a production defect.
+- The first insight-alert UI-test failure is not evidence of a deterministic app regression because the unchanged-source rerun passed.
+
+## Audit areas completed or substantially reviewed
+
+- BLE core review from the earlier audit phase; not repeated.
+- DST/local-day scoring path and production fix.
+- Insight-alert UI-test nondeterminism.
+- Core persistence natural keys, dedupe, open serialization and R-R storage invariants.
+- Migration registration and representative destructive/data-heal migrations.
+- Activity-detector decision paths and deterministic tests.
+- Core score-input guards.
+- Initial HealthKit bridge sequencing/write guards from the earlier checkpoint.
+
+## Remaining priority work
+
+1. Finish persistence mutation call-site review outside the core stream insert path.
+2. Finish backup/restore + migration edge compatibility.
+3. Re-check end-to-end timezone/cycle assignment after the DST change, including travel/time-zone changes.
+4. Complete sleep-pipeline recalculation and edit/merge edge cases.
+5. Complete HealthKit authorization/revocation/read/write behavior.
+6. Audit Swift concurrency warnings, cancellation and race boundaries.
+7. Revisit activity overlap/retry and automatic detection edge cases.
+8. Verify scoring-input integrity after delayed/off-order sync.
+9. Audit background lifecycle and reconnect-triggered rescoring.
+10. Remaining BLE edge cases not already covered.
+11. Sideload/re-signing, entitlements, widget/app-group behavior.
+12. UI state reliability.
+
+## WHOOP trial evidence to collect while still available
+
+Useful normal-device comparisons, if encountered during the next 2–3 days:
+
+- One ordinary overnight sleep: official WHOOP sleep start/end vs NOOP after morning sync.
+- One ordinary workout: start/end and HR trace/summary comparison.
+- One force-close/relaunch followed by reconnect and sync.
+- One delayed sync after wearing the strap disconnected for a while.
+
+No artificial physiological or unsafe test is required.
 
 ## Release recommendation
 
-Keep 12.0.0 for now. Do not prepare 12.0.1 unless the audit confirms a production defect, its root cause, a regression test, and successful relevant CI.
+Keep 12.0.0 on `main` unchanged for now.
 
-
-## Additional audit notes
-
-### Rejected false alarms
-
-- SleepStagerV2.respRegularity uses first!/last!, but returns before either access unless there are at least 12 beats; the unwraps are guarded.
-- DayCycleResolver’s missing future-onset check can yield an empty/reversed active window for a future sleep timestamp, but the store’s timestamp-heal and ingest plausibility gates are upstream protections. No production path admitting such a row was established.
-- The experimental HealthKitObservationProvider is not connected to the shipping HealthKitBridge; its behavior is not a production defect in this release.
-- The pre-merge to release commit comparison has no changed files, so the UI failure is not attributable to the merge.
-
-### Coverage and execution limits
-
-This remains a partial source audit. Migration registration itself, every persistence mutation path, end-to-end timezone selection, full HealthKit permission/revocation behavior, all BLE/background lifecycle paths, and sideload re-signing have not been fully traced. Existing package tests provide broad coverage for sleep totals, activity detection, HealthWriteback, timestamp repair, and migrations, but this continuation could not execute them locally because Swift/Xcode are not installed and no repository checkout is available.
-
-The current rerun has passed simulator build and is still running iPhone-hosted tests. Revisit this checkpoint after job 112911485898 finishes.
-
-
-## Severity count at this checkpoint
-
-- Confirmed: P2 1 (AUDIT-TIME-01)
-- Probable: P3 1 (AUDIT-CI-01)
-- P0: 0
-- P1: 0
-- P4: 0
+The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 candidate should wait until the remaining high-priority audit areas have been checked for additional high-confidence P0/P1/P2 defects and any such findings are fixed or consciously deferred.
