@@ -137,7 +137,14 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         XCTAssertFalse(export.stravaUploadReady)
         let messages = try FitInspector(export.data).messages()
         XCTAssertTrue(messages.filter { $0.global == 20 }.isEmpty)
-        XCTAssertNotNil(messages.first { $0.global == 18 })
+        let session = try XCTUnwrap(messages.first { $0.global == 18 })
+        let lap = try XCTUnwrap(messages.first { $0.global == 19 })
+        XCTAssertNotNil(session.fields[7], "session total_elapsed_time is required")
+        XCTAssertNotNil(session.fields[8], "session total_timer_time is required")
+        XCTAssertNotNil(lap.fields[7], "lap total_elapsed_time is required")
+        XCTAssertNotNil(lap.fields[8], "lap total_timer_time is required")
+        XCTAssertEqual(session.u32(8), session.u32(7),
+                       "without separate pause data, timer time deterministically equals elapsed time")
     }
 
     func testPartialRecordingPreservesGapAndOmitsOnlyUntimedPoint() throws {
