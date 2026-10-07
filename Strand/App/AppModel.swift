@@ -1265,18 +1265,20 @@ final class AppModel: ObservableObject {
     func refreshAfterAppleHealthSync(authorized: Bool, syncSucceeded: Bool = true,
                                          now: Date = Date()) async {
         await wireSourceCoordinator()
-        func finishHealthRefresh() async {
+        func finishHealthRefresh() {
             // HealthKit's import intentionally writes observation-only DailyMetric rows with recovery=nil.
-            // A successful sync therefore invalidates the prior Apple-Watch recovery and MUST be followed
-            // by the fold that rebuilds it from the newly imported HRV/RHR history. Failed/no-op syncs do
-            // not earn an expensive rescore.
-            if syncSucceeded {
-                await intelligence.analyzeRecent(triggerLabel: "apple-health-sync")
+            // A successful sync therefore invalidates the prior Apple-Watch recovery and MUST queue the
+            // fold that rebuilds it from the newly imported HRV/RHR history. Run it independently from the
+            // foreground refresh: analyzeRecent can be long on a large store, and its forced-call lock will
+            // queue behind any pass already running rather than lose this trigger.
+            guard syncSucceeded else { return }
+            Task { [weak self] in
+                await self?.intelligence.analyzeRecent(triggerLabel: "apple-health-sync")
             }
         }
         guard let registry = deviceRegistry, let store = await repo.storeHandle() else {
             await repo.refresh()
-            await finishHealthRefresh()
+            finishHealthRefresh()
             return
         }
 
@@ -1295,7 +1297,7 @@ final class AppModel: ObservableObject {
             registry: registry, store: store, authorized: authorized, now: now)
         guard registry.devices.contains(where: { $0.id == AppleWatchDevice.deviceId }) else {
             await repo.refresh()
-            await finishHealthRefresh()
+            finishHealthRefresh()
             return
         }
 
@@ -1310,7 +1312,7 @@ final class AppModel: ObservableObject {
         } else {
             await repo.refresh()
         }
-        await finishHealthRefresh()
+        finishHealthRefresh()
     }
     #endif
 
