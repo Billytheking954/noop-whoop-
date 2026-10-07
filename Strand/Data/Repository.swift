@@ -3490,7 +3490,11 @@ final class Repository: ObservableObject {
         }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth)),
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth)) else {
+            return day
+        }
+        let parsed = calendar.dateComponents([.year, .month, .day], from: date)
+        guard parsed.year == year, parsed.month == month, parsed.day == dayOfMonth,
               let next = calendar.date(byAdding: .day, value: 1, to: date) else { return day }
         let comps = calendar.dateComponents([.year, .month, .day], from: next)
         guard let y = comps.year, let m = comps.month, let d = comps.day else { return day }
