@@ -13,6 +13,14 @@ final class HealthKitDayKeyTests: XCTestCase {
         XCTAssertEqual(HealthKitBridge.dayString(instant, in: newYork), "2025-12-31")
     }
 
+    func testOrdinaryDayRoundTripsAtLocalMidnight() throws {
+        let kathmandu = try XCTUnwrap(TimeZone(identifier: "Asia/Kathmandu"))
+        let midnight = try XCTUnwrap(HealthKitBridge.date(from: "2026-01-15", in: kathmandu))
+
+        XCTAssertEqual(HealthKitBridge.dayString(midnight, in: kathmandu), "2026-01-15")
+        XCTAssertEqual(midnight.timeIntervalSince1970, 1_768_413_900, accuracy: 0.5) // 2026-01-14 18:15:00Z
+    }
+
     func testParsingDayUsesRealSpringForwardMidnight() throws {
         let london = try XCTUnwrap(TimeZone(identifier: "Europe/London"))
         let midnight = try XCTUnwrap(HealthKitBridge.date(from: "2025-03-30", in: london))
