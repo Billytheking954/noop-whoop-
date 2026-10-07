@@ -22,6 +22,7 @@ Release baseline: 12.0.0 (435)
 | AUDIT-CI-01 | Insight-alert relaunch UI test / notification authorization | P3 | 0.85 | PROBABLE TEST-HARNESS / ENVIRONMENT DEPENDENCY | Original app job attempt failed only `ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch()`; rerun of the same `af9079` source passed. Test was hardened at `91ecdce` to treat granted and denied notification authorization as supported outcomes; branch-head iPhone-hosted test now passes. No production defect established. |
 | AUDIT-TIME-02 | Physiological-day synthetic/calendar midnight resolver still uses one fixed offset | P3 | 0.95 | CONFIRMED | Rule-aware calendar-day scoring is fixed, but `DayCycleResolver` remains fixed-offset. A DST transition can move its reconstructed midnight by one hour. Current production integration reaches the synthetic fallback only after the open-cycle cap, so impact is narrower than AUDIT-TIME-01. Documented; not auto-fixed pending parity review. |
 | AUDIT-SIGN-01 | Unsigned IPA template omitted HealthKit background delivery | P3 | 0.99 | CONFIRMED | The app entitlement requests background delivery but the sideload template dropped it. Fixed at `6ed228e`; packaging now asserts it survives the ad-hoc template. This does not grant the capability to an unsupported signing profile. |
+| AUDIT-HK-01 | HealthKit day-key helper freezes the process-start timezone | P2 | 0.97 | CONFIRMED | A static `DateFormatter` captured `TimeZone.current` once, while HealthKit daily queries use the live local calendar. A timezone change without process restart could label new HealthKit buckets using the old zone. Fixed at `263a0b6`; deterministic London/New York DST and zone-difference tests added at `fed83bf`. CI pending. |
 
 ## AUDIT-CI-01 evidence
 
@@ -162,6 +163,18 @@ Current classification:
 - A scoring pass binds `TimeZone.current` at recomputation time; the inspected raw/persisted day model does not persist a source-zone identifier per historical sample/day.
 - A major device-zone change can therefore make historical wall-clock heuristics use the new zone. The day cache does invalidate on zone identifier changes, so this is not stale-cache behavior.
 - The intended product invariant for historical acquisition-zone versus current-zone interpretation is not stated in the inspected contract. This remains an architectural/evidence question rather than a confirmed bug.
+
+## HealthKit timezone / day-assignment review
+
+### AUDIT-HK-01 — HealthKit day labels could remain in the old timezone until relaunch
+
+- Severity: P2; confidence 0.97; CONFIRMED.
+- The bridge used one static `DateFormatter` whose `timeZone` was assigned `TimeZone.current` at first access.
+- HealthKit aggregate queries construct `Calendar.current` for each sync, so after a live device-zone change query buckets and NOOP's day labels could disagree until process restart.
+- Commit `263a0b632b4baa1f605206ed380211b032e0dc34` removes the process-frozen formatter. Day-keying now uses `LocalDayWindows` with an auto-updating zone, matching the rule-aware scoring boundary contract; reverse day-to-date conversion resolves the actual local midnight through the same helper.
+- Commit `fed83bfd6a43352d347ae99763bcb222f00725cf` adds deterministic regression coverage proving the same instant maps to different civil dates in London/New York and proving real spring-forward/fall-back midnights.
+- The change is confined to HealthKit civil-day labelling/parsing. It does not change BLE, workout detection, production SpO2 scoring, recovery, strain, stress or sleep algorithms.
+- Validation is pending on the new audit head; do not treat the fix as release-ready until the iPhone-hosted tests and app build are green.
 
 ## Sideload / re-signing review
 
