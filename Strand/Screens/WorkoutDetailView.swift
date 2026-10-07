@@ -285,8 +285,14 @@ struct WorkoutDetailView: View {
         // The actual export re-reads the complete stream on demand, so the detail view never retains
         // thousands of duplicate HR samples just because the button is visible.
         let fitHRProbe = await repo.workoutHeartRateSamples(
-            from: row.startTs, to: row.endTs, source: row.source, limit: 1)
-        let canExportFit = storedRoute?.hasExportableMeasurements == true || !fitHRProbe.isEmpty
+            from: row.startTs, to: row.endTs, source: row.source, limit: 32)
+        let hasValidHR = fitHRProbe.contains { (1...254).contains($0.bpm) }
+        let hasInWindowRoute = storedRoute?.hasExportableMeasurements == true
+            && (storedRoute?.points ?? []).contains {
+                let second = Int($0.tMs / 1_000)
+                return second >= row.startTs && second <= row.endTs
+            }
+        let canExportFit = hasValidHR || hasInWindowRoute
 
         // HR curve over the exact session window — a finer bucket than the 24h chart so a short run
         // still reads as a curve, not a handful of points.
