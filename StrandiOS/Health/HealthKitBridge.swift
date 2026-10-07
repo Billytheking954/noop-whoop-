@@ -718,7 +718,7 @@ final class HealthKitBridge: ObservableObject {
         // HealthKit read of workouts NOOP did NOT author, never any cloud/3rd-party API. (#835)
         guard let workoutRows = await collectWorkouts(start: start, end: end) else {
             lastSyncDays = 0
-            lastError = String(localized: "Apple Health sync failed: \(String(localized: \"Workouts\"))")
+            lastError = String(localized: "Apple Health sync failed: \(String(localized: "Workouts"))")
             return false
         }
 
