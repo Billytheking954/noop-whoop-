@@ -1724,7 +1724,10 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
-    private func collectWorkouts(start: Date, end: Date) async -> [WorkoutRow] {
+    /// nil means the HealthKit workout query FAILED. An empty array is authoritative "no workouts".
+    /// Replacement callers must preserve that distinction or a transient/denied read could erase the
+    /// previously imported workout window.
+    private func collectWorkouts(start: Date, end: Date) async -> [WorkoutRow]? {
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate),
             Self.notNoopAuthored,
@@ -1734,14 +1737,20 @@ final class HealthKitBridge: ObservableObject {
         // with each workout; they cannot be read inside the sample query's completion handler
         // (HealthKit does not allow nested queries on the same store), so we hold the workouts and
         // fetch routes in a second pass below.
-        let workoutsAndRows: [HKWorkout] = await withCheckedContinuation { (cont: CheckedContinuation<[HKWorkout], Never>) in
+        let queried: [HKWorkout]? = await withCheckedContinuation {
+            (cont: CheckedContinuation<[HKWorkout]?, Never>) in
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
             let q = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate,
-                                  limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, _ in
-                cont.resume(returning: (samples ?? []).compactMap { $0 as? HKWorkout })
+                                  limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, error in
+                guard error == nil, let samples else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: samples.compactMap { $0 as? HKWorkout })
             }
             store.execute(q)
         }
+        guard let workoutsAndRows = queried else { return nil }
         // #1205: fetch and store GPS routes for each workout. Best-effort — a route read failure
         // (permission not granted, no route data, HealthKit error) leaves the workout intact with
         // no map, which is exactly the pre-change behaviour. Stored via RouteStore under the same
