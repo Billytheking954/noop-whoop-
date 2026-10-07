@@ -240,3 +240,60 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - Commit `7a61b8de7680c2a46ec891926c9d806657081cb0` updates the platform-scoped provenance marker to 47.
 - Commit `11dd086c226128424279b52ca9fb69d6f245a7f9` replaces the stale literal test with an invariant requiring the marker to equal the registered migration count, preventing the same drift on the next migration.
 - Classified as an isolated, low-risk P3 metadata fix; no scoring, BLE, HealthKit, sleep, workout, or SpO₂ logic changed.
+
+
+## HealthKit read / scoring-integrity follow-up
+
+### AUDIT-HK-03 — failed sleep query could erase the last good imported sleep
+
+- Severity: P2; confidence 0.99; CONFIRMED.
+- Quantity reads already classify a HealthKit query error as `.failed` and abort the whole daily write, because `dailyMetric` conflict updates replace columns with the incoming values.
+- `collectSleep` was the exception: it ignored the `HKSampleQuery` error, treated `samples ?? []` as an authoritative empty result, and never entered the failed-read ledger.
+- If any other Health metric populated a day in that pass, the resulting `DailyMetric` carried nil sleep fields and could overwrite previously imported sleep after a transient sleep-query failure.
+- Commit `6c487431c3d03f0152b92b30ba4f22d4317086ac` makes sleep return the same `HealthRead` outcome contract as the quantity collectors and aborts the write on query failure.
+- Commit `3f9f5d21be1c940fe83c625fc1c56452eeace526` pins failed-vs-empty semantics.
+- Successful empty sleep queries remain authoritative; the fix does not convert a genuine deletion/absence into an error.
+
+### AUDIT-HK-04 — successful Apple Health import invalidated Watch recovery without immediately rebuilding it
+
+- Severity: P2; confidence 0.97; CONFIRMED.
+- Live HealthKit import reconstructs observation-only `DailyMetric` rows with `recovery = nil`. The ordinary whole-row upsert therefore invalidates any previously folded Apple-Watch recovery, which is correct if the imported HRV/RHR history changed.
+- The ordinary foreground sync path then refreshed repository/UI state but did not run `IntelligenceEngine.analyzeRecent`, so the invalidated Watch recovery could remain nil until an unrelated later scoring trigger.
+- A first attempted fix preserved computed fields during the Health upsert (`94d544e`, `840f410`, `ef844d5`). That was rejected before validation because Watch recovery depends on trailing historical HRV/RHR, not just today's values: blindly preserving it can retain a stale score when an earlier baseline day changes.
+- The invalid preservation approach was explicitly reverted by `34bd451`, `13fda63` and `dc2c3da`.
+- The correct-layer fix carries the Health sync success result through `HealthSyncRefreshCoordinator` (`5df6142`, `827861b`) and runs one final `analyzeRecent(triggerLabel: "apple-health-sync")` after a successful import (`726fa63`). First-time source adoption suppresses its internal duplicate rescore when that final Health rescore is already owed.
+- Commit `7f532d4e515f6f79f6682297a2ff4ee6e17120f3` pins success/failure ordering through the coordinator. Failed/no-op Health syncs still refresh visible state but do not trigger the expensive rescore.
+
+### AUDIT-HK-05 — HealthKit deletions are not fully reconciled
+
+- Severity: P2; confidence 0.97; CONFIRMED, NOT YET FIXED.
+- The anchored observer callback ignores `deletedObjects` and derives its touched window only from added samples. A deletion-only wake therefore has `touched == nil`, is recorded as empty, and persists the advanced anchor.
+- Full foreground sync is not currently a complete replacement operation either: Apple Health workouts and long-format metric points are upserted when present but rows that disappeared from HealthKit are not source-window-deleted.
+- Consequence: deleting a previously imported Health workout or the last Health sample backing a stored imported value can leave stale NOOP data indefinitely; the observer can also advance past the tombstone that would have signalled the change.
+- A naive window delete/reinsert is rejected as unsafe. The `apple-health` daily rows also carry NOOP-derived Watch recovery, and replacement must coordinate source-owned observations, derived-score invalidation/recompute, workouts/routes and failed-read semantics transactionally.
+- This is a release-relevant P2 and remains open pending a source-scoped replacement design plus regression coverage. Do not paper over it by merely forcing a 31-day sync; the current sync is not replacement-complete.
+
+## Sleep / timezone follow-up
+
+### AUDIT-TIME-03 — historical sleep clock-time heuristics still use one current GMT offset
+
+- Severity: P3; confidence 0.95; CONFIRMED, documented/deferred.
+- Calendar-day inclusion is rule-aware after AUDIT-TIME-01, but historical sleep-selection helpers such as `SleepStageTotals` are still fed one `TimeZone.current.secondsFromGMT()` value for historical sessions.
+- Around DST, that can shift a historical onset/midsleep by one hour for clock-time heuristics. Example: a London summer onset at 11:30 BST is 10:30Z; evaluating it after fall-back with the current +00 offset makes it appear 10:30 local, crossing the cold-start overnight cutoff.
+- The practical impact is narrower than AUDIT-TIME-01: day membership remains correct, but main-night / bridge timing heuristics near their clock boundaries can change after DST or travel.
+- Correcting this needs a rule-aware `TimeZone`/date-aware selector contract and Kotlin parity review, not another fixed-offset patch. No one-platform production edit is justified in this audit pass.
+
+## Swift concurrency review
+
+### AUDIT-CONCURRENCY-01 — Swift 6 isolation diagnostics are migration debt, not a proven current race
+
+- Severity: P3 build-compatibility risk; confidence 0.90; PROBABLE.
+- The passing iPhone job `112935198224` reports multiple diagnostics that become errors under Swift 6 language mode: main-actor-isolated static constants referenced from nonisolated code and non-Sendable `UNUserNotificationCenter` captures in Sendable callbacks.
+- `project.yml` explicitly builds the app with `SWIFT_VERSION: "5.0"`.
+- The inspected static values are predominantly immutable constants; the warnings do not by themselves prove a runtime data race under the current build.
+- No broad concurrency refactor is being made under this reliability audit. The warnings should be a dedicated Swift-6 migration task, with runtime race fixes only where independent evidence establishes mutable cross-actor state.
+
+## Additional rejected false positive
+
+- The remaining fixed-`86_400` expression in step-calibration history is only a nil fallback after `localDayWindows(... maxDays: 60)`. For the production positive-count call the rule-aware helper returns a window, so this expression is not another reachable DST boundary bug and was not changed.
+
