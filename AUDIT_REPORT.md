@@ -308,3 +308,14 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - Commit `826fb6bf24051330a227ec7c3ffd0d5dfb708c0f` exposes the bridge's actual any-write-granted state separately from read consent and reuses it in cold-launch authorization logic.
 - Commits `2d1726cc5ba1624ee9f6e10e79ed681a8af3751f` and `343938139e532b83a300faaa4186236c02601a99` schedule/cancel the write-back BGTask from the write grant, while read-only foreground import remains authorized.
 - Impact is unnecessary background wake/battery budget, not physiological scoring corruption; fixed because the change is isolated and low risk.
+
+
+### AUDIT-BACKUP-02 — writes after restore and before relaunch go to the detached old store
+
+- Severity: P2; confidence 0.99; CONFIRMED, NOT YET FIXED.
+- Restore deliberately swaps the SQLite file while the app's existing `DatabasePool` remains open and tells the user to fully quit/reopen.
+- On POSIX/SQLite semantics, an already-open connection keeps the unlinked old database alive. A write made by that pool after the path swap can succeed against the detached old inode while a new connection to the restored path sees the replacement database.
+- A local WAL-mode reproduction confirmed that exact behavior: replace the database pathname while the old connection remains open, commit another row through the old connection, and the replacement database remains valid but does not contain that post-restore row.
+- Production impact: a BLE offload, edit or other write that lands after restore but before the user relaunches can appear to succeed in the current process and then disappear on relaunch. The source's existing `backup.lastRestoreAt` diagnostic comment explicitly identifies “restore not followed by a relaunch” as the #57 failure.
+- This is distinct from AUDIT-BACKUP-01: the rollback snapshot is now WAL-safe; the remaining issue is the lifetime of the already-open live store after the swap.
+- A safe correction is architectural: either close/rebind every live store/repository/BLE writer to the restored file, or enter a hard post-restore state that prevents further writes until relaunch. iOS should not be force-terminated programmatically. No speculative partial gate has been applied.
