@@ -44,6 +44,7 @@ final class RepositoryLocalDayTests: XCTestCase {
         XCTAssertEqual(Repository.dayAfter("2024-02-28"), "2024-02-29")
         XCTAssertEqual(Repository.dayAfter("2024-02-29"), "2024-03-01")
         XCTAssertEqual(Repository.dayAfter("2026-12-31"), "2027-01-01")
+        XCTAssertEqual(Repository.dayAfter("2026-02-31"), "2026-02-31")
         XCTAssertEqual(Repository.dayAfter("not-a-day"), "not-a-day")
     }
 }
