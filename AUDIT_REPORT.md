@@ -215,3 +215,16 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - Fix commit `8b7b0deb819648ff41820df9b7777bd6761cdfcb` replaces the raw main-file copy with SQLite's online backup API, producing a transactionally consistent self-contained sidecar while the live DatabasePool remains open.
 - This changes only pre-import rollback preservation. It does not alter scoring, BLE, sleep, workout detection, HealthKit ingestion/write-back, or SpO₂ behaviour.
 - CI validation is pending at this checkpoint; do not treat the fix as release-ready until the targeted iPhone test/build and relevant package/full workflows are green.
+
+## HealthKit authorization follow-up
+
+### AUDIT-HK-02 — read-only HealthKit grants were not resumed after relaunch
+
+- Severity: P2; confidence 0.98; CONFIRMED.
+- A successful HealthKit authorization request is treated as `.authorized` in-process because Apple deliberately does not expose read authorization state.
+- On the next launch, however, `refreshAuthIfPreviouslyGranted()` resumed only when at least one SHARE/write type reported `.sharingAuthorized`.
+- A user who allowed reads but denied every write could therefore sync successfully until relaunch, then remain `.unknown`; foreground sync and live delivery would never start automatically even though the prior consent flow completed.
+- The bridge already persists the authorization-type signature only after a successful request. Commit `a601dcba7e0d09be9146c5bda92c3d1071904933` uses that durable prior-request evidence in addition to the legacy any-write-granted signal.
+- Commit `6093b79141e5d05e1add65bde0b2e54337385657` adds deterministic coverage for read-only prior grants, fresh installs and legacy write-grant resumes.
+- This does not claim HealthKit can reveal whether reads are currently allowed; it preserves the existing honest contract that successful consent permits queries, which may return empty if the user denied or later revoked reads.
+- CI validation is pending on the current audit head.
