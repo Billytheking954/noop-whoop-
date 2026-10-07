@@ -35,6 +35,11 @@ final class HealthKitDayKeyTests: XCTestCase {
         XCTAssertEqual(midnight.timeIntervalSince1970, 1_762_056_000, accuracy: 0.5) // 2025-11-02 04:00:00Z
     }
 
+    func testSleepSampleQueryFailureIsClassifiedAsFailedNotEmpty() {
+        XCTAssertEqual(HealthKitBridge.sampleQueryReadOutcome(hadError: true), .failed)
+        XCTAssertEqual(HealthKitBridge.sampleQueryReadOutcome(hadError: false), .read)
+    }
+
     func testReadOnlyPriorGrantResumesWithoutAnyWriteAuthorization() {
         XCTAssertTrue(HealthKitBridge.shouldResumeAuthorization(priorRequestRecorded: true,
                                                                  anyWriteAuthorized: false))
