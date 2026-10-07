@@ -204,12 +204,13 @@ public enum CanonicalFitExporter {
             uint32(253, fitTime(lap.endTimestamp)),
             uint32(2, fitTime(lap.startTimestamp))
         ]
-        if let elapsed = finiteNonnegative(lap.elapsedDurationS) {
-            fields.append(uint32(7, scaledUInt32(elapsed, scale: 1000)))
-        }
-        if let moving = finiteNonnegative(lap.movingDurationS) {
-            fields.append(uint32(8, scaledUInt32(moving, scale: 1000)))
-        }
+        let elapsed = finiteNonnegative(lap.elapsedDurationS)
+            ?? Double(max(0, lap.endTimestamp - lap.startTimestamp))
+        fields.append(uint32(7, scaledUInt32(elapsed, scale: 1000)))
+        // FIT requires total_timer_time on summary messages. When the canonical source has no distinct
+        // pause-excluded timer duration, timer == elapsed is the only honest deterministic fallback.
+        let timer = finiteNonnegative(lap.movingDurationS) ?? elapsed
+        fields.append(uint32(8, scaledUInt32(min(timer, elapsed), scale: 1000)))
         if let distance = finiteNonnegative(lap.distanceM) {
             fields.append(uint32(9, scaledUInt32(distance, scale: 100)))
         }
@@ -232,13 +233,13 @@ public enum CanonicalFitExporter {
             uint32(2, fitTime(w.startTimestamp)),
             enum8(5, fitSport(w.sport))
         ]
-        let elapsed = w.elapsedDurationS ?? Double(max(0, w.endTimestamp - w.startTimestamp))
-        if let elapsed = finiteNonnegative(elapsed) {
-            fields.append(uint32(7, scaledUInt32(elapsed, scale: 1000)))
-        }
-        if let moving = finiteNonnegative(w.movingDurationS) {
-            fields.append(uint32(8, scaledUInt32(moving, scale: 1000)))
-        }
+        let elapsed = finiteNonnegative(w.elapsedDurationS)
+            ?? Double(max(0, w.endTimestamp - w.startTimestamp))
+        fields.append(uint32(7, scaledUInt32(elapsed, scale: 1000)))
+        // Required FIT summary field. No distinct pause data means timer time equals elapsed time;
+        // explicit pause-excluded durations supplied by NOOP are preserved exactly.
+        let timer = finiteNonnegative(w.movingDurationS) ?? elapsed
+        fields.append(uint32(8, scaledUInt32(min(timer, elapsed), scale: 1000)))
         if let distance = finiteNonnegative(w.distanceM) {
             fields.append(uint32(9, scaledUInt32(distance, scale: 100)))
         }
