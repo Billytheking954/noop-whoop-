@@ -695,7 +695,7 @@ final class HealthKitBridge: ObservableObject {
         // from @vulnix0x4's PR #375.)
         do {
             try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
-            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
+            try await store.upsertHealthImportedDailyMetrics(dmRows, deviceId: appleDeviceId)
             try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
             if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
             // Imported water (#949) goes to the hydration source, not apple-health, because the hydration
