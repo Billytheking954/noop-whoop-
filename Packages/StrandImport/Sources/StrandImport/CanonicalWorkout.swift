@@ -192,7 +192,14 @@ public struct CanonicalWorkout: Sendable, Equatable {
         self.timeZoneIdentifier = timeZoneIdentifier
         self.elapsedDurationS = elapsedDurationS
         self.movingDurationS = movingDurationS
-        self.heartRateSamples = heartRateSamples.sorted { $0.timestamp < $1.timestamp }
+        // Swift's sort does not promise stability for equal keys. Preserve caller order for
+        // duplicate-second HR explicitly so downstream first-value deduplication is deterministic.
+        self.heartRateSamples = heartRateSamples.enumerated().sorted {
+            if $0.element.timestamp != $1.element.timestamp {
+                return $0.element.timestamp < $1.element.timestamp
+            }
+            return $0.offset < $1.offset
+        }.map(\.element)
         self.averageHeartRate = averageHeartRate
         self.maximumHeartRate = maximumHeartRate
         self.distanceM = distanceM
