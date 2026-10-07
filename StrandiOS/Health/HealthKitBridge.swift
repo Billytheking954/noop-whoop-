@@ -732,9 +732,11 @@ final class HealthKitBridge: ObservableObject {
             // makes denied read access look like no matching samples, so an empty query cannot authorize
             // destructive reconciliation. Ordinary foreground sync stays upsert-only; observer deletion
             // tombstones are handled separately because the tombstone itself is affirmative evidence.
-            try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
-            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
-            try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
+            try await store.mergeAppleHealthReadRows(
+                appleDailyRows: appleRows,
+                dailyMetricRows: dmRows,
+                metricPoints: points,
+                deviceId: appleDeviceId)
             if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
             // Imported water (#949) goes to the hydration source, not apple-health, because the hydration
             // screen is what reads it. Every day in the window is written — including the ones with no
