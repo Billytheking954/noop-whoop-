@@ -20,6 +20,8 @@ Release baseline: 12.0.0 (435)
 |---|---|---:|---:|---|---|
 | AUDIT-TIME-01 | Physiological local-day bucketing across DST | P2 | 0.98 | CONFIRMED | FIXED on audit branch at `50555ef`; regression coverage added; package CI, iPhone app build/tests and unsigned IPA workflow all pass. |
 | AUDIT-CI-01 | Insight-alert relaunch UI test / notification authorization | P3 | 0.85 | PROBABLE TEST-HARNESS / ENVIRONMENT DEPENDENCY | Original app job attempt failed only `ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch()`; rerun of the same `af9079` source passed. Test was hardened at `91ecdce` to treat granted and denied notification authorization as supported outcomes; branch-head iPhone-hosted test now passes. No production defect established. |
+| AUDIT-TIME-02 | Physiological-day synthetic/calendar midnight resolver still uses one fixed offset | P3 | 0.95 | CONFIRMED | Rule-aware calendar-day scoring is fixed, but `DayCycleResolver` remains fixed-offset. A DST transition can move its reconstructed midnight by one hour. Current production integration reaches the synthetic fallback only after the open-cycle cap, so impact is narrower than AUDIT-TIME-01. Documented; not auto-fixed pending parity review. |
+| AUDIT-SIGN-01 | Unsigned IPA template omitted HealthKit background delivery | P3 | 0.99 | CONFIRMED | The app entitlement requests background delivery but the sideload template dropped it. Fixed at `6ed228e`; packaging now asserts it survives the ad-hoc template. This does not grant the capability to an unsupported signing profile. |
 
 ## AUDIT-CI-01 evidence
 
@@ -144,6 +146,32 @@ Current classification:
 10. Remaining BLE edge cases not already covered.
 11. Sideload/re-signing, entitlements, widget/app-group behavior.
 12. UI state reliability.
+
+## Timezone / physiological-cycle follow-up
+
+### AUDIT-TIME-02 — fixed-offset day-cycle boundary remains outside the DST fix
+
+- Severity: P3; confidence 0.95; CONFIRMED.
+- `DayCycleResolver.calendarWindow`, `fallbackMidnight` and `activeWindow` still derive local midnight from one `offsetSec` with 86,400-second arithmetic.
+- On a DST transition date that can move the resolved midnight by one hour. The normal calendar-day scoring loop no longer uses this logic after AUDIT-TIME-01.
+- The shipping physiological-cycle integration reaches the synthetic-midnight branch only after its 40-hour absolute open-cycle cap, so the practical impact is narrower.
+- The subsystem documents a Kotlin twin. No one-platform production correction is being made until parity can be reviewed.
+
+### Time-zone travel semantics — evidence gap, not yet a defect
+
+- A scoring pass binds `TimeZone.current` at recomputation time; the inspected raw/persisted day model does not persist a source-zone identifier per historical sample/day.
+- A major device-zone change can therefore make historical wall-clock heuristics use the new zone. The day cache does invalidate on zone identifier changes, so this is not stale-cache behavior.
+- The intended product invariant for historical acquisition-zone versus current-zone interpretation is not stated in the inspected contract. This remains an architectural/evidence question rather than a confirmed bug.
+
+## Sideload / re-signing review
+
+### AUDIT-SIGN-01 — HealthKit background-delivery entitlement dropped by unsigned IPA template
+
+- Severity: P3; confidence 0.99; CONFIRMED.
+- `StrandiOS/Resources/NOOP.entitlements` requests `com.apple.developer.healthkit.background-delivery = true`.
+- `Tools/prepare_iphone_sideload.sh` preserved App Group and base HealthKit but omitted background delivery.
+- Commit `6ed228e2798704608fd29d72eb468bc2981b1bdc` adds the entitlement and a packaging-time assertion.
+- This preserves a requested capability only. A sideloader/signing profile can still strip HealthKit or App Group entitlements when that profile is not entitled to them; the runtime HealthKit check correctly reports `.entitlementMissing` in the no-HealthKit case.
 
 ## WHOOP trial evidence to collect while still available
 
