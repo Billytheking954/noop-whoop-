@@ -261,7 +261,9 @@ final class HealthKitBridge: ObservableObject {
         // who intentionally declined (for example) workouts still gets sleep/vitals exported after a
         // relaunch. Requiring every legacy type made partial grants look wholly disconnected.
         let granted = writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
-        if granted {
+        let priorRequestRecorded = UserDefaults.standard.string(forKey: Self.readTypeSignatureKey) != nil
+        if Self.shouldResumeAuthorization(priorRequestRecorded: priorRequestRecorded,
+                                          anyWriteAuthorized: granted) {
             auth = .authorized
             // A returning user who already granted access should get the live stream re-armed for this
             // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
@@ -283,6 +285,15 @@ final class HealthKitBridge: ObservableObject {
                 Task { try? await store.requestAuthorization(toShare: writeTypes, read: readTypes) }
             }
         }
+    }
+
+    /// HealthKit intentionally does not reveal read authorization. A successful prior authorization
+    /// request is therefore the only durable evidence that a read-only user has already gone through the
+    /// consent flow. Requiring a granted SHARE type strands users who allowed reads but denied every write:
+    /// the current process works, then the next launch falls back to `.unknown` forever.
+    nonisolated static func shouldResumeAuthorization(priorRequestRecorded: Bool,
+                                                       anyWriteAuthorized: Bool) -> Bool {
+        priorRequestRecorded || anyWriteAuthorized
     }
 
     // MARK: - Live delivery (continuous ingestion)
