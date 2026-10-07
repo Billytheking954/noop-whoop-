@@ -2669,6 +2669,13 @@ final class AppModel: ObservableObject {
         switch outcome {
         case .imported(let days, let workouts):
             await repo.refresh()
+            // Shortcut days carry the same Apple-Watch HRV/RHR inputs as live HealthKit and intentionally
+            // import with recovery=nil. Queue the same recovery/scoring fold so a HealthKit-free sideload
+            // does not leave Charge blank until some unrelated later rescore. Forced triggers queue behind
+            // an in-flight pass, so this cannot be lost; independent Task keeps the import UI responsive.
+            Task { [weak self] in
+                await self?.intelligence.analyzeRecent(triggerLabel: "shortcut-health-import")
+            }
             // #833/v7.7.2: the Shortcuts import writes body-composition series (e.g. weight) into
             // metricSeries, which sits OUTSIDE refresh()'s diff, so refresh() may leave `refreshSeq`
             // unchanged and AppleHealthView's re-mount cache would serve stale data. Drop the cache so the
