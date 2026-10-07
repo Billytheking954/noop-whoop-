@@ -395,10 +395,11 @@ final class HealthKitBridge: ObservableObject {
         // HKDeletedObject carries the UUID, not the deleted sample's original timestamp. A deletion-only
         // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon
         // instead; source-window replacement below can then actually REMOVE rows that disappeared.
-        let touched = hadDeletions
-            ? (Calendar.current.date(byAdding: .day, value: -31,
-                                     to: Calendar.current.startOfDay(for: Date())) ?? Date())
-            : sampleTouched
+        let deletionHorizon = Calendar.current.date(byAdding: .day, value: -31,
+                                                             to: Calendar.current.startOfDay(for: Date())) ?? Date()
+        let touched = Self.observerTouchedDate(oldestAdded: sampleTouched,
+                                               hadDeletions: hadDeletions,
+                                               deletionHorizon: deletionHorizon)
         // No additions or deletions since the last anchor (a spurious wake): nothing to ingest, so
         // advancing the anchor now loses nothing and skips a redundant re-query next wake.
         guard let touched else {
@@ -439,6 +440,14 @@ final class HealthKitBridge: ObservableObject {
         if await sync(days: window), let newAnchor {
             persistAnchor(newAnchor, for: type)
         }
+    }
+
+    /// Pure observer-delta reconciliation rule. HealthKit deletion tombstones expose identity but no
+    /// original timestamp, so any deletion widens the aggregate reread to the bounded observer horizon.
+    /// Additions keep their exact oldest touched date; a genuinely empty delta remains nil.
+    nonisolated static func observerTouchedDate(oldestAdded: Date?, hadDeletions: Bool,
+                                                deletionHorizon: Date) -> Date? {
+        hadDeletions ? deletionHorizon : oldestAdded
     }
 
     /// Advance this type's stored anchor over any new samples and return the OLDEST sample date seen,
