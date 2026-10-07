@@ -64,8 +64,12 @@ struct WorkoutDetailView: View {
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
     @State private var route: [RouteMath.LatLng] = []
 
-    /// Drives the GPX/FIT export chooser for the recorded route.
-    @State private var showRouteExport = false
+    /// Full-fidelity FIT export state. The button is surfaced only after load proves that the
+    /// completed workout has at least one real timed HR or GPS measurement.
+    @State private var fitExportAvailable = false
+    @State private var fitExportBusy = false
+    @State private var showFitExportError = false
+    @State private var fitExportErrorMessage = ""
 
     /// Steps over the session window for an on-foot sport (#398): the count plus whether it came from the
     /// strap's own counter (MG/5.0) or the phone pedometer (fallback for WHOOP 4.0 / not-yet-synced / CSV
@@ -89,6 +93,7 @@ struct WorkoutDetailView: View {
             headerCard
             referenceRoute
             referenceStats
+            fitExportCard
             hrCurveCard
             referenceZones
             reviewCard
@@ -115,6 +120,46 @@ struct WorkoutDetailView: View {
                     let exists = saved.contains { $0.startTs == edited.startTs && $0.sport == edited.sport && WorkoutSource.classify($0.source) == .manual }
                     reviewBusy = false
                     if exists { dismiss() } else { reviewFeedback = String(localized: "Unable to save this activity. Try again.") }
+                }
+            }
+        }
+        .alert("FIT export unavailable", isPresented: $showFitExportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fitExportErrorMessage)
+        }
+    }
+
+    @ViewBuilder private var fitExportCard: some View {
+        if fitExportAvailable {
+            ReferenceCard {
+                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("FIT WORKOUT FILE").strandOverline()
+                            Text("One file for the completed activity")
+                                .font(ReferenceStyle.body)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "figure.run")
+                            .foregroundStyle(StrandPalette.effortColor)
+                            .accessibilityHidden(true)
+                    }
+
+                    Button {
+                        exportFitWorkout()
+                    } label: {
+                        Label(fitExportBusy ? "Preparing FIT…" : "Export FIT",
+                              systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                    .disabled(fitExportBusy)
+
+                    Text("Includes the real recorded heart-rate series and GPS track when available, plus the workout summary. Use the iOS share sheet to save it or upload it manually to Strava or another FIT-compatible service.")
+                        .font(ReferenceStyle.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -225,11 +270,19 @@ struct WorkoutDetailView: View {
         // #524: the GPS route, if this session recorded one on-device. A cheap UserDefaults read keyed
         // by the row's natural key (startTs + sport); decoded to points only when ≥2 were captured so the
         // map only ever draws a real route.
+        let storedRoute = RouteStore.loadWithPoints(startTs: row.startTs, sport: row.sport)
         let routePoints: [RouteMath.LatLng] = {
-            guard let r = RouteStore.load(startTs: row.startTs, sport: row.sport) else { return [] }
-            let pts = RouteMath.decode(r.polyline)
+            guard let storedRoute else { return [] }
+            let pts = RouteMath.decode(storedRoute.polyline)
             return pts.count >= 2 ? pts : []
         }()
+
+        // Probe one full-resolution HR row only to decide whether a meaningful FIT can be offered.
+        // The actual export re-reads the complete stream on demand, so the detail view never retains
+        // thousands of duplicate HR samples just because the button is visible.
+        let fitHRProbe = await repo.workoutHeartRateSamples(
+            from: row.startTs, to: row.endTs, source: row.source, limit: 1)
+        let canExportFit = storedRoute?.hasExportableMeasurements == true || !fitHRProbe.isEmpty
 
         // HR curve over the exact session window — a finer bucket than the 24h chart so a short run
         // still reads as a curve, not a handful of points.
@@ -276,6 +329,7 @@ struct WorkoutDetailView: View {
 
         await MainActor.run {
             self.route = routePoints
+            self.fitExportAvailable = canExportFit
             self.hrPoints = points
             self.zoneMinutes = minutes
             self.zonesFromImport = fromImport
@@ -426,41 +480,85 @@ struct WorkoutDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button {
-                    showRouteExport = true
+                    exportGpxRoute()
                 } label: {
-                    Label("Export route", systemImage: "square.and.arrow.up")
+                    Label("Export GPX route", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                .confirmationDialog("Export route", isPresented: $showRouteExport, titleVisibility: .visible) {
-                    Button("GPX — Strava, Garmin, most apps") { exportRoute(.gpx) }
-                    Button("FIT — Garmin Connect") { exportRoute(.fit) }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("Save this route as a standard file you can import into Strava, Garmin Connect, and other apps.")
-                }
             }
         }
     }
 
-    /// Write the route to a GPX/FIT file and hand it to the system share sheet (or a Save panel on macOS).
-    /// Points are decoded lat/lon only (the stored polyline), so the exporter interpolates per-point times
-    /// across the session window and carries the workout's summary (sport, distance, calories, HR).
-    ///
-    /// The build + disk write run OFF the main actor (a long route is a non-trivial encode, and blocking
-    /// file IO must never stall the UI); only the share-sheet present hops back to the main actor.
-    @MainActor private func exportRoute(_ format: RouteExporter.Format) {
+    /// Build the completed workout from its authoritative persisted sources, render it through the
+    /// canonical FIT encoder, then hand the ONE .fit file to the normal iOS share sheet.
+    @MainActor private func exportFitWorkout() {
+        guard fitExportAvailable, !fitExportBusy else { return }
+        fitExportBusy = true
+
+        let row = self.row
+        let deviceID = repo.deviceId
+        let storedRoute = RouteStore.loadWithPoints(startTs: row.startTs, sport: row.sport)
+
+        Task {
+            let rawHR = await repo.workoutHeartRateSamples(
+                from: row.startTs, to: row.endTs, source: row.source, limit: 200_000)
+
+            guard let canonical = CanonicalWorkoutExportBuilder.build(
+                row: row,
+                deviceID: deviceID,
+                heartRateSamples: rawHR,
+                route: storedRoute
+            ) else {
+                fitExportBusy = false
+                fitExportErrorMessage = String(localized:
+                    "This workout has no valid timed heart-rate or GPS measurements to place in a FIT file.")
+                showFitExportError = true
+                return
+            }
+
+            let fileName = CanonicalWorkoutExportBuilder.fitFilename(
+                sport: row.sport, startTimestamp: row.startTs)
+            let rendered = await Task.detached(priority: .userInitiated) {
+                CanonicalFitExporter.render(canonical)
+            }.value
+
+            guard rendered.stravaUploadReady else {
+                fitExportBusy = false
+                fitExportErrorMessage = String(localized:
+                    "This workout does not contain any exportable timed measurements.")
+                showFitExportError = true
+                return
+            }
+
+            let url = NoopScratch.file(fileName)
+            do {
+                try rendered.data.write(to: url, options: .atomic)
+            } catch {
+                fitExportBusy = false
+                fitExportErrorMessage = String(localized:
+                    "NOOP could not write the FIT file. Your workout data was not changed.")
+                showFitExportError = true
+                return
+            }
+
+            fitExportBusy = false
+            FileExport.exportFile(at: url, suggestedName: fileName)
+        }
+    }
+
+    /// Preserve the existing route-only GPX workflow. FIT no longer goes through RouteExporter, so the
+    /// app has exactly one FIT encoder; GPX remains available for users who explicitly want a route file.
+    @MainActor private func exportGpxRoute() {
         guard route.count >= 2 else { return }
         let points = route.map { RoutePoint(lat: $0.lat, lon: $0.lon) }
-        // Name the file by the workout's start (not export time) so it's stable + matches the Android twin.
-        let name = "noop-route-\(row.startTs).\(format.ext)"
+        let name = "noop-route-\(row.startTs).gpx"
         let startTs = row.startTs, endTs = row.endTs, sport = row.sport
-        let distanceM = row.distanceM, energyKcal = row.energyKcal, avgHr = row.avgHr, maxHr = row.maxHr
+
         Task.detached(priority: .userInitiated) {
             let data = RouteExporter.render(
-                format, route: points, startTs: startTs, endTs: endTs, sport: sport,
-                distanceM: distanceM, energyKcal: energyKcal, avgHr: avgHr, maxHr: maxHr)
+                .gpx, route: points, startTs: startTs, endTs: endTs, sport: sport)
             let url = NoopScratch.file(name)
-            do { try data.write(to: url) } catch { return }
+            do { try data.write(to: url, options: .atomic) } catch { return }
             await MainActor.run { FileExport.exportFile(at: url, suggestedName: name) }
         }
     }
