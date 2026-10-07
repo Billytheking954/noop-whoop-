@@ -58,3 +58,19 @@ No confirmed production bugs at this checkpoint.
 ## Release recommendation
 
 Keep 12.0.0 for now. Do not prepare 12.0.1 unless the audit confirms a production defect, its root cause, a regression test, and successful relevant CI.
+
+
+## Additional audit notes
+
+### Rejected false alarms
+
+- SleepStagerV2.respRegularity uses first!/last!, but returns before either access unless there are at least 12 beats; the unwraps are guarded.
+- DayCycleResolver’s missing future-onset check can yield an empty/reversed active window for a future sleep timestamp, but the store’s timestamp-heal and ingest plausibility gates are upstream protections. No production path admitting such a row was established.
+- The experimental HealthKitObservationProvider is not connected to the shipping HealthKitBridge; its behavior is not a production defect in this release.
+- The pre-merge to release commit comparison has no changed files, so the UI failure is not attributable to the merge.
+
+### Coverage and execution limits
+
+This remains a partial source audit. Migration registration itself, every persistence mutation path, end-to-end timezone selection, full HealthKit permission/revocation behavior, all BLE/background lifecycle paths, and sideload re-signing have not been fully traced. Existing package tests provide broad coverage for sleep totals, activity detection, HealthWriteback, timestamp repair, and migrations, but this continuation could not execute them locally because Swift/Xcode are not installed and no repository checkout is available.
+
+The current rerun has passed simulator build and is still running iPhone-hosted tests. Revisit this checkpoint after job 112911485898 finishes.
