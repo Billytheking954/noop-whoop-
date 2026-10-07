@@ -34,5 +34,20 @@ final class HealthKitDayKeyTests: XCTestCase {
 
         XCTAssertEqual(midnight.timeIntervalSince1970, 1_762_056_000, accuracy: 0.5) // 2025-11-02 04:00:00Z
     }
+
+    func testReadOnlyPriorGrantResumesWithoutAnyWriteAuthorization() {
+        XCTAssertTrue(HealthKitBridge.shouldResumeAuthorization(priorRequestRecorded: true,
+                                                                 anyWriteAuthorized: false))
+    }
+
+    func testFreshInstallWithoutPriorRequestOrWriteGrantStaysUnknown() {
+        XCTAssertFalse(HealthKitBridge.shouldResumeAuthorization(priorRequestRecorded: false,
+                                                                  anyWriteAuthorized: false))
+    }
+
+    func testLegacyWriteGrantStillResumesWithoutRecordedSignature() {
+        XCTAssertTrue(HealthKitBridge.shouldResumeAuthorization(priorRequestRecorded: false,
+                                                                 anyWriteAuthorized: true))
+    }
 }
 #endif
