@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS  
 Audit branch: audit/noop-v2-12-full-bug-review  
-Current audit head before this report update: 50555efd5e1bacfcc2ee0eeea6d42af9cc56cf1c  
+Current audit head before this report update: 29d26f30c652a0deae274a783b0d111f730daa29  
 Frozen main baseline: af9079012ddd4c9023720f4e9eb7ef12c0cd33d4  
 Release baseline: 12.0.0 (435)
 
@@ -252,7 +252,7 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - If any other Health metric populated a day in that pass, the resulting `DailyMetric` carried nil sleep fields and could overwrite previously imported sleep after a transient sleep-query failure.
 - Commit `6c487431c3d03f0152b92b30ba4f22d4317086ac` makes sleep return the same `HealthRead` outcome contract as the quantity collectors and aborts the write on query failure.
 - Commit `3f9f5d21be1c940fe83c625fc1c56452eeace526` pins failed-vs-empty semantics.
-- Successful empty sleep queries remain authoritative; the fix does not convert a genuine deletion/absence into an error.
+- A successful-but-empty Health read cannot by itself prove absence because HealthKit hides denied read authorization. AUDIT-HK-06 therefore preserves last-good values for nil fields; genuine deletion remains AUDIT-HK-05.
 
 ### AUDIT-HK-04 — successful Apple Health import invalidated Watch recovery without immediately rebuilding it
 
@@ -267,12 +267,26 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 
 ### AUDIT-HK-05 — HealthKit deletions are not fully reconciled
 
-- Severity: P2; confidence 0.97; CONFIRMED, NOT YET FIXED.
-- The anchored observer callback ignores `deletedObjects` and derives its touched window only from added samples. A deletion-only wake therefore has `touched == nil`, is recorded as empty, and persists the advanced anchor.
-- Full foreground sync is not currently a complete replacement operation either: Apple Health workouts and long-format metric points are upserted when present but rows that disappeared from HealthKit are not source-window-deleted.
-- Consequence: deleting a previously imported Health workout or the last Health sample backing a stored imported value can leave stale NOOP data indefinitely; the observer can also advance past the tombstone that would have signalled the change.
-- A naive window delete/reinsert is rejected as unsafe. The `apple-health` daily rows also carry NOOP-derived Watch recovery, and replacement must coordinate source-owned observations, derived-score invalidation/recompute, workouts/routes and failed-read semantics transactionally.
-- This is a release-relevant P2 and remains open pending a source-scoped replacement design plus regression coverage. Do not paper over it by merely forcing a 31-day sync; the current sync is not replacement-complete.
+- Severity: P2; confidence 0.99; CONFIRMED, PARTIALLY HARDENED / NOT FULLY FIXED.
+- The original anchored observer callback ignored `deletedObjects` and derived its touched window only from added samples. A deletion-only wake could therefore look empty and advance the anchor past the tombstone.
+- Commit `43f39abfdc7db8c14451d67646d7c7e7230d80d9` now retains the deletion signal and refuses to advance the anchor on an anchored-query error. Commits `32dced2b73e660539d6b1ed5cb558616413294ba` and `51f735a2eaf3ec020ee6fdabd20a08a2c33bd440` isolate and test the deletion-only touched-window rule.
+- A first implementation attempted to replace the entire visible `apple-health` source window (`8a1c609` through `671ebc0`). That design was challenged and REJECTED before validation: Apple documents that denied HealthKit read access deliberately appears as no matching data, so a whole-window delete/reinsert can erase last-good data merely because permission became unreadable. The production caller was removed at `89d846a`, and the experimental replacement helper/tests were removed at `0113072` / `0b940e7`.
+- Full deletion reconciliation therefore remains open. A deletion tombstone identifies the HealthKit type and deleted UUID but does not provide the original timestamp, while NOOP's daily aggregate/workout cache does not persist enough HealthKit object identity to map every tombstone safely back to its exact cached day/session. Limited-history authorization makes a blind 31-day clear unsafe as well.
+- Current safe behavior: deletion-bearing wakes are no longer silently classified as ordinary empty wakes, but ordinary persistence remains non-destructive. Missing rows are NOT source-window-deleted solely from an empty read.
+- Residual impact: deleting the last visible Health sample for a metric or deleting a previously imported workout can still leave a stale cached value/session. Route-side deletion for a workout that itself remains present is also not safely distinguishable from route-query denial/failure.
+- This remains release-relevant and should be consciously deferred or solved with a durable HealthKit identity/tombstone reconciliation design. Do not revive the rejected whole-window replacement.
+
+### AUDIT-HK-06 — hidden/denied HealthKit reads could clobber last-good scored inputs
+
+- Severity: P2; confidence 0.99; CONFIRMED, FIX IMPLEMENTED — CI VALIDATION PENDING.
+- Apple's HealthKit privacy contract intentionally prevents an app from learning whether read permission was denied: a denied query can look exactly like there is no matching data. The prior bridge nevertheless treated every successful-but-empty aggregate read as authoritative absence.
+- `appleDaily` and `dailyMetric` used whole-row conflict updates. If one readable metric populated a day while another metric was hidden/denied, the incoming nil for the hidden metric could replace its previously imported value. A later rescore could therefore consume a permission-shaped hole as if it were real physiology.
+- The rejected AUDIT-HK-05 whole-window replacement would have amplified this into broad deletion, which is why it was removed before validation.
+- Commit `8fcec8841363298d69b20ac3ac3f595594e7d5de` adds `mergeAppleHealthReadRows`: visible non-nil Health values update normally, while nil/absent fields preserve the last good cached value. Tall `metricSeries` still upserts only points actually returned.
+- Commit `25fd1841d793d6b18053e8078dd00d48883ba86c` adds regression coverage proving a sparse read updates visible fields without erasing prior sleep/RHR/recovery/SpO2/respiration/weight values, and that sparse new days still insert normally.
+- Commit `c4eb659615aa7eaa5f0fab75429a3c10e48ac525` routes live Health persistence through the non-destructive merge.
+- This deliberately does NOT convert missing values into deletion. Real deletion remains AUDIT-HK-05 and needs affirmative tombstone reconciliation.
+- Production SpO₂ scoring logic is unchanged; this only prevents an absent/hidden Health read from overwriting cached inputs with nil.
 
 ## Sleep / timezone follow-up
 
