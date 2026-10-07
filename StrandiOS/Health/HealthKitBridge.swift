@@ -116,6 +116,13 @@ final class HealthKitBridge: ObservableObject {
         return s
     }
 
+    /// Whether at least one HealthKit share/write type is currently authorized. Read authorization is
+    /// intentionally opaque on iOS, so this must stay separate from `auth == .authorized`: read-only users
+    /// still deserve imports, but they do not need the periodic write-back BGTask.
+    var hasAnyWriteAuthorization: Bool {
+        writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
+    }
+
     // Every id here ends up in the HealthKit permission dialog. Only request what `sync` actually
     // aggregates into `DayAgg`; adding read scopes the app never consumes makes the consent prompt
     // noisier and surfaces a privacy ask we don't honour.
@@ -260,7 +267,7 @@ final class HealthKitBridge: ObservableObject {
         // Share authorization is per type. Resume when at least one write type is granted so a person
         // who intentionally declined (for example) workouts still gets sleep/vitals exported after a
         // relaunch. Requiring every legacy type made partial grants look wholly disconnected.
-        let granted = writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
+        let granted = hasAnyWriteAuthorization
         let priorRequestRecorded = UserDefaults.standard.string(forKey: Self.readTypeSignatureKey) != nil
         if Self.shouldResumeAuthorization(priorRequestRecorded: priorRequestRecorded,
                                           anyWriteAuthorized: granted) {
