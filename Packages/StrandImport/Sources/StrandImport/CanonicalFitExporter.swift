@@ -117,10 +117,16 @@ public enum CanonicalFitExporter {
         // resolution: the caller has already decided what belongs in CanonicalWorkout and each field kept
         // provenance there. Here we merely avoid writing two FIT records for the same second when a route
         // fix and the canonical HR stream coincide.
+        //
+        // Corrupt/out-of-window samples are omitted rather than turned into plausible FIT data. A Record
+        // message must contain timestamp PLUS at least one actual measurement, so timestamp-only rows are
+        // filtered at the end after route and HR streams have had a chance to merge.
         var byTimestamp: [Int: RecordRow] = [:]
 
         for point in workout.route {
-            guard let timestamp = point.timestamp else { continue }
+            guard let timestamp = point.timestamp,
+                  timestamp >= workout.startTimestamp,
+                  timestamp <= workout.endTimestamp else { continue }
             byTimestamp[timestamp] = RecordRow(
                 timestamp: timestamp,
                 latitude: validLatitude(point.latitude) ? point.latitude : nil,
@@ -134,7 +140,10 @@ public enum CanonicalFitExporter {
             )
         }
 
-        for sample in workout.heartRateSamples where sample.bpm > 0 && sample.bpm < 255 {
+        for sample in workout.heartRateSamples
+        where sample.timestamp >= workout.startTimestamp
+            && sample.timestamp <= workout.endTimestamp
+            && sample.bpm > 0 && sample.bpm < 255 {
             if var existing = byTimestamp[sample.timestamp] {
                 if existing.heartRateBpm == nil { existing.heartRateBpm = sample.bpm }
                 byTimestamp[sample.timestamp] = existing
@@ -153,7 +162,22 @@ public enum CanonicalFitExporter {
             }
         }
 
-        return byTimestamp.values.sorted { $0.timestamp < $1.timestamp }
+        return byTimestamp.values
+            .filter(hasMeasurement)
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+
+    private static func hasMeasurement(_ record: RecordRow) -> Bool {
+        let hasPosition = record.latitude.map(validLatitude) == true
+            && record.longitude.map(validLongitude) == true
+        let hasAltitude = finiteNonnegativeOrSigned(record.altitudeM) != nil
+        let hasHeartRate = record.heartRateBpm.map { $0 > 0 && $0 < 255 } == true
+        let hasCadence = record.cadenceRpm.map { $0 >= 0 && $0 < 255 } == true
+        let hasDistance = finiteNonnegative(record.distanceM) != nil
+        let hasSpeed = finiteNonnegative(record.speedMps) != nil
+        let hasPower = record.powerWatts.map { $0 >= 0 && $0 < 65_535 } == true
+        return hasPosition || hasAltitude || hasHeartRate || hasCadence
+            || hasDistance || hasSpeed || hasPower
     }
 
     private static func wholeWorkoutLap(_ w: CanonicalWorkout) -> CanonicalWorkout.Lap {
