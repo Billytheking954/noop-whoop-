@@ -391,9 +391,16 @@ final class HealthKitBridge: ObservableObject {
         // #1578: counted before any early return, so the ratio of wakes to syncs is honest. Coalescing
         // cuts the work per wake, not the wakes — this is what shows whether the wake itself is the cost.
         HealthSyncStats.recordWake()
-        let (touched, newAnchor) = await fetchTouchedDayWindow(type: type)
-        // No new samples since the last anchor (a spurious wake): nothing to ingest, so advancing the
-        // anchor now loses nothing and skips a redundant re-query next wake.
+        let (sampleTouched, newAnchor, hadDeletions) = await fetchTouchedDayWindow(type: type)
+        // HKDeletedObject carries the UUID, not the deleted sample's original timestamp. A deletion-only
+        // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon
+        // instead; source-window replacement below can then actually REMOVE rows that disappeared.
+        let touched = hadDeletions
+            ? (Calendar.current.date(byAdding: .day, value: -31,
+                                     to: Calendar.current.startOfDay(for: Date())) ?? Date())
+            : sampleTouched
+        // No additions or deletions since the last anchor (a spurious wake): nothing to ingest, so
+        // advancing the anchor now loses nothing and skips a redundant re-query next wake.
         guard let touched else {
             HealthSyncStats.recordEmptyWake()
             if let newAnchor { persistAnchor(newAnchor, for: type) }
@@ -439,7 +446,8 @@ final class HealthKitBridge: ObservableObject {
     /// deltas are neither re-ingested nor missed across launches. We don't consume the samples here —
     /// `sync(days:)` re-reads the aggregate for the affected window — the anchor's only job is to tell
     /// us how far back the change reached.
-    private func fetchTouchedDayWindow(type: HKSampleType) async -> (oldest: Date?, newAnchor: HKQueryAnchor?) {
+    private func fetchTouchedDayWindow(type: HKSampleType) async
+        -> (oldest: Date?, newAnchor: HKQueryAnchor?, hadDeletions: Bool) {
         let key = HealthKitBridge.anchorDefaultsKey(for: type)
         let priorAnchor: HKQueryAnchor? = {
             guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
@@ -452,22 +460,28 @@ final class HealthKitBridge: ObservableObject {
         // still advance only after the corresponding aggregate sync commits.
         let cal = Calendar.current
         guard let oldestRelevant = cal.date(byAdding: .day, value: -31,
-                                            to: cal.startOfDay(for: Date())) else { return (nil, nil) }
+                                            to: cal.startOfDay(for: Date())) else { return (nil, nil, false) }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: oldestRelevant, end: nil, options: []),
             Self.notNoopAuthored,
         ])
-        return await withCheckedContinuation { (cont: CheckedContinuation<(Date?, HKQueryAnchor?), Never>) in
+        return await withCheckedContinuation {
+            (cont: CheckedContinuation<(Date?, HKQueryAnchor?, Bool), Never>) in
             let q = HKAnchoredObjectQuery(
                 type: type, predicate: predicate,
                 anchor: priorAnchor, limit: HKObjectQueryNoLimit
-            ) { _, samples, _, newAnchor, _ in
+            ) { _, samples, deletedObjects, newAnchor, error in
+                // A failed delta query is NOT an empty authoritative delta. Keep the prior anchor so the
+                // next observer wake can retry instead of stepping over unknown changes.
+                guard error == nil else {
+                    cont.resume(returning: (nil, nil, false))
+                    return
+                }
                 // Return the advanced anchor but do NOT persist it here: the caller commits it only after
-                // the ensuing sync has actually stored the window (@bhelm). Persisting in this callback,
-                // before ingestion was known to run, advanced the cursor past samples a later-bailed
-                // sync() never stored — silently losing days for the background/watch-only path.
+                // the ensuing sync has actually stored the window (@bhelm). Deleted objects have no
+                // timestamp, so the caller widens a deletion-bearing delta to the bounded 31-day horizon.
                 let oldest = (samples ?? []).map { $0.startDate }.min()
-                cont.resume(returning: (oldest, newAnchor))
+                cont.resume(returning: (oldest, newAnchor, !(deletedObjects ?? []).isEmpty))
             }
             store.execute(q)
         }
