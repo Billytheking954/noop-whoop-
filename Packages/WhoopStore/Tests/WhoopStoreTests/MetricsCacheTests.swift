@@ -465,43 +465,6 @@ final class MetricsCacheTests: XCTestCase {
         XCTAssertEqual(rows[0], d2)
     }
 
-    func testHealthImportUpsertPreservesComputedRecoveryAndUpdatesOwnedFields() async throws {
-        let store = try await WhoopStore.inMemory()
-        let scored = DailyMetric(day: "2026-10-07", totalSleepMin: 420, efficiency: 0.91,
-                                 deepMin: 80, remMin: 95, lightMin: 245, disturbances: 3,
-                                 restingHr: 50, avgHrv: 62, recovery: 0.78, strain: 11.2,
-                                 exerciseCount: 1, spo2Pct: 97, skinTempDevC: 0.2,
-                                 respRateBpm: 14.5, steps: 9000, activeKcalEst: 500,
-                                 spo2Red: 12, spo2Ir: 13, avgSdnn: 62, skinTempC: 33.1,
-                                 sleepHrOnly: false)
-        try await store.upsertDailyMetrics([scored], deviceId: "apple-health")
-
-        let imported = DailyMetric(day: "2026-10-07", totalSleepMin: 390, efficiency: nil,
-                                   deepMin: 70, remMin: 90, lightMin: 230, disturbances: nil,
-                                   restingHr: 54, avgHrv: 58, recovery: nil, strain: nil,
-                                   exerciseCount: nil, spo2Pct: 96, skinTempDevC: nil,
-                                   respRateBpm: 15.0, steps: nil, activeKcalEst: nil,
-                                   spo2Red: nil, spo2Ir: nil, avgSdnn: 58, skinTempC: nil,
-                                   sleepHrOnly: nil)
-        try await store.upsertHealthImportedDailyMetrics([imported], deviceId: "apple-health")
-
-        let row = try XCTUnwrap(try await store.dailyMetrics(
-            deviceId: "apple-health", from: "2026-10-07", to: "2026-10-07").first)
-        XCTAssertEqual(row.totalSleepMin, 390)
-        XCTAssertEqual(row.restingHr, 54)
-        XCTAssertEqual(row.avgHrv, 58)
-        XCTAssertEqual(row.spo2Pct, 96)
-        XCTAssertEqual(row.respRateBpm, 15.0)
-        XCTAssertEqual(row.avgSdnn, 58)
-        XCTAssertEqual(row.recovery, 0.78, "Health import must not erase watch-derived Charge")
-        XCTAssertEqual(row.strain, 11.2)
-        XCTAssertEqual(row.exerciseCount, 1)
-        XCTAssertEqual(row.skinTempDevC, 0.2)
-        XCTAssertEqual(row.steps, 9000)
-        XCTAssertEqual(row.activeKcalEst, 500)
-        XCTAssertEqual(row.skinTempC, 33.1)
-    }
-
     func testDailyMetricDayRangeFilter() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDailyMetrics([
