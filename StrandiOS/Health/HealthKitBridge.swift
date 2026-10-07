@@ -722,63 +722,20 @@ final class HealthKitBridge: ObservableObject {
             return false
         }
 
-        // Hourly step counts must be collected BEFORE the source-window transaction. A failed statistics
-        // query must not leave daily/workout rows replaced while the hourly half of the same sync failed.
-        // HealthKit cannot distinguish "read denied" from a legitimately empty result, so an EMPTY hourly
-        // result preserves prior hourly rows rather than treating permission ambiguity as deletion.
-        let hourlyStepsBackfilled = UserDefaults.standard.bool(forKey: Self.hourlyStepsBackfilledKey)
-        let hourlyStepsStart: Date = hourlyStepsBackfilled ? start
-            : (cal.date(byAdding: .day, value: -90, to: cal.startOfDay(for: end)) ?? start)
-        let hourlySteps: [(ts: Int, steps: Int)]
-        do {
-            hourlySteps = try await collectHourlySteps(start: hourlyStepsStart, end: end)
-        } catch {
-            lastSyncDays = 0
-            lastError = String(localized: "Apple Health sync failed: \(String(localized: \"Steps\"))")
-            return false
-        }
-
-        let fromDay = HealthKitBridge.dayString(start)
-        let toDay = HealthKitBridge.dayString(end)
-        let fromTs = Int(start.timeIntervalSince1970)
-        let toTs = Int(end.timeIntervalSince1970)
-        // Empty can mean denied, so choose an impossible range and preserve prior hourly rows in that case.
-        let hourlyReplaceFromTs = hourlySteps.isEmpty
-            ? (toTs == Int.max ? toTs : toTs + 1)
-            : Int(hourlyStepsStart.timeIntervalSince1970)
-
         // Persist all the apple-health rows AND write back, advancing lastSync only when the WHOLE
         // round-trip succeeds. The three read-side upserts used to be swallowed by `try?`, so a failed
         // import (e.g. a disk-full GRDB write) dropped rows yet still cleared lastError and advanced
         // lastSync — a false "success", and the next delta sync skipped the window. (Reimplemented
         // from @vulnix0x4's PR #375.)
         do {
-            // AUDIT-HK-05: aggregate/sample reads describe the CURRENT source window, not a stream of
-            // additions. Replace that bounded source snapshot atomically so a Health deletion can remove
-            // daily rows, tall metric keys and workouts that no longer exist. Other device/source rows are
-            // outside the DELETE predicates. The returned old workout keys are reconciled with RouteStore
-            // below after the SQLite transaction commits.
-            let replacedWorkouts = try await store.replaceAppleHealthWindow(
-                appleDailyRows: appleRows,
-                dailyMetricRows: dmRows,
-                metricPoints: points,
-                workoutRows: workoutRows,
-                hourlyStepRows: hourlySteps,
-                deviceId: appleDeviceId,
-                fromDay: fromDay, toDay: toDay,
-                fromTs: fromTs, toTs: toTs,
-                hourlyFromTs: hourlyReplaceFromTs,
-                workoutSource: Self.appleWorkoutSource)
-
-            let currentWorkoutKeys = Set(workoutRows.map {
-                RouteStore.key(startTs: $0.startTs, sport: $0.sport)
-            })
-            for prior in replacedWorkouts {
-                let key = RouteStore.key(startTs: prior.startTs, sport: prior.sport)
-                if !currentWorkoutKeys.contains(key) {
-                    RouteStore.remove(startTs: prior.startTs, sport: prior.sport)
-                }
-            }
+            // Do not replace an entire visible Health window on an empty read. HealthKit intentionally
+            // makes denied read access look like no matching samples, so an empty query cannot authorize
+            // destructive reconciliation. Ordinary foreground sync stays upsert-only; observer deletion
+            // tombstones are handled separately because the tombstone itself is affirmative evidence.
+            try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
+            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
+            try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
+            if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
             // Imported water (#949) goes to the hydration source, not apple-health, because the hydration
             // screen is what reads it. Every day in the window is written — including the ones with no
             // water at all, as 0 — so deleting a drink in the source app takes it away here on the next
@@ -813,11 +770,17 @@ final class HealthKitBridge: ObservableObject {
                     CaffeineLogStore.shared.replaceImported(imported)
                 }
             }
-            // Hourly rows were collected before the transaction and replaced with the rest of the
-            // source snapshot above. Preserve the historical-backfill contract: only mark the one-time
-            // 90-day widen complete after Health actually returned step data.
-            if !hourlySteps.isEmpty, !hourlyStepsBackfilled {
-                UserDefaults.standard.set(true, forKey: Self.hourlyStepsBackfilledKey)
+            // Hourly steps remain non-destructive for the same privacy reason: no visible samples can
+            // mean either genuinely no data or denied read access.
+            let hourlyStepsBackfilled = UserDefaults.standard.bool(forKey: Self.hourlyStepsBackfilledKey)
+            let hourlyStepsStart: Date = hourlyStepsBackfilled ? start
+                : (cal.date(byAdding: .day, value: -90, to: cal.startOfDay(for: end)) ?? start)
+            let hourlySteps = try await collectHourlySteps(start: hourlyStepsStart, end: end)
+            if !hourlySteps.isEmpty {
+                try await store.upsertAppleStepHours(hourlySteps, deviceId: appleDeviceId)
+                if !hourlyStepsBackfilled {
+                    UserDefaults.standard.set(true, forKey: Self.hourlyStepsBackfilledKey)
+                }
             }
             try await writeBack(whoopStore: store)
             lastSync = Date()
