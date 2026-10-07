@@ -18,7 +18,7 @@ final class HealthKitDayKeyTests: XCTestCase {
         let midnight = try XCTUnwrap(HealthKitBridge.date(from: "2026-01-15", in: kathmandu))
 
         XCTAssertEqual(HealthKitBridge.dayString(midnight, in: kathmandu), "2026-01-15")
-        XCTAssertEqual(midnight.timeIntervalSince1970, 1_768_413_900, accuracy: 0.5) // 2026-01-14 18:15:00Z
+        XCTAssertEqual(midnight.timeIntervalSince1970, 1_768_414_500, accuracy: 0.5) // 2026-01-14 18:15:00Z
     }
 
     func testParsingDayUsesRealSpringForwardMidnight() throws {
