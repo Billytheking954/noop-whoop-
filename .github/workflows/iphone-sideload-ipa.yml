@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/iphone-sideload-ipa.yml'
       - '.github/workflows/app-build.yml'
+      - '.github/release/iphone-v2-final.json'
       - 'Tools/prepare_iphone_sideload.sh'
       - 'project.yml'
       - 'Config/**'
@@ -20,6 +21,7 @@ on:
     paths:
       - '.github/workflows/iphone-sideload-ipa.yml'
       - '.github/workflows/app-build.yml'
+      - '.github/release/iphone-v2-final.json'
       - 'Tools/prepare_iphone_sideload.sh'
       - 'project.yml'
       - 'Config/**'
