@@ -5,10 +5,10 @@ The formal NOOP V2 release is a signed iPhone IPA built from the exact final `ma
 ## Canonical identity
 
 - Product: **NOOP V2**
-- Upstream baseline: **NOOP 11.8**
-- Baseline commit: `ef0c0d72f2ece1a66c625a30e1076935e584b448`
-- App version: `11.8.0`
-- Build number: `400`
+- Upstream baseline: **NOOP 12.0.0**
+- Baseline commit: `7acce06c3d22cb5dfe959f2c4a43902471d21332`
+- App version: `12.0.0`
+- Build number: `435`
 - Platform: iOS
 - Device family: iPhone only
 - Configuration: Release
@@ -20,7 +20,7 @@ Fork identity belongs in release metadata, provenance and artifact naming rather
 The user-facing application artifact is:
 
 ```text
-NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
+NOOP-V2-12.0-base-<real-short-sha>-iphone.ipa
 ```
 
 The real short SHA is derived from the exact source commit. No Android, macOS, standalone watchOS, iPad-universal or simulator application artifact belongs in the formal V2 release.
@@ -115,7 +115,7 @@ Required provenance includes:
 
 - repository and `main`
 - full and short source SHA
-- NOOP 11.8 baseline and baseline SHA
+- NOOP 12.0.0 baseline and baseline SHA
 - version and build
 - release family
 - iOS / iPhone / Release identity

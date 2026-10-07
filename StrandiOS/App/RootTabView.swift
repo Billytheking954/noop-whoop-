@@ -65,13 +65,9 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// V8 liquid redesign is the default Today; the Settings toggle lets a user fall back to the classic
-    /// Today if they prefer it (keyed identically to the SettingsView toggle). Default ON.
-    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = true
-
-    /// The Today tab root, honouring the liquid/classic preference.
+    /// The reference dashboard is the shipping Today. Prototype views remain available in DEBUG capture routes.
     @ViewBuilder private var todayTabRoot: some View {
-        if liquidTodayEnabled { LiquidTodayView() } else { TodayView() }
+        TodayView()
     }
 
     /// Native tab selection binding. SwiftUI sends taps on the already-selected item through the
@@ -114,7 +110,9 @@ struct RootTabView: View {
                 guard selectedTab != 0 else { return }
                 let dx = v.translation.width, dy = v.translation.height
                 guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
-                let next = min(4, max(0, selectedTab + (dx < 0 ? 1 : -1)))
+                let tabs = [0, 1, 2, 4]
+                guard let index = tabs.firstIndex(of: selectedTab) else { return }
+                let next = tabs[min(tabs.count - 1, max(0, index + (dx < 0 ? 1 : -1)))]
                 if next != selectedTab {
                     withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
                 }
@@ -126,18 +124,9 @@ struct RootTabView: View {
         // its dynamic interaction with scrolling content automatically; older supported releases use
         // the corresponding system material and safe-area behaviour from the same TabView.
         TabView(selection: nativeTabSelection) {
-            tab(todayTabRoot, "Today", "square.grid.2x2", path: $tabPaths[0], scrollSignal: scrollTop[0]).tag(0)
-            tab(TrendsView(), "Trends", "chart.line.uptrend.xyaxis", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
-            tab(SleepView(), "Sleep", "bed.double", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
-            // K3: Coach promoted to a top-level tab (was behind the More list). The sparkles icon
-            // matches the More-tab row and the macOS sidebar entry.
-            // Conditional on the master switch. The tags stay LITERAL rather than being renumbered when
-            // Coach is absent: `tabPaths` and `scrollTop` are indexed by tag, and More stays tag 4 in both
-            // shapes, so a wearer's More tab keeps its identity, its navigation path and its scroll
-            // position across a flip instead of inheriting Coach's.
-            if coachEnabled {
-                tab(CoachView(), "Coach", "sparkles", path: $tabPaths[3], scrollSignal: scrollTop[3]).tag(3)
-            }
+            tab(todayTabRoot, "Today", "house", path: $tabPaths[0], scrollSignal: scrollTop[0]).tag(0)
+            tab(HealthView(), "Health", "heart", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
+            tab(WorkoutsView(), "Activity", "chart.bar", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
             moreTab(path: $tabPaths[4], scrollSignal: scrollTop[4]).tag(4)
         }
         .tint(StrandPalette.accent)
@@ -184,6 +173,9 @@ struct RootTabView: View {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
+        .task(id: repo.refreshSeq) {
+            await DailyInsightNotificationScheduler.reconcile(rows: repo.days)
+        }
         // Quick-action sheet presents with the calm easing (~0.42s) per the README sheet spec —
         // the easing is applied where `quickAction` is set (see `presentQuickAction`), keeping the
         // animation scoped to the sheet rather than the whole shell.
@@ -202,32 +194,19 @@ struct RootTabView: View {
         }
         // Honour a router request: Devices keeps its dedicated sheet; the v5 pillars route through the
         // shared pillar sheet. Cleared so the same tap can fire again later.
-        .onChange(of: router.requestedDestination) { _, dest in
+        .onChange(of: router.requestedDestination, initial: true) { _, dest in
             switch dest {
             case .devices:
                 showDevices = true
                 router.requestedDestination = nil
-            case .insightsHub, .labBook, .fusedRecord, .rhythm:
+            case .insightsHub, .labBook, .fusedRecord, .rhythm, .alarms:
                 routedPillar = dest
                 router.requestedDestination = nil
             case .coach:
-                // K3: Coach is now a top-level tab (tag 3) — switch to it directly instead of
-                // presenting it as a pillar sheet.
-                //
-                // Guarded on the master switch, because this route is reachable with Coach OFF. A brief
-                // notification already sitting in Notification Centre still calls `openCoach()` when it is
-                // tapped (StrandApp wires `onCoachBriefTapped` to it), and with no tab claiming tag 3 the
-                // wearer would land on a BLANK tab. Dropping the request leaves them where they were, which
-                // is the honest answer for a feature that is switched off.
-                guard coachEnabled else {
-                    router.requestedDestination = nil
-                    break
-                }
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 3 }
+                if coachEnabled { routedPillar = dest }
                 router.requestedDestination = nil
             case .trends:
-                // Trends is a primary tab on iPhone (not a pillar sheet) — switch to it.
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
+                routedPillar = dest
                 router.requestedDestination = nil
             case .activeWorkout:
                 // The Today active-workout indicator opens Live through the quick-action Live sheet; once
@@ -239,11 +218,6 @@ struct RootTabView: View {
                 // Live Sessions is presented from Today's own Start entry (a cover, not a routed sheet),
                 // so a deep-link lands on the Today tab where that entry lives.
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
-                router.requestedDestination = nil
-            case .coach:
-                // #1862: the Today Coach launcher hands its question here. Coach is a pillar sheet on
-                // iPhone, the same as the Insights hub, so route it that way rather than switching tabs.
-                routedPillar = dest
                 router.requestedDestination = nil
             case .journal:
                 // The #627 Today journal widget opens the journal through the quick-action Journal sheet
@@ -286,14 +260,11 @@ struct RootTabView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: liftSession.isActive)
+        // A session left running by a previous launch is back before this view exists
+        // (`LiftSessionController.resumeSaved`, from `StrandiOSApp.init`), as the BAR — not as a sheet
+        // thrown in the user's face; they open it when they want it.
         .sheet(isPresented: $liftSession.isPresented) {
             LiftSessionView { }
-        }
-        // A session left running by a previous launch comes back as the BAR, not as a sheet thrown
-        // in the user's face — they open it when they want it.
-        .task {
-            guard !liftSession.isActive, let snapshot = LiftSessionPersistence.load() else { return }
-            liftSession.resume(from: snapshot)
         }
     }
 
@@ -329,8 +300,6 @@ struct RootTabView: View {
                 case .fusedRecord: FusedRecordHost()
                 case .rhythm: RhythmHost(onClose: { routedPillar = nil })
                 case .devices: DevicesView()
-                // K5: the scheduled morning-brief notification's tap-through target.
-                case .coach: CoachView()
                 // .trends is never presented as a pillar sheet on iPhone (it's a primary tab — the
                 // requestedDestination handler switches `selectedTab` instead), but the switch must stay
                 // exhaustive. Fall back to Trends inside the sheet host if it ever arrives here.
@@ -344,9 +313,12 @@ struct RootTabView: View {
                 // .journal opens through the quick-action Journal sheet (handled above); this keeps the
                 // switch exhaustive and falls back to the journal's Insights host if it ever reaches here.
                 case .journal: InsightsView()
-                // #1862: Coach IS presented here — the launcher sheet routes to it as a pillar, so unlike
-                // the fallbacks above this arm is the real destination, not a safety net.
+                // .coach switches to the Coach tab (handled above — the morning-brief tap-through and the
+                // #1862 launcher both arrive that way, the launcher's question riding on
+                // `AICoachEngine.pendingPrompt`); this keeps the switch exhaustive and falls back to Coach if
+                // it ever reaches the host.
                 case .coach: CoachView()
+                case .alarms: SmartAlarmView()
                 }
             }
             // The Trends/Today fallbacks above emit TabRoute value pushes (#198), which need a
@@ -473,7 +445,9 @@ struct RootTabView: View {
                 moreSection("Insights") {
                     MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
                     MoreRow("Intelligence", "brain.head.profile", .intelligence)
-                    // K3: Coach promoted to a top-level tab — no longer listed under More.
+                    MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
+                    MoreRow("Sleep", "bed.double", .sleep)
+                    if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
                     MoreRow("Insights", "lightbulb.fill", .insights)
                     MoreRow("Explore", "square.grid.2x2.fill", .explore)
                     MoreRow("Compare", "rectangle.split.2x1.fill", .compare)
@@ -515,6 +489,7 @@ struct RootTabView: View {
                     // Automations screen instead. Its absence from the iPhone More list is correct.
                     MoreRow("Alarms", "alarm.fill", .alarms)
                     MoreRow("Automations", "wand.and.stars", .automations)
+                    MoreRow("Notifications", "bell.badge", .dailyInsightNotifications)
                     // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
                     // just buried in Settings, so the feedback loop is one tap from the More tab.
                     MoreRow("Test Centre", "stethoscope", .testCentre)
@@ -604,16 +579,18 @@ struct RootTabView: View {
 /// per-screen chrome the old inline links applied lives at the single `navigationDestination(for:)`
 /// registration in `moreTab`.
 private enum MoreDestination: Hashable {
-    case insightsHub, intelligence, coach, insights, explore, compare
+    case insightsHub, intelligence, coach, insights, explore, compare, trends, sleep
     case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
     case fusedRecord, appleHealth, miBand, dataSources, backupSync, shortcutsExport, noopLimitations
-    case alarms, automations, testCentre, siriShortcuts, powerSaving, settings
+    case alarms, automations, dailyInsightNotifications, testCentre, siriShortcuts, powerSaving, settings
 
     @ViewBuilder var destination: some View {
         switch self {
         case .insightsHub:     InsightsHubView()
         case .intelligence:    IntelligenceView()
         case .coach:           CoachView()
+        case .trends:          TrendsView()
+        case .sleep:           SleepView()
         case .insights:        InsightsView()
         case .explore:         MetricExplorerView()
         case .compare:         CompareView()
@@ -635,6 +612,7 @@ private enum MoreDestination: Hashable {
         case .shortcutsExport: ShortcutExportSettingsView()
         case .alarms:          SmartAlarmView()
         case .automations:     AutomationsView()
+        case .dailyInsightNotifications: DailyInsightNotificationSettingsView()
         case .testCentre:      TestCentreView()
         case .siriShortcuts:   SiriShortcutsSettingsView()
         case .powerSaving:     PowerSavingView()

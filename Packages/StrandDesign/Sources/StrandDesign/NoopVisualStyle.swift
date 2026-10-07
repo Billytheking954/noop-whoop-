@@ -9,10 +9,10 @@ import SwiftUI
 public enum NoopVisualStyle {
     // NOOP's cool mineral canvas and midnight ink give the metrics room to lead.
     // CRUX contributes spacing discipline, while the colour and atmosphere remain NOOP's own.
-    public static let canvas = Color(light: "#F4F7FA", dark: "#10151E")
-    public static let surface = Color(light: "#FFFFFF", dark: "#1C2531")
-    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#243141")
-    public static let surfaceBottom = Color(light: "#FAFCFE", dark: "#1B2633")
+    public static let canvas = Color(light: "#F4F7FA", dark: "#0D171B")
+    public static let surface = Color(light: "#FFFFFF", dark: "#19262C")
+    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#1C2A30")
+    public static let surfaceBottom = Color(light: "#FAFCFE", dark: "#19262C")
     public static let inset = Color(light: "#E9EFF4", dark: "#141D28")
 
     public static let border = Color(light: "#DCE4EB", dark: "#2C3948")
@@ -28,23 +28,25 @@ public enum NoopVisualStyle {
     public static let mintDeep = Color(light: "#0D655B", dark: "#36B994")
     public static let mintGlow = Color(light: "#42A995", dark: "#A3E4D4")
 
-    public static let cardRadius: CGFloat = 18
-    public static let compactRadius: CGFloat = 14
+    public static let cardRadius: CGFloat = 10
+    public static let compactRadius: CGFloat = 10
     public static let pillRadius: CGFloat = 999
     public static let pagePadding: CGFloat = 16
-    public static let cardPadding: CGFloat = 16
-    public static let itemGap: CGFloat = 12
-    public static let sectionGap: CGFloat = 24
+    public static let cardPadding: CGFloat = 12
+    public static let itemGap: CGFloat = 8
+    public static let sectionGap: CGFloat = 16
 }
 
-/// Shared card/panel treatment: a cool surface, quiet hairline, and restrained depth.
+/// Shared card/panel treatment: a solid surface on iOS, gradient and soft elevation elsewhere.
 /// `tint` is intentionally faint so metric identity never turns the whole card into a coloured tile.
 public struct NoopPanelSurface: View {
     public var tint: Color?
     public var cornerRadius: CGFloat
     public var elevated: Bool
     public var surfaceOpacity: Double
+    #if !os(iOS)
     @Environment(\.colorScheme) private var scheme
+    #endif
 
     public init(
         tint: Color? = nil,
@@ -60,6 +62,18 @@ public struct NoopPanelSurface: View {
 
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        #if os(iOS)
+        // Scrolling stacks contain many panels. Layered translucent gradients and blurred shadows
+        // multiply their compositing work, so iOS uses one theme-aware fill and a thin tinted rim.
+        // This changes decorative depth only; card geometry and the design-system colors stay the same.
+        shape
+            .fill(NoopVisualStyle.surface)
+            .overlay(shape.strokeBorder(
+                tint?.opacity(0.14) ?? NoopVisualStyle.borderHighlight.opacity(elevated ? 0.9 : 0.65),
+                lineWidth: 0.8
+            ))
+            .opacity(surfaceOpacity)
+        #else
         shape
             .fill(
                 LinearGradient(
@@ -96,6 +110,7 @@ public struct NoopPanelSurface: View {
                 y: elevated ? 7 : 3
             )
             .opacity(surfaceOpacity)
+        #endif
     }
 }
 

@@ -34,6 +34,7 @@ final class NavRouter: ObservableObject {
         /// surface of its own — it hands the question to the one screen that already has them.
         /// Also the K5 scheduled morning-brief notification's tap-through target.
         case coach
+        case alarms
 
         var id: String { rawValue }
 
@@ -59,6 +60,9 @@ final class NavRouter: ObservableObject {
     /// The #238 "a workout just started" transition trigger never fires for a session that is already in
     /// flight, so this is the one path that re-opens the live workout for an existing session.
     @Published var presentActiveWorkout = false
+    /// Exact daily-change finding selected by a local notification. The Insights screen clears it
+    /// after finding the current version; a withdrawn finding never opens an obsolete detail.
+    @Published var pendingDailyInsightID: String?
 
     /// Ask the shell to open the quick-action sheet (Live HR · workout · journal · breathe).
     func requestQuickActions() { quickActionsRequested = true }
@@ -67,8 +71,14 @@ final class NavRouter: ObservableObject {
     func openDevices() { requestedDestination = .devices }
     /// #1862: open Coach, optionally with a question the launcher already collected.
     func openCoach() { requestedDestination = .coach }
+    /// Open the existing wake-alarm and wind-down settings from Sleep.
+    func openAlarms() { requestedDestination = .alarms }
     /// Open the v5 Insights hub (the n-of-1 "what moves your Charge" surface).
     func openInsightsHub() { requestedDestination = .insightsHub }
+    func openDailyInsight(id: String) {
+        pendingDailyInsightID = id
+        requestedDestination = .insightsHub
+    }
     /// Open the Lab Book (private health-records logbook).
     func openLabBook() { requestedDestination = .labBook }
     /// Open the "Your Data, Fused" multi-device record.

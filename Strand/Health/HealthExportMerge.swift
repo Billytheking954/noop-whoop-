@@ -8,8 +8,10 @@ import WhoopStore
 // right, and the wholesale replacement it was written as is not.
 //
 // `WhoopImporter` never sets `avgSdnn` - a CSV carries no raw R-R to derive it from - so on any day an
-// import covers, the replacement drops a computed SDNN that was already correct. The export then falls
-// back to `avgHrv`, which for a strap row is RMSSD, and writes it under `heartRateVariabilitySDNN`.
+// import covers, the replacement drops a computed SDNN that was already correct. The export then fell
+// back to `avgHrv`, which for a strap row is RMSSD, and wrote it under `heartRateVariabilitySDNN`. That
+// fallback is gone (the export now writes no HRV for a day without an SDNN), so the carry-across below is
+// what keeps such a day exporting at all.
 //
 // The result is a REGRESSION of data that was right: a re-scored night exports a correctly-labelled SDNN
 // until an import lands on that day, after which the same night exports RMSSD under the SDNN label, with
@@ -18,6 +20,10 @@ import WhoopStore
 
 /// How a day's computed row and its imported row combine for the Apple Health export.
 enum HealthExportMerge {
+
+    /// HealthKit's HRV quantity is SDNN. A strap/CSV `avgHrv` can be RMSSD, so it cannot
+    /// stand in for a missing SDNN, even when it is the only HRV value for the day.
+    static func sdnnForHealth(_ row: DailyMetric) -> Double? { row.avgSdnn }
 
     /// The row to export for one day.
     ///

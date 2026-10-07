@@ -1,6 +1,6 @@
 # NOOP V2 on iPhone
 
-NOOP V2 is an iPhone-only WHOOP companion based on NOOP 11.8. This document describes the supported application target in this fork.
+NOOP V2 is an iPhone-only WHOOP companion based on NOOP 12.0.0. This document describes the supported application target in this fork.
 
 ## Supported product
 
@@ -74,7 +74,7 @@ The final signed artifact is produced by `.github/workflows/iphone-final-release
 The release workflow:
 
 1. verifies that the selected SHA is the current `main` HEAD,
-2. verifies ancestry from the recorded NOOP 11.8 baseline,
+2. verifies ancestry from the recorded NOOP 12.0.0 baseline,
 3. regenerates the Xcode project from `project.yml`,
 4. runs release-critical validation,
 5. creates a fresh generic physical-iPhone Release archive,
@@ -89,7 +89,7 @@ The release workflow:
 The expected artifact naming form is:
 
 ```text
-NOOP-V2-11.8-base-<real-short-sha>-iphone.ipa
+NOOP-V2-12.0-base-<real-short-sha>-iphone.ipa
 ```
 
 ## iPhone-only invariants

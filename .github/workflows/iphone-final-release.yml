@@ -19,11 +19,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  UPSTREAM_BASELINE_SHA: ef0c0d72f2ece1a66c625a30e1076935e584b448
-  UPSTREAM_BASELINE_LABEL: "NOOP 11.8"
+  UPSTREAM_BASELINE_SHA: 7acce06c3d22cb5dfe959f2c4a43902471d21332
+  UPSTREAM_BASELINE_LABEL: "NOOP 12.0.0"
   RELEASE_FAMILY: "NOOP V2"
-  APP_VERSION: "11.8.0"
-  BUILD_NUMBER: "400"
+  APP_VERSION: "12.0.0"
+  BUILD_NUMBER: "435"
 
 jobs:
   release:
@@ -80,17 +80,25 @@ jobs:
           import json
           from pathlib import Path
           p = json.loads(Path('.github/release/iphone-v2-final.json').read_text())
-          assert p['upstream_baseline_sha'] == 'ef0c0d72f2ece1a66c625a30e1076935e584b448'
-          assert p['version'] == '11.8.0'
-          assert str(p['build']) == '400'
+          assert p['upstream_baseline_sha'] == '7acce06c3d22cb5dfe959f2c4a43902471d21332'
+          assert p['version'] == '12.0.0'
+          assert str(p['build']) == '435'
           assert p['platform'] == 'iOS'
           assert p['device_family'] == 'iPhone'
-          assert p['included_prs'] == [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24]
-          assert sorted(p['remaining_open_prs']) == [2, 3, 4]
+          assert p['included_prs'] == sorted(set(p['included_prs']))
+          assert p['remaining_open_prs'] == sorted(set(p['remaining_open_prs']))
+          assert set(map(str, p['remaining_open_prs'])) == set(p['remaining_open_pr_classification'])
+          assert p['spo2']['production_scoring'] is False
           PY
+          EXPECTED_PRS="$(python3 - <<'PY'
+          import json
+          p = json.load(open('.github/release/iphone-v2-final.json'))
+          print(','.join(map(str, p['remaining_open_prs'])))
+          PY
+          )"
           OPEN_PRS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --jq '.[].number' | sort -n | paste -sd, -)"
-          if [[ "$OPEN_PRS" != "2,3,4" ]]; then
-            echo "::error::release scope changed; expected remaining open PRs 2,3,4, got ${OPEN_PRS:-none}"
+          if [[ "$OPEN_PRS" != "$EXPECTED_PRS" ]]; then
+            echo "::error::release scope changed; expected remaining open PRs ${EXPECTED_PRS:-none}, got ${OPEN_PRS:-none}"
             exit 1
           fi
 
@@ -229,16 +237,17 @@ jobs:
           SOURCE_SHA="$SHA" SHORT_SHA="$SHORT" python3 - <<'PY'
           import json, os, pathlib
           app = pathlib.Path.cwd()/'build/NOOP-V2.xcarchive/Products/Applications/NOOP.app'
+          scope = json.loads(pathlib.Path('.github/release/iphone-v2-final.json').read_text())
           payload = {
             'product':'NOOP', 'release_family':'NOOP V2',
             'repository':os.environ['GITHUB_REPOSITORY'], 'branch':'main',
             'git_sha':os.environ['SOURCE_SHA'], 'short_sha':os.environ['SHORT_SHA'],
-            'upstream_baseline':'NOOP 11.8',
-            'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
-            'app_version':'11.8.0', 'build_number':'400',
+            'upstream_baseline':'NOOP 12.0.0',
+            'upstream_baseline_sha':'7acce06c3d22cb5dfe959f2c4a43902471d21332',
+            'app_version':'12.0.0', 'build_number':'435',
             'platform':'iOS', 'device_family':'iPhone', 'configuration':'Release',
-            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24],
-            'remaining_open_prs':[2,3,4],
+            'included_prs':scope['included_prs'],
+            'remaining_open_prs':scope['remaining_open_prs'],
           }
           (app/'NOOPReleaseProvenance.json').write_text(json.dumps(payload, indent=2, sort_keys=True)+'\n')
           PY
@@ -266,7 +275,7 @@ jobs:
           SHORT='${{ steps.source.outputs.short }}'
           APP="$PWD/build/NOOP-V2.xcarchive/Products/Applications/NOOP.app"
           OUT="$PWD/release-out"
-          NAME="NOOP-V2-11.8-base-${SHORT}-iphone.ipa"
+          NAME="NOOP-V2-12.0-base-${SHORT}-iphone.ipa"
           rm -rf "$OUT" "$PWD/Payload"
           mkdir -p "$OUT" "$PWD/Payload"
           ditto "$APP" "$PWD/Payload/NOOP.app"
@@ -287,13 +296,14 @@ jobs:
           SOURCE_SHA="$SHA" SHORT_SHA="$SHORT" IPA_NAME="$NAME" IPA_SHA="$IPA_SHA" IPA_SIZE="$IPA_SIZE" INFO_SHA="$INFO_SHA" PROV_SHA="$PROV_SHA" python3 - <<'PY'
           import json, os, pathlib
           out = pathlib.Path('release-out')
+          scope = json.loads(pathlib.Path('.github/release/iphone-v2-final.json').read_text())
           manifest = {
             'repository':os.environ['GITHUB_REPOSITORY'], 'branch':'main',
             'source_sha':os.environ['SOURCE_SHA'], 'short_sha':os.environ['SHORT_SHA'],
-            'upstream_baseline':'NOOP 11.8', 'upstream_baseline_sha':'ef0c0d72f2ece1a66c625a30e1076935e584b448',
+            'upstream_baseline':'NOOP 12.0.0', 'upstream_baseline_sha':'7acce06c3d22cb5dfe959f2c4a43902471d21332',
             'release_family':'NOOP V2', 'configuration':'Release',
             'platform':'iOS', 'device_family':'iPhone', 'architecture':'arm64',
-            'version':'11.8.0', 'build':'400',
+            'version':'12.0.0', 'build':'435',
             'bundle_identifier':os.environ['IOS_BUNDLE_ID_PREFIX']+'.noop',
             'widget_bundle_identifier':os.environ['IOS_BUNDLE_ID_PREFIX']+'.noop.widgets',
             'app_group':'group.'+os.environ['IOS_BUNDLE_ID_PREFIX']+'.noop.staging',
@@ -301,8 +311,8 @@ jobs:
             'artifact_size_bytes':int(os.environ['IPA_SIZE']),
             'embedded_info_plist_sha256':os.environ['INFO_SHA'],
             'embedded_provenance_sha256':os.environ['PROV_SHA'],
-            'included_prs':[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,24],
-            'remaining_open_prs':[2,3,4],
+            'included_prs':scope['included_prs'],
+            'remaining_open_prs':scope['remaining_open_prs'],
             'experimental_spo2':True, 'spo2_candidate_82_verified':False,
           }
           (out/'release-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True)+'\n')
@@ -312,7 +322,7 @@ jobs:
           cat > "$OUT/release-notes.md" <<EOF
           # NOOP V2 for iPhone
 
-          Offline iPhone WHOOP companion based on NOOP 11.8.
+          Offline iPhone WHOOP companion based on NOOP 12.0.0.
 
           Source: $SHA
           Version: $APP_VERSION ($BUILD_NUMBER)
@@ -341,14 +351,14 @@ jobs:
           set -euo pipefail
           SHA='${{ steps.source.outputs.sha }}'
           SHORT='${{ steps.source.outputs.short }}'
-          TAG="noop-v2-11.8-iphone-${SHORT}"
+          TAG="noop-v2-12.0-iphone-${SHORT}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::release tag already exists; immutable releases are never overwritten: $TAG"
             exit 1
           fi
           gh release create "$TAG" release-out/* \
             --target "$SHA" \
-            --title "NOOP V2 iPhone 11.8.0 (${SHORT})" \
+            --title "NOOP V2 iPhone 12.0.0 (${SHORT})" \
             --notes-file release-out/release-notes.md
           TARGET="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$TAG" --jq '.target_commitish')"
           test "$TARGET" = "$SHA"

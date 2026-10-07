@@ -427,7 +427,7 @@ private struct FitDecoder {
         case 11: return "Walking"
         case 13: return "Strength Training"
         case 14: return "Cardio"
-        case 15: return "Hiking"
+        case 15: return "Rowing"
         case 17: return "Hiking"
         case 4: return "Fitness Equipment"
         case 10: return "Training"

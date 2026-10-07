@@ -15,9 +15,9 @@ VERIFIER = ROOT / "Tools" / "verify_iphone_ipa.py"
 class VerifyIPhoneIPATests(unittest.TestCase):
     SHA = "a" * 40
     BUNDLE = "com.example.noop"
-    VERSION = "11.8.0"
-    BUILD = "400"
-    FILENAME = "NOOP-V2-11.8-base-aaaaaaa-iphone.ipa"
+    VERSION = "12.0.0"
+    BUILD = "435"
+    FILENAME = "NOOP-V2-12.0-base-aaaaaaa-iphone.ipa"
 
     def make_ipa(self, directory: Path, *, sha: str | None = None, device_family=None, signed=True) -> Path:
         sha = sha or self.SHA
@@ -33,7 +33,7 @@ class VerifyIPhoneIPATests(unittest.TestCase):
             "CFBundleExecutable": "NOOP",
             "UIDeviceFamily": device_family,
             "NOOPReleaseGitSHA": sha,
-            "NOOPReleaseBaseline": "NOOP 11.8",
+            "NOOPReleaseBaseline": "NOOP 12.0.0",
             "NOOPReleaseFamily": "NOOP V2",
         }
         widget_info = {
@@ -44,7 +44,7 @@ class VerifyIPhoneIPATests(unittest.TestCase):
         }
         provenance = {
             "product": "NOOP",
-            "upstream_baseline": "NOOP 11.8",
+            "upstream_baseline": "NOOP 12.0.0",
             "git_sha": sha,
             "app_version": self.VERSION,
             "build_number": self.BUILD,
@@ -79,7 +79,7 @@ class VerifyIPhoneIPATests(unittest.TestCase):
                 "--git-sha",
                 expected_sha or self.SHA,
                 "--baseline",
-                "NOOP 11.8",
+                "NOOP 12.0.0",
                 "--release-family",
                 "NOOP V2",
                 "--expected-filename",

@@ -21,6 +21,16 @@ struct DevicesView: View {
     // for `DevicesContent` and the Add-device wizard, so nothing downstream loses its live readout.
 
     var body: some View {
+        #if os(iOS)
+        if let registry = model.deviceRegistry {
+            ConceptDeviceView(registry: registry)
+        } else {
+            DataPendingNote(
+                title: "Getting your devices ready",
+                message: "NOOP is opening your on-device data. Your paired bands will appear here in a moment.",
+                symbol: "badge.plus.radiowaves.right")
+        }
+        #else
         ScreenScaffold(title: "Devices",
                        subtitle: "Pair and manage the bands NOOP reads from.",
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
@@ -37,8 +47,213 @@ struct DevicesView: View {
                     symbol: "badge.plus.radiowaves.right")
             }
         }
+        #endif
     }
 }
+
+#if os(iOS)
+/// The connected-device landing page from the reference. All values come from the registry or
+/// current live connection. The full manager remains available for multi-device operations.
+private struct ConceptDeviceView: View {
+    @ObservedObject var registry: DeviceRegistry
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var ble: BLEManager
+    @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastRequested = false
+    @State private var showManager = false
+    @State private var showRename = false
+    @State private var nameDraft = ""
+    @State private var syncFeedback: String?
+
+    private var active: PairedDevice? {
+        registry.devices.first { $0.status == .active && !$0.isImportSource }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
+                if let device = active {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label(live.connected ? "CONNECTED TO" : "DISCONNECTED",
+                                  systemImage: "circle.fill")
+                                .font(ReferenceStyle.caption)
+                                .foregroundStyle(live.connected ? StrandPalette.statusPositive : StrandPalette.textSecondary)
+                            Button {
+                                nameDraft = device.nickname ?? device.displayName
+                                showRename = true
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(device.displayName)
+                                        .font(ReferenceStyle.title)
+                                        .foregroundStyle(StrandPalette.textPrimary)
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 13))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Rename \(device.displayName)")
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Last sync").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                            Text(live.lastSyncedAt.map { Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
+                                .font(ReferenceStyle.caption)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                        }
+                    }
+                    .padding(.top, 8)
+
+                    HStack(spacing: 16) {
+                        Spacer()
+                        // Drawn in SwiftUI: an original neutral band silhouette, never a brand render.
+                        ReferenceBandIllustration()
+                        Spacer()
+                        VStack(spacing: 4) {
+                            ZStack(alignment: .bottom) {
+                                RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.border)
+                                if live.connected, let battery = live.batteryPct {
+                                    RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.green)
+                                        .frame(height: 110 * Double(min(100, max(0, battery))) / 100)
+                                }
+                            }.frame(width: 24, height: 110)
+                            Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
+                                .font(ReferenceStyle.value)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text("Battery").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
+                    }
+                    .frame(height: 210)
+
+                    deviceActionCard {
+                        Toggle(isOn: $broadcastRequested) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Broadcast Heart Rate").font(ReferenceStyle.headline)
+                                Text(broadcastFeedback)
+                                    .font(ReferenceStyle.caption)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                        }
+                        .tint(.blue)
+                        .disabled(!live.encryptedBond || !SourceCoordinator.isWhoop(device) || ble.broadcastHRStatus == .pending)
+                        .onChange(of: broadcastRequested) { _, on in
+                            ble.setBroadcastHr(on)
+                        }
+                    }
+                    Button {
+                        model.ble.syncNow()
+                        syncFeedback = "Sync requested. Waiting for strap history."
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(live.backfilling ? "Syncing…" : "Sync Now").font(ReferenceStyle.headline)
+                                Text(syncFeedback ?? (live.lastSyncedAt.map {
+                                    "Last synced \(Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened))"
+                                } ?? "No completed sync yet"))
+                                    .font(ReferenceStyle.caption)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .padding(ReferenceStyle.padding)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(Color.blue.opacity(0.23), in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!live.connected || !live.bonded || !live.historyReady || live.backfilling)
+                    .onChange(of: live.lastSyncedAt) { _, date in
+                        if let date { syncFeedback = "Synced \(Date(timeIntervalSince1970: date).formatted(date: .abbreviated, time: .shortened))" }
+                    }
+                    if !live.connected || !live.historyReady {
+                        Text("Sync needs a connected, bonded strap.")
+                            .font(ReferenceStyle.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    deviceActionCard {
+                        VStack(spacing: 0) {
+                            infoRow("Model", value: String(describing: device.model))
+                            Divider()
+                            infoRow("Firmware", value: live.connected ? (live.strapFirmware ?? "Unavailable") : "Unavailable")
+                            Divider()
+                            infoRow("Device identifier", value: "Hidden")
+                        }
+                    }
+                } else {
+                    Text("No active device")
+                        .font(.system(size: 20, weight: .semibold))
+                    Text("Pair a strap to see connection, battery and sync details.")
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                Button("Manage paired devices") { showManager = true }
+                    .font(ReferenceStyle.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .padding(.horizontal, ReferenceStyle.page)
+        }
+        .background(ReferenceStyle.canvas)
+        .navigationTitle("Device")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showManager) {
+            NavigationStack {
+                ScreenScaffold(title: "Devices", subtitle: "Pair and manage the bands NOOP reads from.") {
+                    DevicesContent(registry: registry)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showManager = false }
+                    }
+                }
+            }
+        }
+        .alert("Device name", isPresented: $showRename) {
+            TextField("Name", text: $nameDraft)
+            Button("Save") {
+                if let device = active { registry.rename(device.id, to: nameDraft) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose a name for this device.")
+        }
+    }
+
+    private var broadcastFeedback: String {
+        guard live.encryptedBond else { return String(localized: "Connect and bond a WHOOP 5.0 / MG first") }
+        switch ble.broadcastHRStatus {
+        case .idle: return String(localized: "Stored preference; strap state not yet confirmed")
+        case .unavailable: return String(localized: "Unable to request broadcast on this connection")
+        case .pending: return String(localized: "Waiting for strap confirmation…")
+        case .finished(let report):
+            switch report.verdict {
+            case .confirmed: return report.storedValue == "1"
+                ? String(localized: "Broadcast flag enabled on strap")
+                : String(localized: "Broadcast flag disabled on strap")
+            case .unchanged: return String(localized: "The strap did not apply this change")
+            default: return String(localized: "Could not confirm the strap setting. Try again.")
+            }
+        }
+    }
+
+    private func deviceActionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(ReferenceStyle.padding)
+            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
+    }
+
+    private func infoRow(_ label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value).foregroundStyle(StrandPalette.textSecondary)
+        }
+        .font(ReferenceStyle.caption)
+        .frame(minHeight: 32)
+    }
+}
+#endif
 
 // MARK: - Content (registry resolved)
 
@@ -1477,9 +1692,9 @@ private struct FeatureFlagProbeSheets: ViewModifier {
 /// the result sheet — isolated for the same iOS type-checker reason as `BodyLocationProbeSheets`.
 ///
 /// The wrist selection is deliberately a second, independent confirmation rather than a button inside
-/// the start flow: `SELECT_WRIST` writes strap state that survives a disconnect, and the right/left
-/// mapping is inferred from the client enum's order rather than confirmed on hardware. A persistent
-/// write nobody has verified is exactly the kind of thing that should cost a deliberate extra tap.
+/// the start flow: `SELECT_WRIST` writes strap state that survives a disconnect. The right/left mapping
+/// is no longer a guess (right=1/left=2, from the official parser and the firmware constructor), but a
+/// persistent write NOOP has not verified on its own hardware still costs a deliberate extra tap.
 private struct EcgProbeSheets: ViewModifier {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
@@ -1566,8 +1781,8 @@ private struct FeatureFlagProbeResultView: View {
 
 /// The wrist-selection step: the one ECG command that writes strap state outliving the session, so it
 /// gets its own screen, its own warning, and its own confirmation rather than a button inside the start
-/// flow. The copy names both caveats plainly — that the value persists on the strap, and that the
-/// left/right mapping is read off the order in WHOOP's own app rather than verified on hardware.
+/// flow. The copy names both facts plainly — that the value persists on the strap, and where the
+/// left/right mapping comes from.
 private struct EcgWristSheet: View {
     let onPick: (Whoop5Ecg.WristSelection) -> Void
     let onCancel: () -> Void
@@ -1581,7 +1796,7 @@ private struct EcgWristSheet: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.statusWarning)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("It is also not fully confirmed. Which value means “left” and which means “right” is read off the order they appear in WHOOP's own app, not verified on a strap — so it may set the opposite wrist. You can send it again with the other choice at any time, and it changes nothing about your recorded data.")
+            Text("Which value means “left” and which means “right” comes from WHOOP's own app and the strap firmware, not from a strap NOOP has tested. You can send it again with the other choice at any time, and it changes nothing about your recorded data.")
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

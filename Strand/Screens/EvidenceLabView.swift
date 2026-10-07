@@ -60,7 +60,7 @@ struct EvidenceLabView: View {
                 .padding(NoopMetrics.space4)
             }
         }
-        .background(StrandPalette.background)
+        .background(StrandPalette.surfaceBase)
     }
     
     // MARK: - Header
@@ -79,7 +79,7 @@ struct EvidenceLabView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(NoopMetrics.space4)
-        .background(StrandPalette.surfaceSecondary)
+        .background(StrandPalette.surfaceRaised)
     }
     
     // MARK: - Tab Bar
@@ -117,8 +117,8 @@ struct EvidenceLabView: View {
             ) { selectedTab = .docs }
         }
         .frame(height: 44)
-        .background(StrandPalette.surfaceSecondary)
-        .borderTop(StrandPalette.hairline)
+        .background(StrandPalette.surfaceRaised)
+        .overlay(alignment: .top) { StrandPalette.hairline.frame(height: 1) }
     }
     
     // MARK: - Tab 1: Overview
@@ -216,7 +216,7 @@ struct EvidenceLabView: View {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(status.color)
-            Text(label).font(StrandFont.caption2).foregroundStyle(StrandPalette.textTertiary)
+            Text(label).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
             Text(value).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
         }
         .frame(maxWidth: .infinity)
@@ -285,13 +285,13 @@ struct EvidenceLabView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(threshold).font(StrandFont.caption2).foregroundStyle(StrandPalette.textTertiary)
+                Text(threshold).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                 Image(systemName: status == .good ? "checkmark.circle" : "exclamationmark.circle")
                     .foregroundStyle(status.color)
             }
         }
         .padding(8)
-        .background(StrandPalette.surfaceSecondary)
+        .background(StrandPalette.surfaceRaised)
         .cornerRadius(4)
     }
     
@@ -350,7 +350,7 @@ struct EvidenceLabView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Phase \(number)").font(StrandFont.caption2).foregroundStyle(StrandPalette.textTertiary)
+                Text("Phase \(number)").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                 Text(title).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
                 Spacer()
                 Text(status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
@@ -358,7 +358,7 @@ struct EvidenceLabView: View {
             Text(description).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
         }
         .padding(8)
-        .background(StrandPalette.surfaceSecondary)
+        .background(StrandPalette.surfaceRaised)
         .cornerRadius(4)
     }
     
@@ -445,7 +445,7 @@ struct EvidenceLabView: View {
                     Image(systemName: icon).foregroundStyle(StrandPalette.accent)
                     Text(name).font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                     if isExperimental {
-                        Text("EXPERIMENTAL").font(StrandFont.caption2)
+                        Text("EXPERIMENTAL").font(StrandFont.caption)
                             .foregroundStyle(.orange).padding(.horizontal, 4).padding(.vertical, 2)
                             .background(Color.orange.opacity(0.2)).cornerRadius(3)
                     }
@@ -522,7 +522,7 @@ struct EvidenceLabView: View {
             Text(value).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
         }
         .padding(8)
-        .background(StrandPalette.surfaceSecondary)
+        .background(StrandPalette.surfaceRaised)
         .cornerRadius(4)
     }
     
@@ -546,12 +546,12 @@ struct EvidenceLabView: View {
     
     private func metricBox(label: String, value: String) -> some View {
         VStack(spacing: 4) {
-            Text(label).font(StrandFont.caption2).foregroundStyle(StrandPalette.textTertiary)
+            Text(label).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
             Text(value).font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
         }
         .frame(maxWidth: .infinity)
         .padding(8)
-        .background(StrandPalette.surfaceSecondary)
+        .background(StrandPalette.surfaceRaised)
         .cornerRadius(4)
     }
     
@@ -606,7 +606,7 @@ struct EvidenceLabView: View {
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.accent)
                     .padding(8)
-                    .background(StrandPalette.surfaceSecondary)
+                    .background(StrandPalette.surfaceRaised)
                     .cornerRadius(4)
             }
         }
@@ -748,7 +748,7 @@ struct EvidenceLabView: View {
                 )
             }
             .padding(NoopMetrics.space3)
-            .background(StrandPalette.surfaceSecondary)
+            .background(StrandPalette.surfaceRaised)
             .cornerRadius(8)
         }
     }
@@ -853,14 +853,14 @@ struct TabBarButton: View {
             VStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
-                Text(label).font(StrandFont.caption2)
+                Text(label).font(StrandFont.caption)
             }
             .frame(maxWidth: .infinity)
             .foregroundStyle(isActive ? StrandPalette.accent : StrandPalette.textSecondary)
         }
         .frame(height: 44)
-        .background(isActive ? StrandPalette.surfaceTertiary : .transparent)
-        .borderBottom(isActive ? StrandPalette.accent : .clear, width: isActive ? 2 : 0)
+        .background(isActive ? StrandPalette.surfaceOverlay : Color.clear)
+        .overlay(alignment: .bottom) { (isActive ? StrandPalette.accent : Color.clear).frame(height: isActive ? 2 : 0) }
     }
 }
 
@@ -887,7 +887,7 @@ struct ValidationGate: View {
             }
         }
         .padding(8)
-        .background(StrandPalette.surfaceSecondary)
+        .background(StrandPalette.surfaceRaised)
         .cornerRadius(4)
     }
 }
@@ -976,6 +976,6 @@ enum StatusLevel {
 #if DEBUG
 #Preview("Evidence Lab") {
     EvidenceLabView()
-        .environmentObject(AppModel.preview)
+        .environmentObject(AppModel())
 }
 #endif

@@ -28,10 +28,10 @@ enum PuffinExperiment {
 
     static var deepDataEnabled: Bool { UserDefaults.standard.bool(forKey: deepDataKey) }
 
-    /// Opt-in "Broadcast heart rate": writes the device-config flag `whoop_live_hr_in_adv_ind_pkt="1"`
-    /// so the strap advertises the standard Heart Rate Service (0x180D) + its live HR, pairable by a
-    /// Garmin/Zwift/gym HR client. Reversible, default off; applied on each 5/MG connection and driven by
-    /// `BLEManager.setBroadcastHr(_:)`. Mirrors the Android `PuffinExperiment.KEY_BROADCAST_HR`. (#181)
+    /// Opt-in "Broadcast heart rate": enables the family's reversible direct-broadcast control so the
+    /// strap advertises the standard Heart Rate Service (0x180D), pairable by a Garmin/Zwift/gym HR
+    /// client. Default off; driven by `BLEManager.setBroadcastHr(_:)`. Mirrors the Android
+    /// `PuffinExperiment.KEY_BROADCAST_HR`. (#181)
     static let broadcastHrKey = "noopBroadcastHr"
 
     static var broadcastHrEnabled: Bool { UserDefaults.standard.bool(forKey: broadcastHrKey) }
@@ -246,10 +246,14 @@ enum PuffinExperiment {
     /// SUSTAINED-ELEVATED window (resting HR + 30 bpm held ≥ 12 min) that doesn't overlap a saved workout,
     /// and surface ONE dismissible Today card offering to save it as a manual-style workout. Pure read +
     /// suggestion: nothing is ever created without the user tapping Save, and turning this OFF stops all
-    /// detection and hides the card. Default OFF. Mirrors the Android `NoopPrefs.KEY_AUTO_DETECT_WORKOUTS`.
+    /// detection and hides the card. New Apple installs default ON; an explicitly disabled setting stays
+    /// off. The Android implementation is absent from this fork
+    /// checkout, so parity is not yet verified.
     static let autoDetectWorkoutsKey = "noopAutoDetectWorkouts"
 
-    static var autoDetectWorkoutsEnabled: Bool { UserDefaults.standard.bool(forKey: autoDetectWorkoutsKey) }
+    static var autoDetectWorkoutsEnabled: Bool {
+        UserDefaults.standard.object(forKey: autoDetectWorkoutsKey) as? Bool ?? true
+    }
 
     /// "Journal reminder" (#627). When ON, Today shows a persistent journal widget (a last-7-days
     /// completion strip that taps through to the journal) and nudges when today isn't logged yet.
