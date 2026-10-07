@@ -383,9 +383,10 @@ struct StrandiOSApp: App {
                         isAuthorized: health.auth == .authorized)
                     await HealthSyncRefreshCoordinator.run(
                         sync: { await health.sync() },
-                        refresh: {
+                        refresh: { syncSucceeded in
                             await model.refreshAfterAppleHealthSync(
-                                authorized: health.auth == .authorized)
+                                authorized: health.auth == .authorized,
+                                syncSucceeded: syncSucceeded)
                         }
                     )
                     await WidgetSnapshot.publish(from: model)
