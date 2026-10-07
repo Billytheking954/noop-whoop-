@@ -123,7 +123,7 @@ struct WorkoutDetailView: View {
                 }
             }
         }
-        .alert("FIT export unavailable", isPresented: $showFitExportError) {
+        .alert("Export failed", isPresented: $showFitExportError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(fitExportErrorMessage)
@@ -136,8 +136,8 @@ struct WorkoutDetailView: View {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("FIT WORKOUT FILE").strandOverline()
-                            Text("One file for the completed activity")
+                            Text("EXPORT").strandOverline()
+                            Text("Workout files")
                                 .font(ReferenceStyle.body)
                                 .foregroundStyle(StrandPalette.textSecondary)
                         }
@@ -150,16 +150,20 @@ struct WorkoutDetailView: View {
                     Button {
                         exportFitWorkout()
                     } label: {
-                        Label(fitExportBusy ? "Preparing FIT…" : "Export FIT",
-                              systemImage: "square.and.arrow.up")
+                        HStack(spacing: 5) {
+                            Image(systemName: "square.and.arrow.up")
+                            if fitExportBusy {
+                                Text("Exporting…")
+                            } else {
+                                Text("Export")
+                                Text(verbatim: "FIT")
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                     .disabled(fitExportBusy)
 
-                    Text("Includes the real recorded heart-rate series and GPS track when available, plus the workout summary. Use the iOS share sheet to save it or upload it manually to Strava or another FIT-compatible service.")
-                        .font(ReferenceStyle.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -482,7 +486,7 @@ struct WorkoutDetailView: View {
                 Button {
                     exportGpxRoute()
                 } label: {
-                    Label("Export GPX route", systemImage: "square.and.arrow.up")
+                    Label("GPX — Strava, Garmin, most apps", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
             }
@@ -510,8 +514,7 @@ struct WorkoutDetailView: View {
                 route: storedRoute
             ) else {
                 fitExportBusy = false
-                fitExportErrorMessage = String(localized:
-                    "This workout has no valid timed heart-rate or GPS measurements to place in a FIT file.")
+                fitExportErrorMessage = String(localized: "Nothing to export")
                 showFitExportError = true
                 return
             }
@@ -524,8 +527,7 @@ struct WorkoutDetailView: View {
 
             guard rendered.stravaUploadReady else {
                 fitExportBusy = false
-                fitExportErrorMessage = String(localized:
-                    "This workout does not contain any exportable timed measurements.")
+                fitExportErrorMessage = String(localized: "Nothing to export")
                 showFitExportError = true
                 return
             }
@@ -535,8 +537,7 @@ struct WorkoutDetailView: View {
                 try rendered.data.write(to: url, options: .atomic)
             } catch {
                 fitExportBusy = false
-                fitExportErrorMessage = String(localized:
-                    "NOOP could not write the FIT file. Your workout data was not changed.")
+                fitExportErrorMessage = String(localized: "The export file could not be created or shared.")
                 showFitExportError = true
                 return
             }
