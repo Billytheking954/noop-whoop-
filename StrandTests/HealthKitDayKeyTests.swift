@@ -32,7 +32,7 @@ final class HealthKitDayKeyTests: XCTestCase {
         let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         let midnight = try XCTUnwrap(HealthKitBridge.date(from: "2025-11-02", in: newYork))
 
-        XCTAssertEqual(midnight.timeIntervalSince1970, 1_762_059_600, accuracy: 0.5) // 2025-11-02 04:00:00Z
+        XCTAssertEqual(midnight.timeIntervalSince1970, 1_762_056_000, accuracy: 0.5) // 2025-11-02 04:00:00Z
     }
 }
 #endif
