@@ -609,12 +609,15 @@ final class HealthKitBridge: ObservableObject {
             var a = agg(day); a.waterMl = v; byDay[day] = a
         }
 
-        // Sleep minutes per day (asleep stages summed; attributed to wake day).
-        await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
+        // Sleep minutes per day (asleep stages summed; attributed to wake day). A failed sample
+        // query is NOT an authoritative empty result: this pass writes whole dailyMetric rows, so treating
+        // failure as "no sleep" would replace previously-imported sleep fields with nil (#2561 invariant).
+        let sleepRead = await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
             var a = agg(day)
             a.asleepMin = asleepMin; a.deepMin = deepMin; a.remMin = remMin; a.coreMin = coreMin
             byDay[day] = a
         }
+        note(sleepRead, "sleepAnalysis")
 
         // #2561 follow-up: hold the whole write back if ANY aggregate read failed. Every upsert below
         // assigns `column = excluded.column`, so writing now would replace each failed metric's stored
@@ -1558,7 +1561,7 @@ final class HealthKitBridge: ObservableObject {
     /// `unavailable` is deliberately NOT a failure. A quantity type this device does not have will never
     /// have one, so absence IS the true answer and writing it is correct. Folding the two together would
     /// let one missing type abort every Health sync forever on that device.
-    enum HealthRead {
+    enum HealthRead: Equatable {
         /// The query ran. Whatever it found, including nothing, is authoritative.
         case read
         /// The quantity type does not exist on this device. Nothing to read, now or later.
@@ -1602,15 +1605,21 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
+    nonisolated static func sampleQueryReadOutcome(hadError: Bool) -> HealthRead {
+        hadError ? .failed : .read
+    }
+
     private func collectSleep(start: Date, end: Date,
-                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async {
-        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
+                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async -> HealthRead {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return .unavailable }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
+        return await withCheckedContinuation { (cont: CheckedContinuation<HealthRead, Never>) in
+            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+                let outcome = Self.sampleQueryReadOutcome(hadError: error != nil)
+                guard outcome != .failed else { cont.resume(returning: .failed); return }
                 var asleep: [String: Double] = [:], deep: [String: Double] = [:]
                 var rem: [String: Double] = [:], core: [String: Double] = [:]
                 for case let s as HKCategorySample in samples ?? [] {
@@ -1630,7 +1639,7 @@ final class HealthKitBridge: ObservableObject {
                 for day in Set(asleep.keys) {
                     sink(day, asleep[day], deep[day], rem[day], core[day])
                 }
-                cont.resume()
+                cont.resume(returning: .read)
             }
             store.execute(q)
         }
