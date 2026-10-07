@@ -3369,6 +3369,17 @@ final class Repository: ObservableObject {
         return await hrBuckets(deviceIds: ids, from: from, to: to, bucketSeconds: bucket)
     }
 
+    /// Full-resolution HR for workout-file export. Uses the exact same ownership resolver as the
+    /// workout chart/zones/HRR, but deliberately does not bucket the samples: FIT needs the real
+    /// timestamped series. Read-only and capped well above a normal multi-hour workout.
+    func workoutHeartRateSamples(from: Int, to: Int, source: String = "",
+                                 limit: Int = 200_000) async -> [HRSample] {
+        guard to > from else { return [] }
+        let ids = Self.workoutHrDeviceIds(source: source, activeStrapId: deviceId,
+                                          importedIds: importedReadIds)
+        return await hrSamples(deviceIds: ids, from: from, to: to, limit: max(1, limit))
+    }
+
     /// Raw HR samples binned into per-zone MINUTES for a workout window, using the age-derived
     /// (Tanaka) %HRmax zones , the same display zone model `WorkoutsView` already uses for imported
     /// zone percentages, but computed here from the strap's own samples so a session WITHOUT imported
