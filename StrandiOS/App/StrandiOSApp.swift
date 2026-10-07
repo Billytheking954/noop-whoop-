@@ -167,7 +167,7 @@ struct StrandiOSApp: App {
             let succeeded = await bridge.writeBackAfterNewData()
             // A person can revoke every write type in Settings while NOOP is closed. Stop requesting
             // wakes once the cold-launched bridge can no longer resume a prior share grant.
-            if bridge.auth != .authorized {
+            if !bridge.hasAnyWriteAuthorization {
                 HealthWritebackBackgroundScheduler.cancel()
             }
             return succeeded
@@ -316,7 +316,7 @@ struct StrandiOSApp: App {
                 // Apple Health is explicitly opt-in. Once any write type is authorized, keep one
                 // best-effort BGAppRefresh request armed; revoking all write access cancels it.
                 .onChange(of: health.auth) { _, auth in
-                    HealthWritebackBackgroundScheduler.updateSchedule(isAuthorized: auth == .authorized)
+                    HealthWritebackBackgroundScheduler.updateSchedule(isAuthorized: health.hasAnyWriteAuthorization)
                 }
                 // #581: the `noop://import-health` deep link the iOS Shortcut opens after building the
                 // HealthKit-free payload. Filter on the host so other future schemes don't trip the
@@ -380,7 +380,7 @@ struct StrandiOSApp: App {
                 Task {
                     health.refreshAuthIfPreviouslyGranted()
                     HealthWritebackBackgroundScheduler.updateSchedule(
-                        isAuthorized: health.auth == .authorized)
+                        isAuthorized: health.hasAnyWriteAuthorization)
                     await HealthSyncRefreshCoordinator.run(
                         sync: { await health.sync() },
                         refresh: { syncSucceeded in
