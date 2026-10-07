@@ -310,12 +310,18 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - Impact is unnecessary background wake/battery budget, not physiological scoring corruption; fixed because the change is isolated and low risk.
 
 
-### AUDIT-BACKUP-02 — writes after restore and before relaunch go to the detached old store
+### AUDIT-BACKUP-02 — writes after restore and before relaunch went to the detached old store
 
-- Severity: P2; confidence 0.99; CONFIRMED, NOT YET FIXED.
+- Severity: P2; confidence 0.99; CONFIRMED, FIX IMPLEMENTED — CI VALIDATION IN PROGRESS.
 - Restore deliberately swaps the SQLite file while the app's existing `DatabasePool` remains open and tells the user to fully quit/reopen.
 - On POSIX/SQLite semantics, an already-open connection keeps the unlinked old database alive. A write made by that pool after the path swap can succeed against the detached old inode while a new connection to the restored path sees the replacement database.
 - A local WAL-mode reproduction confirmed that exact behavior: replace the database pathname while the old connection remains open, commit another row through the old connection, and the replacement database remains valid but does not contain that post-restore row.
-- Production impact: a BLE offload, edit or other write that lands after restore but before the user relaunches can appear to succeed in the current process and then disappear on relaunch. The source's existing `backup.lastRestoreAt` diagnostic comment explicitly identifies “restore not followed by a relaunch” as the #57 failure.
-- This is distinct from AUDIT-BACKUP-01: the rollback snapshot is now WAL-safe; the remaining issue is the lifetime of the already-open live store after the swap.
-- A safe correction is architectural: either close/rebind every live store/repository/BLE writer to the restored file, or enter a hard post-restore state that prevents further writes until relaunch. iOS should not be force-terminated programmatically. No speculative partial gate has been applied.
+- Production impact: a BLE offload, edit or other write that lands after restore but before the user relaunches can appear to succeed in the current process and then disappear on relaunch.
+- The rejected alternative was a partial live-store rebind: production has multiple independently held store/registry handles (repository, BLE backfill and source coordinator), so re-opening only one owner would leave other writers detached. Programmatically terminating the iOS app is also not acceptable.
+- Commit `61b2892665e61c8ae410510ddec92a0890d9c712` adds a process-wide `StoreWriteBarrier`. Ordinary store mutations obtain a short-lived permit; restore can suspend new permits and drain already-running writers.
+- Commit `d797dd80572f4d0ce39bfafd33d2a6e7fbe427fd` routes the WhoopStore mutation spine and WAL checkpoint through the barrier.
+- Commit `b6ad5cdccf91fd4ed1466255726387c22573e5c1` routes the synchronous `DeviceRegistryStore` mutation spine through the same barrier.
+- Commit `8d986101593409a971bc688b1973f3752262a7ea` suspends+drains writes BEFORE the rollback snapshot/path swap, resumes writes after a failed restore, and deliberately leaves writes suspended after a successful restore until process relaunch.
+- Commit `eeede652c823f7a460d91a77fb9cb330f1aea7a4` adds deterministic coverage that actor-backed and registry writes are rejected while suspended, a failed restore resumes writes, and suspension waits for an already-started writer to finish.
+- Reads remain available in the old process so the existing restore-complete UI can render its relaunch instruction; the important invariant is that no mutation can report success against the detached old inode.
+- Validation status at this checkpoint: Source Hygiene, iPhone i18n Coverage and Tools Python CI are green; Swift Packages CI, iPhone build/tests and unsigned IPA are still pending/running. Do not call this release-ready until those workflows finish green.
