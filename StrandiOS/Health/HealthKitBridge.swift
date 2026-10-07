@@ -1992,14 +1992,25 @@ final class HealthKitBridge: ObservableObject {
     // matching local formatter is strictly 1:1; using UTC instead mislabelled a full local day
     // under the previous UTC date for users east of UTC, so apple-health rows never merged with
     // the strap-computed/imported rows for the same civil day.
-    // `nonisolated` so the HealthKit query completion handlers — which HealthKit invokes on a private
-    // background queue (a nonisolated context) — can label day buckets without a main-actor-isolation
-    // warning. They only read a thread-safe DateFormatter, so this is safe off the main actor.
-    nonisolated private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone.current; return f
-    }()
-    nonisolated private static func dayString(_ date: Date) -> String { dayFormatter.string(from: date) }
-    nonisolated private static func date(from day: String) -> Date? { dayFormatter.date(from: day) }
+    // These helpers intentionally resolve the zone at EACH call. A static DateFormatter configured with
+    // TimeZone.current freezes the zone from first access; if the phone changes zone while NOOP remains
+    // alive, HealthKit can bucket with the new local calendar while NOOP labels the bucket with the old
+    // zone. That silently moves Apple Health data onto the wrong day until relaunch. LocalDayWindows gives
+    // us the same rule-aware civil-day contract as scoring, including DST boundaries, without shared
+    // formatter state on HealthKit's callback queues.
+    nonisolated static func dayString(_ date: Date,
+                                      in timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        LocalDayWindows(timeZone: timeZone, referenceInstant: date).dayKey(for: date)
+    }
+
+    nonisolated static func date(from day: String,
+                                 in timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
+        let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]), let month = Int(parts[1]), let dayOfMonth = Int(parts[2]),
+              (1...12).contains(month), (1...31).contains(dayOfMonth) else { return nil }
+        return LocalDayWindows(timeZone: timeZone)
+            .start(of: LocalCalendarDate(year: year, month: month, day: dayOfMonth))
+    }
 }
 #endif
