@@ -202,3 +202,16 @@ No artificial physiological or unsafe test is required.
 Keep 12.0.0 on `main` unchanged for now.
 
 The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 candidate should wait until the remaining high-priority audit areas have been checked for additional high-confidence P0/P1/P2 defects and any such findings are fixed or consciously deferred.
+
+## Persistence / backup follow-up
+
+### AUDIT-BACKUP-01 — pre-restore rollback snapshot omitted committed WAL-only pages
+
+- Severity: P2; confidence 0.99; CONFIRMED.
+- The restore path documented a snapshot of the current database "+ sidecars" but copied only the main `.sqlite` file before deleting the live `-wal` / `-shm` files.
+- NOOP's production store uses WAL. A committed transaction can therefore be visible to SQLite while still existing only in `-wal`; copying the main file alone yields a valid but stale rollback snapshot.
+- Independent SQLite reproduction confirmed the failure shape: after a checkpoint, a committed row held in WAL disappeared from a main-file-only copy.
+- Regression commit `91ac97b364150d96ac6f66e0ab66cabf7b104aeb` adds a real WAL-backed restore test and requires the returned sidecar to contain the WAL-only committed row.
+- Fix commit `8b7b0deb819648ff41820df9b7777bd6761cdfcb` replaces the raw main-file copy with SQLite's online backup API, producing a transactionally consistent self-contained sidecar while the live DatabasePool remains open.
+- This changes only pre-import rollback preservation. It does not alter scoring, BLE, sleep, workout detection, HealthKit ingestion/write-back, or SpO₂ behaviour.
+- CI validation is pending at this checkpoint; do not treat the fix as release-ready until the targeted iPhone test/build and relevant package/full workflows are green.
