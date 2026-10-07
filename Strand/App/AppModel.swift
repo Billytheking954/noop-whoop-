@@ -687,13 +687,13 @@ final class AppModel: ObservableObject {
     /// already resolves the active strap per day via the registry's own active id (`resolveDayOwner`), so it
     /// reads + scores the re-added strap's raw and writes the computed result to the STABLE canonical
     /// `-noop` sibling, no engine re-point needed.
-    private func adoptActiveDevice(_ activeId: String) async {
+    private func adoptActiveDevice(_ activeId: String, analyze: Bool = true) async {
         let trimmed = activeId.trimmingCharacters(in: .whitespaces)
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
         await repo.refresh()
-        await intelligence.analyzeRecent()
+        if analyze { await intelligence.analyzeRecent() }
     }
 
     #if os(iOS)
@@ -1262,10 +1262,21 @@ final class AppModel: ObservableObject {
     /// Materialize Apple Health as a device and update the source that feeds Today.
     /// Only replaces the seeded WHOOP row while it is still a placeholder with no strap and no data;
     /// a physical or user-selected source always keeps priority.
-    func refreshAfterAppleHealthSync(authorized: Bool, now: Date = Date()) async {
+    func refreshAfterAppleHealthSync(authorized: Bool, syncSucceeded: Bool = true,
+                                         now: Date = Date()) async {
         await wireSourceCoordinator()
+        func finishHealthRefresh() async {
+            // HealthKit's import intentionally writes observation-only DailyMetric rows with recovery=nil.
+            // A successful sync therefore invalidates the prior Apple-Watch recovery and MUST be followed
+            // by the fold that rebuilds it from the newly imported HRV/RHR history. Failed/no-op syncs do
+            // not earn an expensive rescore.
+            if syncSucceeded {
+                await intelligence.analyzeRecent(triggerLabel: "apple-health-sync")
+            }
+        }
         guard let registry = deviceRegistry, let store = await repo.storeHandle() else {
             await repo.refresh()
+            await finishHealthRefresh()
             return
         }
 
@@ -1284,20 +1295,22 @@ final class AppModel: ObservableObject {
             registry: registry, store: store, authorized: authorized, now: now)
         guard registry.devices.contains(where: { $0.id == AppleWatchDevice.deviceId }) else {
             await repo.refresh()
+            await finishHealthRefresh()
             return
         }
 
         if AppleWatchDevice.shouldAutoActivate(
             current: current, currentHasRecentData: currentHasRecentData) {
             registry.setActive(AppleWatchDevice.deviceId)
-            await adoptActiveDevice(AppleWatchDevice.deviceId)
+            await adoptActiveDevice(AppleWatchDevice.deviceId, analyze: !syncSucceeded)
         } else if registry.activeDeviceId == AppleWatchDevice.deviceId {
             // Covers relaunches: the row was already active, but the read spine may still be initializing.
-            await adoptActiveDevice(AppleWatchDevice.deviceId)
+            await adoptActiveDevice(AppleWatchDevice.deviceId, analyze: !syncSucceeded)
             await repo.refresh()
         } else {
             await repo.refresh()
         }
+        await finishHealthRefresh()
     }
     #endif
 
