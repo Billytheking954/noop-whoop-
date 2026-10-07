@@ -228,3 +228,15 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - Commit `6093b79141e5d05e1add65bde0b2e54337385657` adds deterministic coverage for read-only prior grants, fresh installs and legacy write-grant resumes.
 - This does not claim HealthKit can reveal whether reads are currently allowed; it preserves the existing honest contract that successful consent permits queries, which may return empty if the user denied or later revoked reads.
 - CI validation is pending on the current audit head.
+
+## Migration/provenance follow-up
+
+### AUDIT-MIG-01 — backup/version provenance reported stale GRDB schema version
+
+- Severity: P3; confidence 1.00; CONFIRMED.
+- The live GRDB migrator is pinned by the schema oracle as a unique sequential chain through `v47-rr-whoop5-fill`, but `WhoopStoreInfo.schemaVersion` still reported `18`.
+- That marker is written into `manifest.json` for every `.noopbak` and into `APP_VERSION_CHANGED` events, so forensic/export provenance could falsely claim schema 18 for a database actually migrated through v47.
+- This does not change migration execution or stored physiological data; GRDB's own `grdb_migrations` bookkeeping remains authoritative.
+- Commit `7a61b8de7680c2a46ec891926c9d806657081cb0` updates the platform-scoped provenance marker to 47.
+- Commit `11dd086c226128424279b52ca9fb69d6f245a7f9` replaces the stale literal test with an invariant requiring the marker to equal the registered migration count, preventing the same drift on the next migration.
+- Classified as an isolated, low-risk P3 metadata fix; no scoring, BLE, HealthKit, sleep, workout, or SpO₂ logic changed.
