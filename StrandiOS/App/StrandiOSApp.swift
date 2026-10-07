@@ -398,7 +398,7 @@ struct StrandiOSApp: App {
             } else if phase == .background {
                 // Re-submit on every transition because iOS may discard an old best-effort request.
                 HealthWritebackBackgroundScheduler.updateSchedule(
-                    isAuthorized: health.auth == .authorized)
+                    isAuthorized: health.hasAnyWriteAuthorization)
                 // #1538: same reasoning for the re-score continuation, plus one case of its own. A pass
                 // can be left owed with NOTHING scheduled — a foreground pass killed by a force-quit
                 // never runs the deferral path that submits the request, and iOS can discard a request
