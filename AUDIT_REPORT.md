@@ -297,3 +297,13 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 
 - The remaining fixed-`86_400` expression in step-calibration history is only a nil fallback after `localDayWindows(... maxDays: 60)`. For the production positive-count call the rule-aware helper returns a window, so this expression is not another reachable DST boundary bug and was not changed.
 
+
+
+### AUDIT-BG-01 — read-only Health consent unnecessarily armed the write-back BGTask
+
+- Severity: P3; confidence 0.99; CONFIRMED.
+- AUDIT-HK-02 correctly allows a prior read-only HealthKit consent flow to resume imports after relaunch, so bridge `auth == .authorized` no longer implies that any share/write type is granted.
+- The periodic `HealthWritebackBackgroundScheduler` still used that coarse auth state. A read-only user could therefore keep a best-effort write-back BGTask armed even though every write would be skipped by per-type HealthKit authorization checks.
+- Commit `826fb6bf24051330a227ec7c3ffd0d5dfb708c0f` exposes the bridge's actual any-write-granted state separately from read consent and reuses it in cold-launch authorization logic.
+- Commits `2d1726cc5ba1624ee9f6e10e79ed681a8af3751f` and `343938139e532b83a300faaa4186236c02601a99` schedule/cancel the write-back BGTask from the write grant, while read-only foreground import remains authorized.
+- Impact is unnecessary background wake/battery budget, not physiological scoring corruption; fixed because the change is isolated and low risk.
