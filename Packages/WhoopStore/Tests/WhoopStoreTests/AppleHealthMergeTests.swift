@@ -7,7 +7,7 @@ final class AppleHealthMergeTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         let db = store.registryWriter
 
-        try db.write { db in
+        try await db.write { db in
             try db.execute(sql: """
                 INSERT INTO appleDaily
                     (deviceId, day, steps, activeKcal, basalKcal, vo2max, avgHr, maxHr, walkingHr, weightKg)
@@ -50,7 +50,7 @@ final class AppleHealthMergeTests: XCTestCase {
             metricPoints: [MetricPoint(day: "2026-10-06", key: "hrv", value: 65)],
             deviceId: "apple-health")
 
-        try db.read { db in
+        try await db.read { db in
             let a = try Row.fetchOne(db, sql: """
                 SELECT steps, activeKcal, vo2max, weightKg
                 FROM appleDaily WHERE deviceId='apple-health' AND day='2026-10-06'
