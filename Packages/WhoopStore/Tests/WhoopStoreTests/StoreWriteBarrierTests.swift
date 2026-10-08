@@ -44,7 +44,7 @@ final class StoreWriteBarrierTests: XCTestCase {
     func testSuspendWaitsForInFlightWriterToDrain() {
         let writerEntered = expectation(description: "writer entered")
         let writerFinished = expectation(description: "writer finished")
-        let suspendReturned = expectation(description: "suspend returned")
+        let suspendReturned = DispatchSemaphore(value: 0)
         let releaseWriter = DispatchSemaphore(value: 0)
 
         DispatchQueue.global().async {
@@ -59,14 +59,15 @@ final class StoreWriteBarrierTests: XCTestCase {
 
         DispatchQueue.global().async {
             StoreWriteBarrier.suspendAndDrainForRestore()
-            suspendReturned.fulfill()
+            suspendReturned.signal()
         }
 
         // The suspend call must still be waiting while the already-started write owns its permit.
-        XCTAssertEqual(XCTWaiter.wait(for: [suspendReturned], timeout: 0.1), .timedOut)
+        XCTAssertEqual(suspendReturned.wait(timeout: .now() + 0.1), .timedOut)
 
         releaseWriter.signal()
-        wait(for: [writerFinished, suspendReturned], timeout: 2)
+        wait(for: [writerFinished], timeout: 2)
+        XCTAssertEqual(suspendReturned.wait(timeout: .now() + 2), .success)
         XCTAssertTrue(StoreWriteBarrier.isSuspended)
     }
 }
