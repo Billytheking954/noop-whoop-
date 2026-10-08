@@ -1,7 +1,6 @@
 #if os(iOS)
 import Foundation
 import HealthKit
-import Security
 import WhoopProtocol
 import CoreLocation
 import UIKit
@@ -2004,79 +2003,44 @@ final class HealthKitBridge: ObservableObject {
 
     // MARK: - Entitlement detection (#348)
 
-    /// Resolve whether the running app can actually use HealthKit.
+    /// True when this running build actually carries the `com.apple.developer.healthkit` entitlement —
+    /// i.e. it can genuinely reach Apple Health. False for a free-Apple-ID / AltStore / Sideloadly
+    /// re-sign, which strips the HealthKit capability: the framework links and `isHealthDataAvailable()`
+    /// is still true, but `requestAuthorization` is a dead-end and the app can never appear under
+    /// Settings › Health › Data Access & Devices.
     ///
-    /// The code-signing entitlement on the CURRENT TASK is authoritative: some sideloaders re-sign the
-    /// executable without HealthKit and may not leave an embedded.mobileprovision to inspect. In that case
-    /// profile-only detection used to assume "App Store build" and mislabel the dead-end authorization path
-    /// as a normal denial.
+    /// Resolution order (most authoritative first), mirroring `IOSDiagnostics`'s profile parse:
+    ///  1. If an `embedded.mobileprovision` is present (every dev / sideloaded / TestFlight build ships
+    ///     one), slice the wrapped XML plist and look for `com.apple.developer.healthkit` in its
+    ///     `Entitlements` dict. A free re-sign re-writes this profile WITHOUT that key. This is the
+    ///     definitive signal and is unaffected by whether the user later granted/denied permission.
+    ///  2. No embedded profile → an App Store install (App Store strips it). Those are properly signed
+    ///     with whatever capabilities the app declares, so treat the entitlement as PRESENT. This is the
+    ///     conservative default: it never down-routes a legitimately-signed build, so a user who simply
+    ///     denied permission keeps the normal Settings guidance rather than the file-import reroute.
     ///
-    /// SecTaskCopyValueForEntitlement distinguishes "key absent" from "lookup failed": an absent key
-    /// returns nil with no error. Only a genuine Security lookup error falls back to the provisioning-profile
-    /// parser, and only an uninspectable profile falls back conservatively to true so a legitimate build is
-    /// never down-routed merely because diagnostics could not read its signature metadata.
+    /// Computed once and cached: the bundle's profile can't change within a process lifetime.
     static let hasHealthKitEntitlement: Bool = {
-        var runtimeLookupFailed = true
-        var runtimeEntitlement: Bool?
-
-        if let task = SecTaskCreateFromSelf(nil) {
-            var unmanagedError: Unmanaged<CFError>?
-            let value = SecTaskCopyValueForEntitlement(
-                task,
-                "com.apple.developer.healthkit" as CFString,
-                &unmanagedError
-            )
-            if let value {
-                runtimeEntitlement = (value as? Bool) ?? (value as? NSNumber)?.boolValue
-                runtimeLookupFailed = false
-            } else if unmanagedError == nil {
-                // Apple documents nil + no error as "the entitlement is simply not present".
-                runtimeEntitlement = false
-                runtimeLookupFailed = false
-            } else {
-                _ = unmanagedError?.takeRetainedValue()
-            }
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url) else {
+            // No embedded profile = App Store build = properly signed. Assume present.
+            return true
         }
-
-        let profileEntitlement = embeddedProfileHealthKitEntitlement()
-        return resolveHealthKitEntitlement(
-            runtimeEntitlement: runtimeEntitlement,
-            runtimeLookupFailed: runtimeLookupFailed,
-            profileEntitlement: profileEntitlement
-        )
+        guard let xmlStart = data.range(of: Data("<?xml".utf8)),
+              let xmlEnd = data.range(of: Data("</plist>".utf8)) else {
+            // Profile present but unparseable — don't claim a missing entitlement off a parse failure;
+            // assume present so we never wrongly down-route a real build.
+            return true
+        }
+        let plistData = data.subdata(in: xmlStart.lowerBound..<xmlEnd.upperBound)
+        guard let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any] else {
+            return true
+        }
+        // The key is present (and truthy) on an entitled build; a free re-sign omits it entirely.
+        return entitlements["com.apple.developer.healthkit"] != nil
     }()
 
-    /// Pure decision table behind the runtime probe, kept testable without requiring a particular
-    /// simulator/device signing identity.
-    nonisolated static func resolveHealthKitEntitlement(
-        runtimeEntitlement: Bool?,
-        runtimeLookupFailed: Bool,
-        profileEntitlement: Bool?
-    ) -> Bool {
-        if let runtimeEntitlement { return runtimeEntitlement }
-        if !runtimeLookupFailed { return false }
-        if let profileEntitlement { return profileEntitlement }
-        return true
-    }
-
-    /// Fallback parser for environments where Security could not inspect the current task.
-    /// nil means no usable embedded profile was present, not "HealthKit absent".
-    private nonisolated static func embeddedProfileHealthKitEntitlement() -> Bool? {
-        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-              let data = try? Data(contentsOf: url),
-              let xmlStart = data.range(of: Data("<?xml".utf8)),
-              let xmlEnd = data.range(of: Data("</plist>".utf8)),
-              let plist = try? PropertyListSerialization.propertyList(
-                  from: data.subdata(in: xmlStart.lowerBound..<xmlEnd.upperBound),
-                  options: [],
-                  format: nil
-              ) as? [String: Any],
-              let entitlements = plist["Entitlements"] as? [String: Any] else {
-            return nil
-        }
-        guard let raw = entitlements["com.apple.developer.healthkit"] else { return false }
-        return (raw as? Bool) ?? (raw as? NSNumber)?.boolValue ?? true
-    }
     // MARK: - Date helpers
 
     // LOCAL civil day: the rest of the store keys days by the device-local civil day —
