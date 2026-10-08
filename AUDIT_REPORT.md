@@ -432,3 +432,15 @@ Do not merge this audit branch to `main` merely because the candidate is green. 
 - Experimental SpO₂ candidate data remains behind its display experiment, is persisted only as the `spo2_candidate` metric-series key, and is not substituted into `DailyMetric.spo2Pct` or a production recovery/strain score.
 - The release workflow independently asserts `spo2.production_scoring == false` in the release provenance configuration.
 
+
+
+## Stage checkpoint — live state and failing iPhone tests
+
+- Checked live main: 583225d25f6a815f405881d3de8b7ed354a05234; no writes were made to it.
+- Existing audit branch was afcf90c9d4a5fc0ef58fd84869b851f872080bf2, PR #37 open; diagnostic-only CI commit f584b256bfd2caabe6bf6dad2755efd6aefe6d0e adds failure-summary output to the existing app-build workflow.
+- At afcf90c, Swift Packages CI, Source Hygiene, iPhone i18n, Tools Python CI, and unsigned IPA all passed. App build compiled and simulator-built, then failed in the iPhone-hosted XCTest phase with dozens of cases across unrelated suites. The quiet log named failures but did not include assertion messages; no product defect or harness cause is yet established.
+- Failed test run: 37806676790, job 113412930745; XCTest result artifact 11565836985 (https://github.com/Billytheking954/noop-whoop-/actions/runs/37806676790/artifacts/11565836985).
+- Fallback IPA run: 37806677582, artifact 11564515697, source SHA afcf90c9d4a5fc0ef58fd84869b851f872080bf2. It is preserved as a fallback only; the app-test gate failed on the same source, so it is not the final validated candidate.
+- The artifact connector returned a temporary downloadable ZIP reference, but direct workspace retrieval was blocked by the unavailable browser proxy. The ZIP contents and IPA SHA-256 have not been independently inspected in this session. The workflow source itself validates ZIP integrity, Payload layout, provenance/source SHA, arm64 iPhone-only device family, widget payload, and ad-hoc signing before upload.
+- Changed files in this diagnostic stage: .github/workflows/app-build.yml only. No production scoring, BLE, SpO2, HealthKit or feature code changed.
+- Next action: inspect the next app-build job's emitted xcresulttool failure summary, classify the root cause, then make only an evidence-backed correction and run required checks on the final exact candidate head.
