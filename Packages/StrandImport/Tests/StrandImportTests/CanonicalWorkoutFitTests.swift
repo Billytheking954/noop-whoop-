@@ -239,6 +239,11 @@ struct FitInspector {
             guard let b = fields[number], b.count == 2 else { return nil }
             return UInt16(b[0]) | (UInt16(b[1]) << 8)
         }
+        func u32(_ number: Int) -> UInt32? {
+            guard let b = fields[number], b.count == 4 else { return nil }
+            return UInt32(b[0]) | (UInt32(b[1]) << 8) |
+                (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)
+        }
     }
 
     struct Definition {
