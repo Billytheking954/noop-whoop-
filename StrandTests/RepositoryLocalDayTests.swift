@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 @testable import Strand
 
+@MainActor
 final class RepositoryLocalDayTests: XCTestCase {
     private func iso(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
