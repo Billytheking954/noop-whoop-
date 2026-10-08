@@ -48,12 +48,35 @@ final class ReferenceJourneyUITests: XCTestCase {
         let control = app.switches["Measured changes"]
         XCTAssertTrue(control.waitForExistence(timeout: 30))
         let original = control.value as? String
+        XCTAssertNotNil(original)
+
+        let startedEnabled = original == "1"
         control.tap()
-        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
-        if allow.waitForExistence(timeout: 3) { allow.tap() }
-        let changed = NSPredicate(format: "value != %@", original ?? "")
-        expectation(for: changed, evaluatedWith: control)
-        waitForExpectations(timeout: 10)
+
+        // Enabling this preference requests a system notification permission. A denied permission is a
+        // supported production outcome: the view resets the toggle and shows its Settings guidance. The
+        // test therefore waits for that decision instead of assuming every simulator accepts the prompt.
+        if !startedEnabled {
+            let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let allow = springboard.buttons["Allow"]
+            if allow.waitForExistence(timeout: 15) {
+                allow.tap()
+            }
+            let deniedMessage = app.staticTexts[
+                "Notifications are disabled in iPhone Settings. Allow NOOP notifications there to use these alerts."
+            ]
+            let denied = deniedMessage.waitForExistence(timeout: 10)
+            let settled = control.value as? String
+            if denied {
+                XCTAssertEqual(settled, "0")
+            } else {
+                XCTAssertEqual(settled, "1")
+            }
+        } else {
+            // Turning alerts off does not request system authorization.
+            XCTAssertEqual(control.value as? String, "0")
+        }
+
         let saved = control.value as? String
         app.terminate()
         app.launch()
