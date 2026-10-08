@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS  
 Audit branch: audit/noop-v2-12-full-bug-review  
-Current audit head before this report update: 29d26f30c652a0deae274a783b0d111f730daa29  
+Current audit source head before this report update: de8930b25a7f5be8060a626ecac22ed605135f10  
 Frozen main baseline: af9079012ddd4c9023720f4e9eb7ef12c0cd33d4  
 Release baseline: 12.0.0 (435)
 
@@ -397,3 +397,38 @@ A final unsigned IPA may be treated as the audited candidate only after the comb
 6. Verification that production SpO₂ scoring remains disabled/unchanged.
 
 Do not merge this audit branch to `main` merely because the candidate is green. The requested deliverable is the validated unsigned IPA; release/merge remains a separate decision.
+
+
+## Release-gate follow-up — 2026-10-08 late pass
+
+### CI harness correction after combined-product validation
+
+- App build run `37741802938`, job `113194449393`, reached the iPhone-hosted test compile step and failed because `RepositoryLocalDayTests` synchronously called `@MainActor` Repository helpers from a nonisolated XCTest class.
+- This was a test-isolation defect, not a production regression: the simulator app build itself had already passed and the failing diagnostics named only the test call sites.
+- Commit `d59cc6a98f3cccb51847d01c63122ab11b835d78` marks the regression test class `@MainActor`, matching the isolation of the production API it exercises.
+- A fresh release-gate run was started from that commit; later code changes supersede it, so only the final branch-head runs count toward the candidate.
+
+### AUDIT-IMPORT-01 — workout-file import could report success after partial persistence failure
+
+- Severity: P3; confidence 0.98; CONFIRMED and FIXED.
+- The workout row write already threw into the import's outer error handler, but three dependent persistence operations did not: per-sample HR insertion, the read used to recompute day steps, and the resulting daily-step upsert all used `try?`.
+- A storage error after the workout row landed could therefore leave an incomplete activity-file source while the card still reported “1 workout imported”. The next score/read pass could see the workout but miss the HR or step inputs that were supposed to accompany it.
+- Commit `de8930b25a7f5be8060a626ecac22ed605135f10` makes those three operations propagate errors through the existing import failure path. Normal successful imports are byte-for-byte equivalent at the persistence layer; retry remains idempotent because the workout and sample stores already upsert by stable keys.
+- This is deliberately not a new cross-table transaction: a retry can safely repair a partial import, and the smallest reliability correction is to stop claiming success when one of the required writes failed.
+- Final branch-head iPhone/package/IPA validation is pending.
+
+### Restore write-barrier bypass audit
+
+- Re-checked the post-restore `StoreWriteBarrier` after AUDIT-BACKUP-02 rather than assuming one wrapper covered the whole store.
+- `WhoopStore.syncWrite` acquires the barrier permit around the underlying GRDB writer, and `checkpointWALImpl` separately gates its non-transactional WAL checkpoint.
+- The separate synchronous `DeviceRegistryStore` mutation path uses `gatedWrite`, which acquires the same process-wide barrier.
+- The reviewed WhoopStore extension mutation surfaces — Apple Health merge, Apple step hours, coach messages, cursors, workout/Apple cache, lab markers, lifting, live sessions, metric series/cache, Oura raw data, raw outbox, score-input provenance and stream storage — all route through `syncWrite`; no direct mutation bypass was found.
+- Classification remains CONFIRMED/FIXED for AUDIT-BACKUP-02, subject to final branch-head CI.
+
+### Release-sensitive guardrails re-verified
+
+- The unsigned-IPA workflow still archives `generic/platform=iOS`, asserts iPhone device family only, arm64, one widget extension, no Watch payload and no macOS payload.
+- The sideload preparation script preserves the shared App Group plus HealthKit and HealthKit background-delivery entitlement templates before ad-hoc signing.
+- Experimental SpO₂ candidate data remains behind its display experiment, is persisted only as the `spo2_candidate` metric-series key, and is not substituted into `DailyMetric.spo2Pct` or a production recovery/strain score.
+- The release workflow independently asserts `spo2.production_scoring == false` in the release provenance configuration.
+
