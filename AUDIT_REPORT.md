@@ -8,9 +8,9 @@ Release baseline: 12.0.0 (435)
 
 ## Guardrails
 
-- `main` remains frozen at `af9079012ddd4c9023720f4e9eb7ef12c0cd33d4`.
-- No merge to `main` has been performed.
-- Audit fixes are confined to `audit/noop-v2-12-full-bug-review`.
+- `af9079012ddd4c9023720f4e9eb7ef12c0cd33d4` remains the frozen 12.0.0 audit/release baseline.
+- Live `main` later advanced outside this audit to `583225d25f6a815f405881d3de8b7ed354a05234` with the FIT/Strava export work. This audit did not write to or merge into `main`.
+- To validate the product users would actually sideload, current `main` was fast-forward-merged into the existing audit branch only at `47b968ffd911f5e7a007673aeb2647fbfc0d2785`. Audit fixes remain confined to `audit/noop-v2-12-full-bug-review`.
 - Production SpO₂ scoring has not been changed.
 - The audit continues after the two initial findings; 12.0.1 is not justified merely by the existence of a bug fix.
 
@@ -339,3 +339,61 @@ The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 c
 - Commit `eeede652c823f7a460d91a77fb9cb330f1aea7a4` adds deterministic coverage that actor-backed and registry writes are rejected while suspended, a failed restore resumes writes, and suspension waits for an already-started writer to finish.
 - Reads remain available in the old process so the existing restore-complete UI can render its relaunch instruction; the important invariant is that no mutation can report success against the detached old inode.
 - Validation status at this checkpoint: Source Hygiene, iPhone i18n Coverage and Tools Python CI are green; Swift Packages CI, iPhone build/tests and unsigned IPA are still pending/running. Do not call this release-ready until those workflows finish green.
+
+
+## Combined-product follow-up — 2026-10-08
+
+### Branch/release provenance
+
+- The audit branch now contains current `main` as an ancestor via merge commit `47b968ffd911f5e7a007673aeb2647fbfc0d2785`, while `main` itself is unchanged by the audit.
+- This was necessary because the unsigned IPA workflow intentionally checks out the pull request HEAD SHA rather than GitHub's temporary merge ref. Without the branch merge, an audit-head IPA would have omitted the newer FIT/Strava export commits already present on `main`.
+- The combined branch is therefore the release-candidate source for final iPhone-only unsigned-IPA validation.
+
+### CI/test debt found while validating the combined product
+
+The following failures were challenged against production behavior and classified as test/integration debt rather than product regressions:
+
+- `60865acff8df60c5abe3d3c4756c77f98639ca9c`: fixes the Apple Health refresh closure to forward the actual sync-success result required by `HealthSyncRefreshCoordinator`.
+- `1943e0763c9b1303a84dd8868b1727882a5fbced`: awaits the async GRDB reads/writes in `AppleHealthMergeTests`.
+- `45376083f217a0189c0424e372d4217f9e56b95c`: adds the missing 32-bit FIT test inspector used by the newer FIT regression coverage.
+- `8bc2c9f17d45c3fa78d2b2de494f9195fc80ff90`, `c496eb3ab1083eb2b4f73a3ca61ebdc244ba7621`, `4b9b1070fb91ed9635b3905eff412b3bc0fc3caf`, and `5949530504e0c0522fe35c3b1e13f843e95c1533`: replace stale schema-version-18 assertions with the registered-migration-count invariant. Production correctly reports schema 47.
+- `32d6b9a9356906337bf3f7f99f7f25cfb24a7ccf`: fixes an XCTest harness violation that waited on the same expectation twice; the production store write barrier was not implicated.
+
+### AUDIT-HK-07 — HealthKit workout routes were selected by time overlap instead of workout ownership
+
+- Severity: P2; confidence 0.99; CONFIRMED and FIXED.
+- `fetchWorkoutRoute` queried every `HKWorkoutRoute` whose timestamps overlapped the workout. Two overlapping HealthKit workouts could therefore contribute each other's route samples, producing a mixed/wrong map and allowing that incorrect route to flow into the new FIT export.
+- Apple HealthKit defines workout routes as objects associated with a specific `HKWorkout` and documents `HKQuery.predicateForObjects(from: workout)` as the ownership predicate for reading route data.
+- Commit `fb9aaa2acdf6fb69ed611682341d85d5da466a7a` changes only the route-sample predicate to the owning-workout association. Heart-rate association already used this rule.
+- Device-independent unit testing cannot populate a real HealthKit route store; final iPhone compile/test CI is therefore the executable validation layer for this one-line ownership correction.
+
+### AUDIT-HK-05 final classification for this candidate
+
+- Severity remains P2; confidence 0.99; CONFIRMED, PARTIALLY HARDENED, CONSCIOUSLY DEFERRED.
+- HealthKit deletion tombstones expose deleted object UUIDs but do not provide the deleted sample's original timestamp. NOOP's current aggregate-import rows do not retain the source HealthKit object identities needed to subtract an exact deleted contribution.
+- HealthKit also deliberately makes denied read access appear as an empty result. Therefore treating an empty re-query as proof of deletion can erase valid last-good data after a permission change.
+- The current branch retains deletion signals, widens deletion-bearing observer wakes to a bounded 31-day re-read, does not advance anchors on query failure, and preserves last-good values on ambiguous empty/denied reads.
+- A complete fix requires durable source-object identity/contribution bookkeeping (or an equivalent non-ambiguous replacement contract). That is migration/architecture work and is not safe to improvise into this release candidate.
+- This is consciously deferred under the audit rule rather than hidden behind a destructive workaround. The failure mode is stale Apple-Health-imported data after the user deletes source records, not silent deletion of valid NOOP/WHOOP data.
+
+## Further audit coverage completed
+
+- Sleep recalculation/edit/merge review: user-edited rows outrank re-detection, delete tombstones are overlap-based, fuller sleep rows are protected from thinner re-syncs, and failed core sleep persistence aborts the score pass rather than claiming success. No new P0/P1/P2 defect confirmed.
+- Forced-rescore/concurrency review: a forced update arriving during an active scoring pass sets `pendingForcedRescore` and is re-run after the lock clears. History-repair completion callbacks are only launched when no scoring pass already owns the lock. No lost-update P0/P1/P2 confirmed.
+- Activity detection review: the opt-in auto detector is suggestion-only, has explicit HR-gap and saved-workout-overlap guards, and does not persist a detected session without user confirmation. No new P0/P1/P2 defect confirmed.
+- Background lifecycle review: real-update rescoring records owed work before BGTask scheduling, expiry re-arms owed work, Health write-back scheduling is gated by actual share/write authorization, and task completion is single-shot guarded. No new P0/P1/P2 defect confirmed.
+- Sideload/widget capability review: the release target and ad-hoc capability template agree on iPhone-only scope, App Group, base HealthKit and HealthKit background delivery. A third-party/free signing profile can still strip capabilities it is not entitled to grant; that is a signing-profile limitation rather than something an unsigned IPA can override.
+- FIT export review: canonical export preserves genuine timestamps, omits untimed route points rather than inventing time, emits required FIT activity structures and CRC, and has round-trip coverage for HR-only, GPS, missing-HR, partial and realistic 30-minute activity shapes. Live Strava server acceptance remains an account-side/device validation, not a compile-time claim.
+
+## Current release-candidate gate
+
+A final unsigned IPA may be treated as the audited candidate only after the combined audit head passes:
+
+1. Swift package tests, including `WhoopStore`, `StrandAnalytics`, and `StrandImport`.
+2. iPhone simulator build and iPhone-hosted tests.
+3. Source hygiene and i18n coverage.
+4. Tools CI.
+5. Fresh physical-iPhone archive, sideload packaging checks and artifact upload.
+6. Verification that production SpO₂ scoring remains disabled/unchanged.
+
+Do not merge this audit branch to `main` merely because the candidate is green. The requested deliverable is the validated unsigned IPA; release/merge remains a separate decision.
