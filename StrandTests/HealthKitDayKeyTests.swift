@@ -5,7 +5,7 @@ import Foundation
 
 final class HealthKitDayKeyTests: XCTestCase {
     func testDayKeyUsesTheSuppliedZoneRatherThanAProcessFrozenZone() {
-        let instant = Date(timeIntervalSince1970: 1_767_247_400) // 2026-01-01 00:30:00Z
+        let instant = Date(timeIntervalSince1970: 1_767_227_400) // 2026-01-01 00:30:00Z
         let london = TimeZone(identifier: "Europe/London")!
         let newYork = TimeZone(identifier: "America/New_York")!
 

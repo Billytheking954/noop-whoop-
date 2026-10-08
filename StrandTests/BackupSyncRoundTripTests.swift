@@ -1,6 +1,7 @@
 import XCTest
 import SQLite3
 import ZIPFoundation
+import WhoopStore
 @testable import Strand
 
 /// Real file-I/O tests for the Backup & Sync restore path - not string logic (must-fix #5).
@@ -17,6 +18,10 @@ final class BackupSyncRoundTripTests: XCTestCase {
     private var suites: [String] = []
 
     override func setUpWithError() throws {
+        // Each XCTest method models a fresh test process. A real successful restore keeps this
+        // process-wide gate closed until relaunch; reset it here so one restore test cannot poison
+        // unrelated tests running later in the same test bundle.
+        StoreWriteBarrier.resumeAfterFailedRestore()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("backupsync-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -26,6 +31,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
         for name in suites { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
         suites = []
+        // Simulate the relaunch that production requires after a successful restore.
+        StoreWriteBarrier.resumeAfterFailedRestore()
     }
 
     /// A suite-scoped UserDefaults for the settings half of a restore, so these tests NEVER write into
@@ -58,6 +65,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         XCTAssertEqual(try deviceRows(in: liveDB), ["my-whoop", "watch"],
                        "Restored DB should hold exactly the backed-up rows")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "A successful restore must keep the old live store closed until relaunch")
     }
 
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
@@ -383,8 +392,10 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         defer { sqlite3_close(db) }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT id FROM device ORDER BY id", -1, &stmt, nil) == SQLITE_OK else {
-            throw TestError("prepare failed")
+        let prepareStatus = sqlite3_prepare_v2(db, "SELECT id FROM device ORDER BY id", -1, &stmt, nil)
+        guard prepareStatus == SQLITE_OK else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "database handle unavailable"
+            throw TestError("prepare failed (SQLite \(prepareStatus)): \(message)")
         }
         defer { sqlite3_finalize(stmt) }
         var rows: [String] = []
