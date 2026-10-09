@@ -305,10 +305,14 @@ struct RecordedNightMap: View {
         inspectedOffset = (recorded[index].start + recorded[index].end) / 2
     }
 
+    private static let zonedClock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("jmmz")
+        return formatter
+    }()
+
     private func clock(_ date: Date, withZone: Bool = false) -> String {
-        if withZone {
-            return date.formatted(.dateTime.hour().minute().timeZone(.abbreviated))
-        }
+        if withZone { return Self.zonedClock.string(from: date) }
         return date.formatted(date: .omitted, time: .shortened)
     }
 
