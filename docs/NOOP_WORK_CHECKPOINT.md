@@ -5,21 +5,26 @@ Updated: 2026-10-09 UTC
 ## Active work
 
 - Branch: `audit/noop-v2-12-full-bug-review`
-- Reliability change commit: `52b836db543c3345caafffa8909f02d7bd82aa84`
+- Current source commit: `61d11994949481bb603b301b3a9739bca2379c8f`
+- Published rollback repair: `1272fd6d31db5b4eec0661f83808fdc54edc0c36`
+- Follow-up Swift 6 compile correction: `61d11994949481bb603b301b3a9739bca2379c8f`
 - Baseline `main`: `583225d25f6a815f405881d3de8b7ed354a05234` (`12.0.0`, build `435`)
 
-## Evidence and completed unit
+## Completed changes
 
-- GitHub Actions run `37842974095` built the iPhone Simulator target successfully, then ran 2,297 tests successfully, 2 failed, and 2 skipped.
-- The failing tests were `BackupSyncRoundTripTests.testRestoreSidecarIncludesCommittedWalPages()` and `ReferenceJourneyUITests.testHeroRingsOpenTheirDetails()`.
-- The reliability change makes the pre-restore SQLite online-backup sidecar leave WAL mode before it is used as a read-only rollback candidate. The existing WAL regression test is the verification target.
+- The pre-restore SQLite online-backup sidecar now exits WAL mode before any read-only rollback-candidate probe, so it does not depend on a writable `-shm` sidecar.
+- The initial connector publication exposed one Xcode 26 type-inference error in the optional SQLite error-message conversion. The production expression now uses an explicit closure; no scoring, BLE, HealthKit, sleep, or SpO2 behavior changed.
 
-## Validation status
+## Current validation evidence
 
-- `git diff --check`: passed before the reliability commit.
-- Local Xcode/Swift toolchain: unavailable in this environment; no local compile or test result is claimed.
-- The reliability commit is not yet CI-verified. No merge to `main` and no release claim have been made.
+- GitHub Actions run `37960633524` reached the ARM64 iPhone archive and failed only on the explicit Swift conversion compile error; no IPA was published from that failed run.
+- Exact-source rerun `37961427396` (unsigned iPhone IPA) and `37961427367` (iPhone simulator build/tests) are in progress for `61d1199`.
+- Source Hygiene `37961427413`, iPhone i18n `37961427360`, and Tools Python `37961427361` passed on `61d1199`.
+- Swift Packages CI `37961427393` remains queued.
+- No merge to `main`, release claim, IPA delivery, physical-device, WHOOP BLE, or HealthKit validation has been made.
 
-## Next executable action
+## Remaining failures / next action
 
-Push the reliability commit, run the existing iPhone build-and-test workflow, and inspect the two previously failing tests before making a separate UI-test adjustment.
+- Await the targeted WAL regression and the existing hero-ring navigation XCTest result from the exact-source iPhone test run.
+- If the WAL test passes, classify and repair the hero-ring navigation failure separately, using its actual XCTest evidence.
+- Continue only through verified iPhone build and IPA packaging gates.
