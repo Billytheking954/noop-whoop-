@@ -11,6 +11,7 @@ final class ScaffoldTests: XCTestCase {
     }
 
     func testLibraryVersionMarkerPresent() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 18)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, WhoopStore.makeMigrator().migrations.count,
+                       "schema provenance must match the registered GRDB migration chain")
     }
 }

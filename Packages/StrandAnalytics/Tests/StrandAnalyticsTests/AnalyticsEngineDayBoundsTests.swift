@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 @testable import StrandAnalytics
 import WhoopProtocol
 import WhoopStore
@@ -119,4 +120,72 @@ final class AnalyticsEngineDayBoundsTests: XCTestCase {
             XCTAssertNotNil(full.daily.activeKcalEst)
         }
     }
+    // MARK: - Rule-aware DST bounds
+
+    func testFallBackExplicitCalendarBoundsKeepTheRepeatedFinalHour() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let resolver = LocalDayWindows(timeZone: zone)
+        let window = try XCTUnwrap(resolver.window(of: LocalCalendarDate(year: 2025, month: 11, day: 2)))
+        let start = Int(window.start.timeIntervalSince1970)
+        let end = Int(window.nextStart.timeIntervalSince1970)
+        XCTAssertEqual(end - start, 25 * 3_600)
+        let samples = [
+            StepSample(ts: start + 24 * 3_600 + 600, counter: 100),
+            StepSample(ts: start + 24 * 3_600 + 1_200, counter: 160),
+        ]
+        let fixed = AnalyticsEngine.analyzeDay(day: "2025-11-02", daySteps: samples,
+                                               profile: UserProfile(),
+                                               tzOffsetSeconds: window.utcOffsetSeconds)
+        let corrected = AnalyticsEngine.analyzeDay(day: "2025-11-02", daySteps: samples,
+                                                   profile: UserProfile(),
+                                                   tzOffsetSeconds: window.utcOffsetSeconds,
+                                                   calendarDayBounds: start..<end)
+        XCTAssertNil(fixed.daily.steps)
+        XCTAssertEqual(corrected.daily.steps, 60)
+    }
+
+    func testSpringForwardExplicitCalendarBoundsRejectTheNonexistentExtraHour() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/London"))
+        let resolver = LocalDayWindows(timeZone: zone)
+        let window = try XCTUnwrap(resolver.window(of: LocalCalendarDate(year: 2025, month: 3, day: 30)))
+        let start = Int(window.start.timeIntervalSince1970)
+        let end = Int(window.nextStart.timeIntervalSince1970)
+        XCTAssertEqual(end - start, 23 * 3_600)
+        let samples = [
+            StepSample(ts: end + 600, counter: 100),
+            StepSample(ts: end + 1_200, counter: 160),
+        ]
+        let fixed = AnalyticsEngine.analyzeDay(day: "2025-03-30", daySteps: samples,
+                                               profile: UserProfile(),
+                                               tzOffsetSeconds: window.utcOffsetSeconds)
+        let corrected = AnalyticsEngine.analyzeDay(day: "2025-03-30", daySteps: samples,
+                                                   profile: UserProfile(),
+                                                   tzOffsetSeconds: window.utcOffsetSeconds,
+                                                   calendarDayBounds: start..<end)
+        XCTAssertEqual(fixed.daily.steps, 60)
+        XCTAssertNil(corrected.daily.steps)
+    }
+
+    func testOrdinaryDayExplicitBoundsPreserveFixedOffsetResults() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Kathmandu"))
+        let resolver = LocalDayWindows(timeZone: zone)
+        let window = try XCTUnwrap(resolver.window(of: LocalCalendarDate(year: 2025, month: 6, day: 15)))
+        let start = Int(window.start.timeIntervalSince1970)
+        let end = Int(window.nextStart.timeIntervalSince1970)
+        XCTAssertEqual(end - start, 86_400)
+        var counter = 100
+        let samples = stride(from: start + 600, to: end - 600, by: 600).map { ts -> StepSample in
+            counter += 7
+            return StepSample(ts: ts, counter: counter)
+        }
+        let fixed = AnalyticsEngine.analyzeDay(day: "2025-06-15", daySteps: samples,
+                                               profile: UserProfile(),
+                                               tzOffsetSeconds: window.utcOffsetSeconds)
+        let corrected = AnalyticsEngine.analyzeDay(day: "2025-06-15", daySteps: samples,
+                                                   profile: UserProfile(),
+                                                   tzOffsetSeconds: window.utcOffsetSeconds,
+                                                   calendarDayBounds: start..<end)
+        XCTAssertEqual(corrected.daily, fixed.daily)
+    }
+
 }
