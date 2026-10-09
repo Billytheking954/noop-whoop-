@@ -695,6 +695,20 @@ enum DataBackup {
             throw NSError(domain: "DataBackup", code: 4,
                           userInfo: [NSLocalizedDescriptionKey: "Couldn't finish the rollback snapshot: \(String(cString: sqlite3_errmsg(destinationDB)))."])
         }
+
+        // sqlite3_backup copies the source database header as well as its pages. When the live
+        // database is in WAL mode, leaving that header intact can make a later read-only open of
+        // this sidecar depend on a writable `-shm` file. A rollback sidecar must stand on its own,
+        // including when it is opened read-only while recovery is deciding whether to restore it.
+        var journalError: UnsafeMutablePointer<CChar>?
+        let journalResult = sqlite3_exec(destinationDB, "PRAGMA journal_mode=DELETE", nil, nil, &journalError)
+        let journalDescription = journalError.map(String.init(cString:))
+            ?? String(cString: sqlite3_errmsg(destinationDB))
+        if let journalError { sqlite3_free(journalError) }
+        guard journalResult == SQLITE_OK else {
+            throw NSError(domain: "DataBackup", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't finalize the rollback snapshot journal: \(journalDescription)."])
+        }
     }
 
     /// Every table name in a SQLite file, opened READ-ONLY through the system SQLite so the probed
