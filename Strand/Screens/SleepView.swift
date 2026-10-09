@@ -604,9 +604,15 @@ struct SleepView: View {
                     }
                 }
                 HStack(alignment: .center, spacing: 12) {
-                    Text("Source: \(nightSource(night))")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Stage source: \(nightSource(night))")
+                        Text(score == nil ? "Score unavailable" :
+                            repo.importedSleep[day]?.performancePct != nil ?
+                            "Score source: imported WHOOP performance" :
+                            "Score source: NOOP Rest composite")
+                    }
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
                     Spacer(minLength: 8)
                     wakeEditButton(night)
                 }
@@ -636,21 +642,14 @@ struct SleepView: View {
                 }
 
                 if let intervals = night.realSegments, intervals.count >= 2 {
-                    Hypnogram(
+                    RecordedNightMap(
                         intervals: intervals,
-                        height: 168,
-                        showsStageAxis: true,
-                        showsHover: true,
-                        nightStart: night.onsetDate,
-                        showsTimeAxis: true,
-                        smoothingSeconds: 0,
-                        highlightedStage: selectedStage,
-                        filled: false,
-                        stagePalette: .noop
+                        startDate: night.onsetDate,
+                        endDate: Date(timeIntervalSince1970: TimeInterval(night.session.endTs)),
+                        heartRate: nightHR,
+                        highlightedStage: selectedStage
                     )
-                    Text("Select a stage to isolate it; inspect the timeline for exact intervals.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
+                    .id("\(night.session.startTs):\(night.session.endTs)")
                 } else {
                     stageBar(night.stages)
                         .frame(height: 68)
@@ -687,17 +686,14 @@ struct SleepView: View {
                     .foregroundStyle(StrandPalette.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 if nightHR.count >= 2 {
-                    sleepHRChart(intervals: night.realSegments ?? [],
-                                 origin: 0,
-                                 span: max(60, TimeInterval(night.session.endTs - night.session.effectiveStartTs)),
-                                 night: night)
-                        .frame(height: 112)
+                    // The aligned time-series plot lives in RecordedNightMap; keep only
+                    // the summary here rather than drawing a second unsynchronised axis.
                     let bpm = nightHR.map(\.bpm)
                     HStack(spacing: 20) {
                         referenceMetric("Lowest", value: "\(Int((bpm.min() ?? 0).rounded())) bpm")
                         referenceMetric("Average", value: "\(Int((bpm.reduce(0, +) / Double(bpm.count)).rounded())) bpm")
                     }
-                    Text("Recorded heart-rate buckets. Signal gaps are not interpolated.")
+                    Text("Recorded one-minute heart-rate buckets. Gaps are not interpolated.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 } else {
@@ -718,9 +714,9 @@ struct SleepView: View {
             selectedStage = nil
             nightHR = []
         }
-        .task(id: night.session.startTs) {
+        .task(id: "\(night.session.startTs):\(night.session.endTs):\(repo.refreshSeq)") {
             nightHR = []
-            let buckets = await repo.hrBuckets(from: night.session.startTs,
+            let buckets = await repo.hrBuckets(from: night.session.effectiveStartTs,
                                                to: night.session.endTs,
                                                bucketSeconds: 60)
             guard !Task.isCancelled else { return }
