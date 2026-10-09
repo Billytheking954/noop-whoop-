@@ -179,10 +179,41 @@ struct SleepView: View {
                         // Bleed past ScreenScaffold's 16/24 gutters so the hero column is edge-to-edge
                         // in the upper band; the night scene itself is the fixed topBackground.
                         // Customize sits at the end of the hero (not floating in a blank band).
-                        referenceSleepContent(resolved)
+                        // Retain the original, honest stage-less history fallback.
+                        // An unavailable older night must never show latest-night
+                        // measurements beneath an older date in the new report.
+                        if (nightOffset == 0 && !resolved.isStubNight) ||
+                           (nightOffset != 0 && navNight != nil) {
+                            referenceSleepContent(resolved)
+                        } else {
+                            hero(resolved)
+                        }
                         ForEach(Array(sleepVisibleSections.filter { $0 != .stages }.enumerated()), id: \.element) { idx, section in
                             sleepSectionView(section, resolved).staggeredAppear(index: idx + 1)
                         }
+                        // Deep analysis is deliberately after the overview and personalised
+                        // history, never a competing card above the Night Map.
+                        NavigationLink {
+                            MetricExplorerView()
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Night Insights")
+                                        .font(StrandFont.headline)
+                                        .foregroundStyle(StrandPalette.textPrimary)
+                                    Text("Detailed sleep metrics and historical trends")
+                                        .font(StrandFont.footnote)
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                }
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            .frame(minHeight: 52)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Night Insights, detailed sleep metrics and trends")
                     }
                 } else {
                     emptyState
@@ -525,115 +556,256 @@ struct SleepView: View {
     @State private var referenceNeed: Double?
     @State private var referenceConsistency: Double?
 
+    // MARK: - Professional sleep report
+    //
+    // CRUX-inspired ENGINEERING parameters only: 4/8-point rhythm, tabular readings,
+    // restrained surfaces and genuinely useful charts. This is still NOOP's visual identity.
+    // Keep this overview presentation-only: the existing Rest score, session selection,
+    // recorded sleep stages and physiological buckets remain the sources of truth.
     private func referenceSleepContent(_ model: SleepModel) -> some View {
         let night = heroNight(model)
         let score = performanceScore(for: night)
         let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(night.session.endTs)))
-        return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-            HStack {
-                Text("Last night's sleep").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                Spacer()
-                wakeEditButton(night)
+        let recorded = (night.realSegments?.count ?? 0) >= 2
+
+        return VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .center, spacing: 8) {
+                Text("SLEEP REPORT")
+                    .font(StrandFont.overline)
+                    .tracking(StrandFont.overlineTracking)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Spacer(minLength: 8)
+                sleepArrangeAffordance
             }
-            HStack(spacing: ReferenceStyle.padding) {
-                Text("Rest").foregroundStyle(ReferenceStyle.blue)
-                NavigationLink("Charge", value: TabRoute.charge(day: day))
-                NavigationLink("Effort", value: TabRoute.metric(HeroRingMetric.effort))
-            }
-            .font(ReferenceStyle.headline)
-            .frame(minHeight: ReferenceStyle.touch)
-            HStack(alignment: .center, spacing: ReferenceStyle.padding) {
-                ReferenceRing(progress: score.map { $0 / 100 }, color: ReferenceStyle.blue,
-                              value: score.map { "\(Int($0.rounded()))%" } ?? "—", label: "Rest", valueSize: 40)
-                    .frame(width: ReferenceStyle.chartHeight, height: ReferenceStyle.chartHeight)
-                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                    ReferenceCard {
-                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                            Text("Last night's sleep").font(ReferenceStyle.caption)
-                            Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
-                            Text("\(night.onsetText) – \(night.wakeText)")
-                                .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                        }
-                    }
-                    ReferenceCard {
-                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                            Text("Sleep need").font(ReferenceStyle.headline)
-                            Text(referenceNeed.map { durationText($0) } ?? "Not available for this night")
-                                .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
-                        }
-                    }
-                }
-            }
-            ReferenceCard {
-                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                    Text("Sleep stages").font(ReferenceStyle.headline)
-                    if let intervals = night.realSegments, intervals.count >= 2 {
-                        Hypnogram(intervals: intervals, height: 112,
-                                  showsStageAxis: false, showsHover: true,
-                                  nightStart: night.onsetDate, showsTimeAxis: true,
-                                  filled: false, stagePalette: .noop)
-                    } else {
-                        stageBar(night.stages).frame(height: ReferenceStyle.touch)
-                        Text("Stage totals; timeline unavailable").font(ReferenceStyle.caption)
-                    }
-                    HStack(spacing: ReferenceStyle.gap) {
-                        referenceStage("Awake", minutes: night.stages.awake)
-                        referenceStage("Light", minutes: night.stages.light)
-                        referenceStage("REM", minutes: night.stages.rem)
-                        referenceStage("Deep", minutes: night.stages.deep)
-                    }
-                    Text(repo.activeDeviceIsOura ? "Raw on-device stages" : "Estimated sleep stages")
-                        .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
-            }
-            HStack(alignment: .top, spacing: ReferenceStyle.gap) {
-                ReferenceCard {
-                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                        Text("Consistency").font(ReferenceStyle.caption)
-                        Text(referenceConsistency.map { "\(Int($0.rounded()))%" } ?? "Unavailable")
-                            .font(ReferenceStyle.value)
-                    }
-                }
-                ReferenceCard {
-                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                        Text("Time in bed").font(ReferenceStyle.caption)
-                        Text(durationText(night.timeInBed)).font(ReferenceStyle.value)
-                    }
-                }
-            }
-            NavigationLink {
-                MetricExplorerView()
-            } label: {
-                ReferenceCard {
-                    HStack {
-                        Label("View All Sleep Metrics", systemImage: "chart.bar")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                    }.font(ReferenceStyle.headline)
-                }
-            }.buttonStyle(.plain)
-            if stageStagingIsLowConfidence(night) { stageLowConfidenceNote }
-            if stageShowsIncompleteNote(night) { stageIncompleteNote }
-            if let coverage = stageCoverage(night), coverage < HypnogramCoverage.minCoverage {
-                stagePartialNote(coverage)
-            }
+
+            // Preserve the existing browse-by-night control and editing target.
             nightNavHeader(trailing: night.spanLabel)
+
+            // A real metric first, not a decorative liquid gauge or three nested cards.
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sleep performance")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Text(score.map { "\(Int($0.rounded()))" } ?? "—")
+                            .font(StrandFont.number(52))
+                            .monospacedDigit()
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .accessibilityLabel(score.map { "Sleep performance \(Int($0.rounded())) out of 100" } ?? "Sleep performance unavailable")
+                        Text(score.map { sleepScoreWord($0) } ?? "Not available")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Time asleep")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Text(durationText(night.stages.asleep))
+                            .font(StrandFont.number(30))
+                            .monospacedDigit()
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text("\(night.onsetText) – \(night.wakeText)")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Stage source: \(nightSource(night))")
+                        Text(score == nil ? "Score unavailable" :
+                            repo.importedSleep[day]?.performancePct != nil ?
+                            "Score source: imported WHOOP performance" :
+                            "Score source: NOOP Rest composite")
+                    }
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    Spacer(minLength: 8)
+                    wakeEditButton(night)
+                }
+                Divider().overlay(StrandPalette.hairline)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16)],
+                          alignment: .leading, spacing: 16) {
+                    referenceMetric("Sleep need", value: referenceNeed.map { durationText($0) } ?? "Unavailable")
+                    referenceMetric("Efficiency", value: efficiencyPct(night).map { "\(Int($0.rounded()))%" } ?? "Unavailable")
+                    referenceMetric("Consistency", value: referenceConsistency.map { "\(Int($0.rounded()))%" } ?? "Unavailable")
+                    referenceMetric("Time in bed", value: durationText(night.timeInBed))
+                }
+            }
+
+            // Night Map is the focal point. Recorded intervals are eligible for a
+            // chronological chart; aggregate-only imports get an honest totals bar.
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Night Map")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    Text(recorded ? "Recorded timeline" : "Stage totals only")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+
+                if let intervals = night.realSegments, intervals.count >= 2 {
+                    RecordedNightMap(
+                        intervals: intervals,
+                        startDate: night.onsetDate,
+                        endDate: Date(timeIntervalSince1970: TimeInterval(night.session.endTs)),
+                        heartRate: nightHR,
+                        highlightedStage: selectedStage
+                    )
+                    .id("\(night.session.startTs):\(night.session.endTs)")
+                } else {
+                    stageBar(night.stages)
+                        .frame(height: 68)
+                    Text("Individual stage times were not recorded for this night. The breakdown shows totals, not reconstructed timing.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(spacing: 8) {
+                    referenceStageRow(.awake, in: night.stages, timelineAvailable: recorded)
+                    referenceStageRow(.rem, in: night.stages, timelineAvailable: recorded)
+                    referenceStageRow(.light, in: night.stages, timelineAvailable: recorded)
+                    referenceStageRow(.deep, in: night.stages, timelineAvailable: recorded)
+                }
+
+                Text(repo.activeDeviceIsOura ? "Raw on-device stage estimates" : "Sleep stages are estimates; not a clinical sleep study.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+
+                if stageStagingIsLowConfidence(night) { stageLowConfidenceNote }
+                if stageShowsIncompleteNote(night) { stageIncompleteNote }
+                if let coverage = stageCoverage(night), coverage < HypnogramCoverage.minCoverage {
+                    stagePartialNote(coverage)
+                }
+                if repo.activeDeviceIsOura { ouraRawStagesNote }
+            }
+
+            // The sampled HR trace belongs in the report, not in another score card.
+            VStack(alignment: .leading, spacing: 12) {
+                Divider().overlay(StrandPalette.hairline)
+                Text("Overnight heart rate")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                if nightHR.count >= 2 {
+                    // The aligned time-series plot lives in RecordedNightMap; keep only
+                    // the summary here rather than drawing a second unsynchronised axis.
+                    let bpm = nightHR.map(\.bpm)
+                    HStack(spacing: 20) {
+                        referenceMetric("Lowest", value: "\(Int((bpm.min() ?? 0).rounded())) bpm")
+                        referenceMetric("Average", value: "\(Int((bpm.reduce(0, +) / Double(bpm.count)).rounded())) bpm")
+                    }
+                    Text("Recorded one-minute heart-rate buckets. Gaps are not interpolated.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                } else {
+                    Text("An overnight heart-rate trace is unavailable for this night.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                if night.motionEpochs.count >= 2 {
+                    Divider().overlay(StrandPalette.hairline)
+                    motionStrip(night)
+                }
+            }
+
+            // Existing nap actions and historical analysis remain intact.
             napSection(night)
         }
+        .onChange(of: nightOffset) { _ in
+            selectedStage = nil
+            nightHR = []
+        }
+        .task(id: "\(night.session.startTs):\(night.session.endTs):\(repo.refreshSeq)") {
+            nightHR = []
+            let buckets = await repo.hrBuckets(from: night.session.effectiveStartTs,
+                                               to: night.session.endTs,
+                                               bucketSeconds: 60)
+            guard !Task.isCancelled else { return }
+            nightHR = buckets
+        }
         .task(id: "\(day):\(repo.refreshSeq)") {
+            referenceNeed = nil
+            referenceConsistency = nil
             let needs = await repo.exploreSeries(key: "sleep_need_min", source: "my-whoop", days: 365)
             let consistency = await repo.exploreSeries(key: "sleep_consistency", source: "my-whoop", days: 365)
+            guard !Task.isCancelled else { return }
             referenceNeed = repo.importedSleep[day]?.needMin ?? needs.last { $0.day == day }?.value
             referenceConsistency = repo.importedSleep[day]?.consistencyPct ?? consistency.last { $0.day == day }?.value
         }
     }
 
-    private func referenceStage(_ title: String, minutes: Double) -> some View {
-        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-            Text(title).font(ReferenceStyle.caption)
-            Text(durationText(minutes)).font(ReferenceStyle.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    private func referenceMetric(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(StrandFont.overline)
+                .tracking(StrandFont.overlineTracking)
+                .foregroundStyle(StrandPalette.textTertiary)
+            Text(value)
+                .font(StrandFont.number(20))
+                .monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func referenceStageRow(_ stage: SleepStage, in stages: Stages,
+                                   timelineAvailable: Bool) -> some View {
+        let minutes: Double = {
+            switch stage {
+            case .awake: return stages.awake
+            case .light: return stages.light
+            case .deep: return stages.deep
+            case .rem: return stages.rem
+            }
+        }()
+        let percentage = stageSharePercent(stage, stages)
+        let color = StrandPalette.sleepStageColor(stage)
+        return Button {
+            if timelineAvailable {
+                selectedStage = selectedStage == stage ? nil : stage
+            }
+        } label: {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(color)
+                    .frame(width: 4, height: 18)
+                    .accessibilityHidden(true)
+                Text(stage.label)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .frame(width: 42, alignment: .leading)
+                ProgressView(value: stages.total > 0 ? min(1, max(0, minutes / stages.total)) : 0)
+                    .tint(color)
+                Text("\(percentage)%")
+                    .font(StrandFont.captionNumber)
+                    .monospacedDigit()
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .frame(width: 33, alignment: .trailing)
+                Text(durationText(minutes))
+                    .font(StrandFont.captionNumber)
+                    .monospacedDigit()
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .frame(width: 55, alignment: .trailing)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(selectedStage == nil || selectedStage == stage ? 1 : 0.55)
+        }
+        .buttonStyle(.plain)
+        .disabled(!timelineAvailable)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(stage.label), \(durationText(minutes)), \(percentage) percent")
+        .accessibilityHint(timelineAvailable ? "Double tap to highlight on Night Map" : "Only stage totals are available")
     }
 
     /// Immersive Rest-world hero: compact Bevel-like hierarchy — centered "Sleep", muted circular
