@@ -1,0 +1,27 @@
+name: One-time cancellation of superseded Sleep IPA builds
+
+on:
+  push:
+    branches: [feature/sleep-night-map-clinical-20261009]
+    paths:
+      - '.github/workflows/sleep-ci-superseded-cleanup.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  release-macos-runners:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/feature/sleep-night-map-clinical-20261009'
+    steps:
+      - name: Cancel only obsolete IPA run IDs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          for id in 37922439466 37922295934 37922202107 37922186679 37922119820 37922092720; do
+            echo "Cancel obsolete Sleep IPA run $id (if still running)"
+            gh api -X POST "repos/Billytheking954/noop-whoop-/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+          done
+          echo "Only superseded runs were targeted; final run retained."
