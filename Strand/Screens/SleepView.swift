@@ -179,7 +179,15 @@ struct SleepView: View {
                         // Bleed past ScreenScaffold's 16/24 gutters so the hero column is edge-to-edge
                         // in the upper band; the night scene itself is the fixed topBackground.
                         // Customize sits at the end of the hero (not floating in a blank band).
-                        referenceSleepContent(resolved)
+                        // Retain the original, honest stage-less history fallback.
+                        // An unavailable older night must never show latest-night
+                        // measurements beneath an older date in the new report.
+                        if (nightOffset == 0 && !resolved.isStubNight) ||
+                           (nightOffset != 0 && navNight != nil) {
+                            referenceSleepContent(resolved)
+                        } else {
+                            hero(resolved)
+                        }
                         ForEach(Array(sleepVisibleSections.filter { $0 != .stages }.enumerated()), id: \.element) { idx, section in
                             sleepSectionView(section, resolved).staggeredAppear(index: idx + 1)
                         }
