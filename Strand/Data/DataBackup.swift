@@ -702,7 +702,7 @@ enum DataBackup {
         // including when it is opened read-only while recovery is deciding whether to restore it.
         var journalError: UnsafeMutablePointer<CChar>?
         let journalResult = sqlite3_exec(destinationDB, "PRAGMA journal_mode=DELETE", nil, nil, &journalError)
-        let journalDescription = journalError.map(String.init(cString:))
+        let journalDescription = journalError.map { String(cString: $0) }
             ?? String(cString: sqlite3_errmsg(destinationDB))
         if let journalError { sqlite3_free(journalError) }
         guard journalResult == SQLITE_OK else {
