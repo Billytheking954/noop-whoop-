@@ -6,6 +6,7 @@ on:
       - feature/sleep-night-map-clinical-20261009
     paths:
       - '.github/workflows/sleep-catalog-bootstrap.yml'
+      - 'Tools/sleep_i18n_patch_20261009.json'
 
 permissions:
   contents: write
