@@ -482,12 +482,30 @@ enum DataBackup {
 
         let dbURL = URL(fileURLWithPath: dbPath)
 
+        // AUDIT-BACKUP-02: every existing GRDB pool still points at the current inode. If we unlink/swap
+        // the SQLite path while one of those pools is writing, that write can succeed against the detached
+        // old inode and disappear on relaunch. Close the mutation gate BEFORE the snapshot/swap and wait
+        // for all already-started store/registry writes to finish. Failed restores reopen the gate; a
+        // successful restore intentionally leaves it closed until the process is relaunched, because the
+        // old pools must never accept another mutation.
+        StoreWriteBarrier.suspendAndDrainForRestore()
+        var restoredSuccessfully = false
+        defer {
+            if !restoredSuccessfully {
+                StoreWriteBarrier.resumeAfterFailedRestore()
+            }
+        }
+
         do {
             // Snapshot the current DB (+ sidecars) to a timestamped side file so the user can roll back.
             var sidecar = dbURL.deletingLastPathComponent()
                 .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
                 if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
+                // The live store runs in WAL mode. A plain file copy can omit committed pages that
+                // still live only in `-wal`, leaving the rollback snapshot silently stale. Use
+                // SQLite's online backup API so the sidecar is a consistent, self-contained snapshot
+                // of the logical database while the app's pool remains open.
                 try snapshotLiveDatabase(from: dbURL, to: sidecar)
             } else {
                 // Nothing to preserve (fresh install); report a placeholder so the message reads sensibly.
@@ -567,9 +585,11 @@ enum DataBackup {
                     }
                 }
             }
-            // #57 debug: record when a restore swapped the DB, so the export can correlate a restore with a
-            // later write stall (a restore not followed by a relaunch is the #57 failure).
+            // #57 / AUDIT-BACKUP-02: record when a restore swapped the DB. The process-wide write
+            // barrier remains CLOSED from this point until relaunch, so no old DatabasePool can accept a
+            // mutation against the detached pre-restore inode.
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "backup.lastRestoreAt")
+            restoredSuccessfully = true
             return .imported(sidecar: sidecar)
         } catch {
             return .failure(String(localized: "Import failed: \(error.localizedDescription)"))

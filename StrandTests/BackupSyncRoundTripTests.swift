@@ -1,6 +1,7 @@
 import XCTest
 import SQLite3
 import ZIPFoundation
+import WhoopStore
 @testable import Strand
 
 /// Real file-I/O tests for the Backup & Sync restore path - not string logic (must-fix #5).
@@ -17,6 +18,7 @@ final class BackupSyncRoundTripTests: XCTestCase {
     private var suites: [String] = []
 
     override func setUpWithError() throws {
+        StoreWriteBarrier.resumeAfterFailedRestore()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("backupsync-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -26,6 +28,7 @@ final class BackupSyncRoundTripTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
         for name in suites { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
         suites = []
+        StoreWriteBarrier.resumeAfterFailedRestore()
     }
 
     /// A suite-scoped UserDefaults for the settings half of a restore, so these tests NEVER write into
@@ -58,6 +61,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         XCTAssertEqual(try deviceRows(in: liveDB), ["my-whoop", "watch"],
                        "Restored DB should hold exactly the backed-up rows")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "Old pools must remain blocked after a successful restore")
     }
 
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
