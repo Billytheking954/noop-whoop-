@@ -81,6 +81,15 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         XCTAssertFalse(StoreWriteBarrier.isSuspended,
                        "Failed restores must reopen the write gate")
+
+        // After failure, a subsequent valid restore should still be possible.
+        let retryPath = tmp.appendingPathComponent("retry-live.sqlite")
+        let retry = DataBackup.restore(from: backup, toDatabaseAt: retryPath.path)
+        guard case .imported = retry else {
+            return XCTFail("A valid retry should succeed after gate recovery, got \(retry)")
+        }
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "A successful retry must close the gate until relaunch")
     }
 
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
