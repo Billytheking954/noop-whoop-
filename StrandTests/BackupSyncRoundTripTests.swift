@@ -65,6 +65,24 @@ final class BackupSyncRoundTripTests: XCTestCase {
                       "Old pools must remain blocked after a successful restore")
     }
 
+    func testSnapshotFailureResumesDatabaseWrites() throws {
+        let sourceDB = tmp.appendingPathComponent("source-failure.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["original"])
+        let backup = tmp.appendingPathComponent("source-failure.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup)
+
+        // A directory cannot be opened as the existing SQLite DB. This forces the
+        // rollback snapshot to fail after the restore write barrier has been engaged.
+        let invalidLivePath = tmp.appendingPathComponent("directory-not-sqlite.sqlite", isDirectory: true)
+        try FileManager.default.createDirectory(at: invalidLivePath, withIntermediateDirectories: true)
+        let result = DataBackup.restore(from: backup, toDatabaseAt: invalidLivePath.path)
+        guard case .failure = result else {
+            return XCTFail("Snapshot should fail for a directory, got \(result)")
+        }
+        XCTAssertFalse(StoreWriteBarrier.isSuspended,
+                       "Failed restores must reopen the write gate")
+    }
+
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
 
     func testBackupWithSettingsRestoresSettingsAfterDbSwap() throws {
