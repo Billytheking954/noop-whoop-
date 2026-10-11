@@ -1755,8 +1755,19 @@ final class HealthKitBridge: ObservableObject {
         for workout in workoutsAndRows {
             let startTs = Int(workout.startDate.timeIntervalSince1970)
             let endTs = max(Int(workout.endDate.timeIntervalSince1970), startTs)
-            let appleSamples = await Self.fetchWorkoutHeartRate(for: workout, store: store)
-            let steps = await Self.fetchWorkoutSteps(for: workout, store: store)
+            let appleSamplesRead = await Self.fetchWorkoutHeartRate(for: workout, store: store)
+            let stepsRead = await Self.fetchWorkoutSteps(for: workout, store: store)
+            // These values are part of a whole-row upsert. An explicit query error says nothing about
+            // the workout, so writing nil/empty would erase a previously imported HR, Effort, or step
+            // value. Skip only this workout and retry it on the next overlapping sync window.
+            let heartRateFailed: Bool
+            switch appleSamplesRead { case .read: heartRateFailed = false; case .failed: heartRateFailed = true }
+            let stepsFailed: Bool
+            switch stepsRead { case .read: stepsFailed = false; case .failed: stepsFailed = true }
+            guard Self.shouldPersistWorkoutRead(heartRateFailed: heartRateFailed,
+                                                stepsFailed: stepsFailed),
+                  case .read(let appleSamples) = appleSamplesRead,
+                  case .read(let steps) = stepsRead else { continue }
             // Prefer the HR stream HealthKit associates with this workout (for example, Apple Watch).
             // If that stream is absent or too sparse to score, fall back to the locally stored strap
             // trace for this exact workout window — the same trace that backs the detail chart.
@@ -1836,21 +1847,24 @@ final class HealthKitBridge: ObservableObject {
     }
 
     /// HealthKit has no direct step-count property on HKWorkout; query step samples for its time window.
-    /// Return nil on query failure or no usable samples, preserving "unknown" rather than reporting zero.
+    /// A successful empty result carries nil (preserving "unknown" rather than reporting zero); an
+    /// explicit query error is separate so the caller can preserve a previously imported workout row.
+    private enum WorkoutRead<Value> { case read(Value), failed }
+
     nonisolated private static func fetchWorkoutSteps(for workout: HKWorkout,
-                                                       store: HKHealthStore) async -> Int? {
-        guard let type = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return nil }
+                                                       store: HKHealthStore) async -> WorkoutRead<Int?> {
+        guard let type = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return .read(nil) }
         let predicate = HKQuery.predicateForSamples(withStart: workout.startDate, end: workout.endDate,
                                                      options: .strictStartDate)
-        return await withCheckedContinuation { (cont: CheckedContinuation<Int?, Never>) in
+        return await withCheckedContinuation { cont in
             let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate,
                                           options: .cumulativeSum) { _, statistics, error in
-                guard error == nil,
-                      let total = statistics?.sumQuantity()?.doubleValue(for: .count()),
+                guard error == nil else { cont.resume(returning: .failed); return }
+                guard let total = statistics?.sumQuantity()?.doubleValue(for: .count()),
                       total.isFinite, total >= 0 else {
-                    cont.resume(returning: nil); return
+                    cont.resume(returning: .read(nil)); return
                 }
-                cont.resume(returning: Int(total.rounded()))
+                cont.resume(returning: .read(Int(total.rounded())))
             }
             store.execute(query)
         }
@@ -1859,18 +1873,18 @@ final class HealthKitBridge: ObservableObject {
     /// Read only HR samples associated with this HealthKit workout, excluding samples authored by NOOP.
     /// The workout association prevents same-window samples from unrelated sessions being counted.
     private static func fetchWorkoutHeartRate(for workout: HKWorkout,
-                                               store: HKHealthStore) async -> [HRSample] {
-        guard let type = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return [] }
+                                               store: HKHealthStore) async -> WorkoutRead<[HRSample]> {
+        guard let type = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return .read([]) }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForObjects(from: workout),
             Self.notNoopAuthored,
         ])
-        return await withCheckedContinuation { (cont: CheckedContinuation<[HRSample], Never>) in
+        return await withCheckedContinuation { cont in
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
             let query = HKSampleQuery(sampleType: type, predicate: predicate,
                                       limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, error in
                 guard error == nil, let samples = samples as? [HKQuantitySample] else {
-                    cont.resume(returning: []); return
+                    cont.resume(returning: .failed); return
                 }
                 let unit = HKUnit.count().unitDivided(by: .minute())
                 let result = samples.compactMap { sample -> HRSample? in
@@ -1878,7 +1892,7 @@ final class HealthKitBridge: ObservableObject {
                     guard bpm.isFinite, bpm >= 25, bpm <= 240 else { return nil }
                     return HRSample(ts: Int(sample.startDate.timeIntervalSince1970), bpm: Int(bpm.rounded()))
                 }
-                cont.resume(returning: result)
+                cont.resume(returning: .read(result))
             }
             store.execute(query)
         }
@@ -1909,20 +1923,47 @@ final class HealthKitBridge: ObservableObject {
         // handler repeatedly with batches of locations; `done: true` marks the end of one route.
         var points: [WorkoutRoutePoint] = []
         for route in routes {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                let query = HKWorkoutRouteQuery(route: route) { _, locations, done, _ in
-                    for loc in locations ?? [] {
-                        points.append(WorkoutRoutePoint(lat: loc.coordinate.latitude,
-                                                        lon: loc.coordinate.longitude,
-                                                        accuracyM: loc.horizontalAccuracy,
-                                                        tMs: Int64(loc.timestamp.timeIntervalSince1970 * 1000)))
+            let routePoints: [WorkoutRoutePoint]? = await withCheckedContinuation { cont in
+                var collected: [WorkoutRoutePoint] = []
+                let query = HKWorkoutRouteQuery(route: route) { _, locations, done, error in
+                    let outcome = workoutRouteBatchOutcome(done: done, hadError: error != nil)
+                    if outcome == .failed {
+                        // An error is terminal even when HealthKit reports `done == false`. Waiting only
+                        // for `done` leaves the checked continuation suspended forever on a failed read.
+                        cont.resume(returning: nil)
+                        return
                     }
-                    if done { cont.resume(returning: ()) }
+                    for loc in locations ?? [] {
+                        collected.append(WorkoutRoutePoint(lat: loc.coordinate.latitude,
+                                                           lon: loc.coordinate.longitude,
+                                                           accuracyM: loc.horizontalAccuracy,
+                                                           tMs: Int64(loc.timestamp.timeIntervalSince1970 * 1000)))
+                    }
+                    if outcome == .finished {
+                        cont.resume(returning: collected)
+                    }
                 }
                 store.execute(query)
             }
+            guard let routePoints else { return nil }
+            points.append(contentsOf: routePoints)
         }
         return points.isEmpty ? nil : points
+    }
+
+    enum WorkoutRouteBatchOutcome: Equatable { case more, finished, failed }
+
+    /// HealthKit may end a route query with an error rather than a final `done == true` batch. Keep this
+    /// decision pure so the continuation's error-vs-completion semantics have deterministic coverage.
+    nonisolated static func workoutRouteBatchOutcome(done: Bool, hadError: Bool) -> WorkoutRouteBatchOutcome {
+        if hadError { return .failed }
+        return done ? .finished : .more
+    }
+
+    /// Whole-workout upserts may proceed only when both destructive input reads completed. A genuinely
+    /// empty successful read remains authoritative; a query error preserves the previously stored row.
+    nonisolated static func shouldPersistWorkoutRead(heartRateFailed: Bool, stepsFailed: Bool) -> Bool {
+        !heartRateFailed && !stepsFailed
     }
 
     /// Source tag stamped on workouts imported from Apple Health. Matches the macOS importer's
