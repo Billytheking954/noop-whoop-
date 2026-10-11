@@ -41,6 +41,19 @@ final class StoreWriteBarrierTests: XCTestCase {
         try await store.recordEvent(deviceId: "test", ts: 2, kind: "WRITE", payloadJSON: "{}")
     }
 
+    func testAtomicRestoreReservationRejectsSecondAttemptUntilGateResumes() {
+        XCTAssertTrue(StoreWriteBarrier.trySuspendAndDrainForRestore(),
+                      "The first restore must be able to reserve the write barrier")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+        XCTAssertFalse(StoreWriteBarrier.trySuspendAndDrainForRestore(),
+                       "A second or racing restore cannot reuse the existing suspension")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+
+        StoreWriteBarrier.resumeAfterFailedRestore()
+        XCTAssertTrue(StoreWriteBarrier.trySuspendAndDrainForRestore(),
+                      "A genuinely failed restore should allow a fresh attempt")
+    }
+
     func testSuspendWaitsForInFlightWriterToDrain() {
         let writerEntered = expectation(description: "writer entered")
         let writerFinished = expectation(description: "writer finished")
