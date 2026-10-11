@@ -488,6 +488,14 @@ enum DataBackup {
         // for all already-started store/registry writes to finish. Failed restores reopen the gate; a
         // successful restore intentionally leaves it closed until the process is relaunched, because the
         // old pools must never accept another mutation.
+        // A prior successful restore has already detached this process's open GRDB pools.
+        // A second restore attempt that later fails must not call resumeAfterFailedRestore(),
+        // which would re-enable writes into those stale connections. Require a clean relaunch
+        // before any additional restore; this also refuses overlapping restore attempts once
+        // the first one has acquired the suspension gate.
+        guard !StoreWriteBarrier.isSuspended else {
+            return .failure(String(localized: "Please fully relaunch NOOP before restoring another backup."))
+        }
         StoreWriteBarrier.suspendAndDrainForRestore()
         var restoredSuccessfully = false
         defer {
