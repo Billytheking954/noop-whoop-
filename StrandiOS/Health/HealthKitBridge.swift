@@ -116,6 +116,13 @@ final class HealthKitBridge: ObservableObject {
         return s
     }
 
+    /// Whether at least one HealthKit share/write type is currently authorized. Read authorization is
+    /// intentionally opaque on iOS, so this must stay separate from `auth == .authorized`: read-only users
+    /// still deserve imports, but they do not need the periodic write-back BGTask.
+    var hasAnyWriteAuthorization: Bool {
+        writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
+    }
+
     // Every id here ends up in the HealthKit permission dialog. Only request what `sync` actually
     // aggregates into `DayAgg`; adding read scopes the app never consumes makes the consent prompt
     // noisier and surfaces a privacy ask we don't honour.
@@ -260,8 +267,10 @@ final class HealthKitBridge: ObservableObject {
         // Share authorization is per type. Resume when at least one write type is granted so a person
         // who intentionally declined (for example) workouts still gets sleep/vitals exported after a
         // relaunch. Requiring every legacy type made partial grants look wholly disconnected.
-        let granted = writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
-        if granted {
+        let granted = hasAnyWriteAuthorization
+        let priorRequestRecorded = UserDefaults.standard.string(forKey: Self.readTypeSignatureKey) != nil
+        if Self.shouldResumeAuthorization(priorRequestRecorded: priorRequestRecorded,
+                                          anyWriteAuthorized: granted) {
             auth = .authorized
             // A returning user who already granted access should get the live stream re-armed for this
             // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
@@ -283,6 +292,15 @@ final class HealthKitBridge: ObservableObject {
                 Task { try? await store.requestAuthorization(toShare: writeTypes, read: readTypes) }
             }
         }
+    }
+
+    /// HealthKit intentionally does not reveal read authorization. A successful prior authorization
+    /// request is therefore the only durable evidence that a read-only user has already gone through the
+    /// consent flow. Requiring a granted SHARE type strands users who allowed reads but denied every write:
+    /// the current process works, then the next launch falls back to `.unknown` forever.
+    nonisolated static func shouldResumeAuthorization(priorRequestRecorded: Bool,
+                                                       anyWriteAuthorized: Bool) -> Bool {
+        priorRequestRecorded || anyWriteAuthorized
     }
 
     // MARK: - Live delivery (continuous ingestion)
