@@ -116,6 +116,13 @@ final class HealthKitBridge: ObservableObject {
         return s
     }
 
+    /// Whether at least one HealthKit share/write type is currently authorized. Read authorization is
+    /// intentionally opaque on iOS, so this must stay separate from `auth == .authorized`: read-only users
+    /// still deserve imports, but they do not need the periodic write-back BGTask.
+    var hasAnyWriteAuthorization: Bool {
+        writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
+    }
+
     // Every id here ends up in the HealthKit permission dialog. Only request what `sync` actually
     // aggregates into `DayAgg`; adding read scopes the app never consumes makes the consent prompt
     // noisier and surfaces a privacy ask we don't honour.
@@ -260,8 +267,10 @@ final class HealthKitBridge: ObservableObject {
         // Share authorization is per type. Resume when at least one write type is granted so a person
         // who intentionally declined (for example) workouts still gets sleep/vitals exported after a
         // relaunch. Requiring every legacy type made partial grants look wholly disconnected.
-        let granted = writeTypes.contains { store.authorizationStatus(for: $0) == .sharingAuthorized }
-        if granted {
+        let granted = hasAnyWriteAuthorization
+        let priorRequestRecorded = UserDefaults.standard.string(forKey: Self.readTypeSignatureKey) != nil
+        if Self.shouldResumeAuthorization(priorRequestRecorded: priorRequestRecorded,
+                                          anyWriteAuthorized: granted) {
             auth = .authorized
             // A returning user who already granted access should get the live stream re-armed for this
             // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
@@ -283,6 +292,15 @@ final class HealthKitBridge: ObservableObject {
                 Task { try? await store.requestAuthorization(toShare: writeTypes, read: readTypes) }
             }
         }
+    }
+
+    /// HealthKit intentionally does not reveal read authorization. A successful prior authorization
+    /// request is therefore the only durable evidence that a read-only user has already gone through the
+    /// consent flow. Requiring a granted SHARE type strands users who allowed reads but denied every write:
+    /// the current process works, then the next launch falls back to `.unknown` forever.
+    nonisolated static func shouldResumeAuthorization(priorRequestRecorded: Bool,
+                                                       anyWriteAuthorized: Bool) -> Bool {
+        priorRequestRecorded || anyWriteAuthorized
     }
 
     // MARK: - Live delivery (continuous ingestion)
@@ -598,12 +616,15 @@ final class HealthKitBridge: ObservableObject {
             var a = agg(day); a.waterMl = v; byDay[day] = a
         }
 
-        // Sleep minutes per day (asleep stages summed; attributed to wake day).
-        await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
+        // Sleep minutes per day (asleep stages summed; attributed to wake day). A failed sample
+        // query is NOT an authoritative empty result: this pass writes whole dailyMetric rows, so treating
+        // failure as "no sleep" would replace previously-imported sleep fields with nil (#2561 invariant).
+        let sleepRead = await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
             var a = agg(day)
             a.asleepMin = asleepMin; a.deepMin = deepMin; a.remMin = remMin; a.coreMin = coreMin
             byDay[day] = a
         }
+        note(sleepRead, "sleepAnalysis")
 
         // #2561 follow-up: hold the whole write back if ANY aggregate read failed. Every upsert below
         // assigns `column = excluded.column`, so writing now would replace each failed metric's stored
@@ -1591,15 +1612,21 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
+    nonisolated static func sampleQueryReadOutcome(hadError: Bool) -> HealthRead {
+        hadError ? .failed : .read
+    }
+
     private func collectSleep(start: Date, end: Date,
-                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async {
-        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
+                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async -> HealthRead {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return .unavailable }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
+        return await withCheckedContinuation { (cont: CheckedContinuation<HealthRead, Never>) in
+            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+                let outcome = Self.sampleQueryReadOutcome(hadError: error != nil)
+                guard outcome != .failed else { cont.resume(returning: .failed); return }
                 var asleep: [String: Double] = [:], deep: [String: Double] = [:]
                 var rem: [String: Double] = [:], core: [String: Double] = [:]
                 for case let s as HKCategorySample in samples ?? [] {
@@ -1619,7 +1646,7 @@ final class HealthKitBridge: ObservableObject {
                 for day in Set(asleep.keys) {
                     sink(day, asleep[day], deep[day], rem[day], core[day])
                 }
-                cont.resume()
+                cont.resume(returning: .read)
             }
             store.execute(q)
         }
@@ -1858,14 +1885,17 @@ final class HealthKitBridge: ObservableObject {
     }
 
     /// #1205: fetch the GPS route and its original timing/accuracy for a single `HKWorkout`.
-    /// Queries `HKWorkoutRoute` samples overlapping the workout's time range, then collects all
+    /// Queries `HKWorkoutRoute` samples owned by this workout, then collects all
     /// `CLLocation` waypoints from each route via `HKWorkoutRouteQuery`. Returns `nil` when there
     /// is no route, the user has not granted route read access, or HealthKit reports an error —
     /// all of which are graceful skips (the workout imports without a map, same as today).
     nonisolated static func fetchWorkoutRoute(for workout: HKWorkout, store: HKHealthStore) async -> [WorkoutRoutePoint]? {
         let routeType = HKSeriesType.workoutRoute()
-        let predicate = HKQuery.predicateForSamples(withStart: workout.startDate, end: workout.endDate, options: .strictStartDate)
-        // First: query for HKWorkoutRoute samples associated with this workout.
+        // A route is explicitly associated with one workout. A time-range predicate is insufficient:
+        // overlapping workouts can have overlapping route samples, which would splice another workout's
+        // GPS points into this one. HealthKit's association predicate is the canonical ownership filter.
+        let predicate = HKQuery.predicateForObjects(from: workout)
+        // First: query only HKWorkoutRoute samples associated with this exact workout.
         let routes: [HKWorkoutRoute] = await withCheckedContinuation { (cont: CheckedContinuation<[HKWorkoutRoute], Never>) in
             let q = HKSampleQuery(sampleType: routeType, predicate: predicate,
                                   limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
