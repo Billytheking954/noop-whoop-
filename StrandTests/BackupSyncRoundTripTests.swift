@@ -4,6 +4,33 @@ import ZIPFoundation
 import WhoopStore
 @testable import Strand
 
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value?
+
+    init(_ value: Value? = nil) { self.value = value }
+
+    func set(_ newValue: Value) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func mutate(_ body: (inout Value) -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var current = value else { return }
+        body(&current)
+        value = current
+    }
+
+    func get() -> Value? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 /// Real file-I/O tests for the Backup & Sync restore path - not string logic (must-fix #5).
 ///
 /// These exercise the SAME hardened core the picker import uses, via the injectable
@@ -92,6 +119,92 @@ final class BackupSyncRoundTripTests: XCTestCase {
                       "A successful retry must close the gate until relaunch")
     }
 
+    func testFailedReplacementRollsBackButKeepsStalePoolsBlocked() throws {
+        let sourceDB = tmp.appendingPathComponent("replacement-source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["replacement"])
+        let backup = tmp.appendingPathComponent("replacement.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup)
+
+        let liveDB = tmp.appendingPathComponent("live-copy-failure.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        var copyCalls = 0
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path) { source, destination in
+            copyCalls += 1
+            if copyCalls == 1 { throw TestError("injected replacement-copy failure") }
+            try FileManager.default.copyItem(at: source, to: destination)
+        }
+
+        guard case .failure(let message) = result else {
+            return XCTFail("Injected replacement-copy failure must fail restore, got \(result)")
+        }
+        XCTAssertEqual(copyCalls, 2, "The second copy must restore the rollback snapshot")
+        XCTAssertEqual(try deviceRows(in: liveDB), ["original"])
+        XCTAssertTrue(message.contains("existing data was kept"))
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "Unlinking the pathname makes old pools stale even when rollback succeeds")
+    }
+
+    func testRollbackCopyFailureIsReportedHonestlyAndPreservesRecoverySnapshot() throws {
+        let sourceDB = tmp.appendingPathComponent("rollback-failure-source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["replacement"])
+        let backup = tmp.appendingPathComponent("rollback-failure.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup)
+
+        let liveDB = tmp.appendingPathComponent("live-rollback-failure.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path) { _, _ in
+            throw TestError("injected copy failure")
+        }
+
+        guard case .failure(let message) = result else {
+            return XCTFail("A failed replacement and failed rollback must fail restore, got \(result)")
+        }
+        XCTAssertFalse(message.contains("existing data was kept"),
+                       "The UI must not claim preservation when rollback failed")
+        XCTAssertTrue(message.contains("Recovery snapshot:"),
+                      "The user must be told where the preserved recovery database is")
+        XCTAssertTrue(message.contains("Fully quit and reopen NOOP"))
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "An unverified live pathname must never reopen stale database pools")
+
+        let snapshots = try FileManager.default.contentsOfDirectory(at: tmp,
+            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("whoop-replaced-") }
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(try deviceRows(in: try XCTUnwrap(snapshots.first)), ["original"],
+                       "The self-contained recovery sidecar must remain readable")
+    }
+
+    func testPostSwapFailureDoesNotHideFailedRollbackVerification() throws {
+        let sourceDB = tmp.appendingPathComponent("post-swap-source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["replacement"])
+        let backup = tmp.appendingPathComponent("post-swap.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup)
+
+        let liveDB = tmp.appendingPathComponent("live-post-swap.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        var copyCalls = 0
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path) { source, destination in
+            copyCalls += 1
+            try FileManager.default.copyItem(at: source, to: destination)
+            // Simulate a torn filesystem copy after both the replacement and rollback operations claim
+            // success. The rollback helper must independently verify what landed.
+            try Data(repeating: 0x41, count: 4096).write(to: destination)
+        }
+
+        guard case .failure(let message) = result else {
+            return XCTFail("A torn landed database must fail restore, got \(result)")
+        }
+        XCTAssertEqual(copyCalls, 2)
+        XCTAssertFalse(message.contains("rolled back automatically and is unchanged"),
+                       "A corrupt rollback copy must never be reported as successful")
+        XCTAssertTrue(message.contains("Recovery snapshot:"))
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+
+        let snapshots = try FileManager.default.contentsOfDirectory(at: tmp,
+            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("whoop-replaced-") }
+        XCTAssertEqual(try deviceRows(in: try XCTUnwrap(snapshots.first)), ["original"])
+    }
+
     func testSecondRestoreIsRejectedUntilRelaunchWithoutReopeningOldPools() throws {
         let firstSource = tmp.appendingPathComponent("first-source.sqlite")
         try makeNoopDatabase(at: firstSource, deviceRows: ["first-backup"])
@@ -119,6 +232,64 @@ final class BackupSyncRoundTripTests: XCTestCase {
                       "Rejected second restore must never reopen write permits to stale pools")
         XCTAssertEqual(try deviceRows(in: liveDB), ["first-backup"],
                        "Rejected attempt must not change the first restored database")
+    }
+
+    func testConcurrentFullRestoreRejectsLoserBeforeItTouchesDatabasePath() throws {
+        let winnerSource = tmp.appendingPathComponent("concurrent-winner-source.sqlite")
+        try makeNoopDatabase(at: winnerSource, deviceRows: ["winner"])
+        let winnerBackup = tmp.appendingPathComponent("concurrent-winner.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: winnerSource, to: winnerBackup)
+
+        let loserSource = tmp.appendingPathComponent("concurrent-loser-source.sqlite")
+        try makeNoopDatabase(at: loserSource, deviceRows: ["loser"])
+        let loserBackup = tmp.appendingPathComponent("concurrent-loser.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: loserSource, to: loserBackup)
+
+        let liveDB = tmp.appendingPathComponent("live-concurrent.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let winnerAtCopy = DispatchSemaphore(value: 0)
+        let releaseWinner = DispatchSemaphore(value: 0)
+        let winnerDone = expectation(description: "winning restore completed")
+        let loserDone = expectation(description: "losing restore completed")
+        let winnerResult = LockedValue<DataBackup.BackupResult>()
+        let loserResult = LockedValue<DataBackup.BackupResult>()
+        let loserCopyCount = LockedValue<Int>(0)
+
+        DispatchQueue.global().async {
+            let result = DataBackup.restore(from: winnerBackup, toDatabaseAt: liveDB.path) { source, destination in
+                winnerAtCopy.signal()
+                releaseWinner.wait()
+                try FileManager.default.copyItem(at: source, to: destination)
+            }
+            winnerResult.set(result)
+            winnerDone.fulfill()
+        }
+
+        XCTAssertEqual(winnerAtCopy.wait(timeout: .now() + 2), .success,
+                       "The winner must reserve and reach replacement without hanging")
+        DispatchQueue.global().async {
+            let result = DataBackup.restore(from: loserBackup, toDatabaseAt: liveDB.path) { source, destination in
+                loserCopyCount.mutate { $0 += 1 }
+                try FileManager.default.copyItem(at: source, to: destination)
+            }
+            loserResult.set(result)
+            loserDone.fulfill()
+        }
+
+        wait(for: [loserDone], timeout: 2)
+        releaseWinner.signal()
+        wait(for: [winnerDone], timeout: 2)
+
+        guard case .imported? = winnerResult.get() else {
+            return XCTFail("The reserved restore must complete, got \(String(describing: winnerResult.get()))")
+        }
+        guard case .failure? = loserResult.get() else {
+            return XCTFail("The overlapping restore must be rejected, got \(String(describing: loserResult.get()))")
+        }
+        XCTAssertEqual(loserCopyCount.get(), 0, "The losing restore must never touch the database pathname")
+        XCTAssertEqual(try deviceRows(in: liveDB), ["winner"])
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "A losing attempt must not reopen the winner's barrier")
     }
 
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
