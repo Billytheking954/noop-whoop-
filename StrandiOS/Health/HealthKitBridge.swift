@@ -1858,14 +1858,17 @@ final class HealthKitBridge: ObservableObject {
     }
 
     /// #1205: fetch the GPS route and its original timing/accuracy for a single `HKWorkout`.
-    /// Queries `HKWorkoutRoute` samples overlapping the workout's time range, then collects all
+    /// Queries `HKWorkoutRoute` samples owned by this workout, then collects all
     /// `CLLocation` waypoints from each route via `HKWorkoutRouteQuery`. Returns `nil` when there
     /// is no route, the user has not granted route read access, or HealthKit reports an error —
     /// all of which are graceful skips (the workout imports without a map, same as today).
     nonisolated static func fetchWorkoutRoute(for workout: HKWorkout, store: HKHealthStore) async -> [WorkoutRoutePoint]? {
         let routeType = HKSeriesType.workoutRoute()
-        let predicate = HKQuery.predicateForSamples(withStart: workout.startDate, end: workout.endDate, options: .strictStartDate)
-        // First: query for HKWorkoutRoute samples associated with this workout.
+        // A route is explicitly associated with one workout. A time-range predicate is insufficient:
+        // overlapping workouts can have overlapping route samples, which would splice another workout's
+        // GPS points into this one. HealthKit's association predicate is the canonical ownership filter.
+        let predicate = HKQuery.predicateForObjects(from: workout)
+        // First: query only HKWorkoutRoute samples associated with this exact workout.
         let routes: [HKWorkoutRoute] = await withCheckedContinuation { (cont: CheckedContinuation<[HKWorkoutRoute], Never>) in
             let q = HKSampleQuery(sampleType: routeType, predicate: predicate,
                                   limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
