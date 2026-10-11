@@ -493,10 +493,9 @@ enum DataBackup {
         // which would re-enable writes into those stale connections. Require a clean relaunch
         // before any additional restore; this also refuses overlapping restore attempts once
         // the first one has acquired the suspension gate.
-        guard !StoreWriteBarrier.isSuspended else {
+        guard StoreWriteBarrier.trySuspendAndDrainForRestore() else {
             return .failure(String(localized: "Please fully relaunch NOOP before restoring another backup."))
         }
-        StoreWriteBarrier.suspendAndDrainForRestore()
         var restoredSuccessfully = false
         defer {
             if !restoredSuccessfully {
