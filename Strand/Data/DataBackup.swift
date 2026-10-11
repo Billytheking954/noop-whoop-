@@ -488,9 +488,9 @@ enum DataBackup {
         // AUDIT-BACKUP-02: every existing GRDB pool still points at the current inode. If we unlink/swap
         // the SQLite path while one of those pools is writing, that write can succeed against the detached
         // old inode and disappear on relaunch. Close the mutation gate BEFORE the snapshot/swap and wait
-        // for all already-started store/registry writes to finish. Failed restores reopen the gate; a
-        // successful restore intentionally leaves it closed until the process is relaunched, because the
-        // old pools must never accept another mutation.
+        // for all already-started store/registry writes to finish. Failures before the live pathname is
+        // touched reopen the gate. Once replacement begins, both success and failure leave it closed until
+        // the process is relaunched, because the old pools must never accept another mutation.
         // A prior successful restore has already detached this process's open GRDB pools.
         // A second restore attempt that later fails must not call resumeAfterFailedRestore(),
         // which would re-enable writes into those stale connections. Require a clean relaunch
