@@ -494,7 +494,7 @@ enum DataBackup {
         // before any additional restore; this also refuses overlapping restore attempts once
         // the first one has acquired the suspension gate.
         guard StoreWriteBarrier.trySuspendAndDrainForRestore() else {
-            return .failure(String(localized: "Please fully relaunch NOOP before restoring another backup."))
+            return .failure(String(localized: "Your data has been restored. Quit and reopen NOOP for it to take effect."))
         }
         var restoredSuccessfully = false
         defer {
