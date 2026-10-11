@@ -406,7 +406,10 @@ enum DataBackup {
     /// same reason as `dbPath` (tests use a suite-scoped UserDefaults, never the runner's real domain).
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
                         settingsDefaults: UserDefaults = .standard,
-                        allowOversize: Bool = false) -> BackupResult {
+                        allowOversize: Bool = false,
+                        copyItem: (URL, URL) throws -> Void = { source, destination in
+                            try FileManager.default.copyItem(at: source, to: destination)
+                        }) -> BackupResult {
         // If the picked file is a .noopbak ZIP, extract the SQLite entry to a temp dir first.
         // Legacy plain-SQLite files fall straight through. The extracted dir is cleaned up below.
         let fm = FileManager.default
@@ -482,36 +485,73 @@ enum DataBackup {
 
         let dbURL = URL(fileURLWithPath: dbPath)
 
+        // AUDIT-BACKUP-02: every existing GRDB pool still points at the current inode. If we unlink/swap
+        // the SQLite path while one of those pools is writing, that write can succeed against the detached
+        // old inode and disappear on relaunch. Close the mutation gate BEFORE the snapshot/swap and wait
+        // for all already-started store/registry writes to finish. Failures before the live pathname is
+        // touched reopen the gate. Once replacement begins, both success and failure leave it closed until
+        // the process is relaunched, because the old pools must never accept another mutation.
+        // A prior successful restore has already detached this process's open GRDB pools.
+        // A second restore attempt that later fails must not call resumeAfterFailedRestore(),
+        // which would re-enable writes into those stale connections. Require a clean relaunch
+        // before any additional restore; this also refuses overlapping restore attempts once
+        // the first one has acquired the suspension gate.
+        guard StoreWriteBarrier.trySuspendAndDrainForRestore() else {
+            return .failure(String(localized: "Your data has been restored. Quit and reopen NOOP for it to take effect."))
+        }
+        // Once the live pathname has been unlinked, every already-open GRDB pool is stale even if a
+        // byte-identical rollback snapshot is copied back to that pathname: the pool still owns the old
+        // unlinked inode. From that point onward the gate must stay closed until relaunch on BOTH success
+        // and failure. Only failures before pathname replacement may safely resume writes.
+        var databasePathWasTouched = false
+        defer {
+            if !databasePathWasTouched {
+                StoreWriteBarrier.resumeAfterFailedRestore()
+            }
+        }
+
         do {
             // Snapshot the current DB (+ sidecars) to a timestamped side file so the user can roll back.
             var sidecar = dbURL.deletingLastPathComponent()
                 .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
                 if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
-                try fm.copyItem(at: dbURL, to: sidecar)
+                // The live store runs in WAL mode. A plain file copy can omit committed pages that
+                // still live only in `-wal`, leaving the rollback snapshot silently stale. Use
+                // SQLite's online backup API so the sidecar is a consistent, self-contained snapshot
+                // of the logical database while the app's pool remains open.
+                try snapshotLiveDatabase(from: dbURL, to: sidecar)
             } else {
                 // Nothing to preserve (fresh install); report a placeholder so the message reads sensibly.
                 sidecar = dbURL
             }
 
             // Remove the live DB and its WAL/SHM siblings, then drop the backup in.
+            databasePathWasTouched = true
             removeIfPresent(dbURL)
             removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
             removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
 
             do {
-                try fm.copyItem(at: source, to: dbURL)
-            } catch {
+                try copyItem(source, dbURL)
+            } catch let importError {
                 // The live DB was just removed and the replacement didn't land. Roll back to the
                 // snapshot so a failed import leaves the user's data exactly as it was, instead of a
                 // fresh-empty DB on relaunch (mirrors the Android rollback). Clear any partial-copy
                 // leftover first — copyItem fails if the destination exists, which would otherwise
                 // block the restore.
-                if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
-                    removeIfPresent(dbURL)
-                    try? fm.copyItem(at: sidecar, to: dbURL)
+                guard sidecar != dbURL else {
+                    return .failure(String(localized: "Import failed: \(importError.localizedDescription)")
+                        + " " + String(localized: "Fully quit and reopen NOOP to load it."))
                 }
-                return .failure(String(localized: "Import failed. Your existing data was kept. \(error.localizedDescription)"))
+                if let rollbackError = restoreRollbackSnapshot(from: sidecar, to: dbURL,
+                                                               copyItem: copyItem) {
+                    let detail = "\(importError.localizedDescription) Recovery snapshot: \(sidecar.path). Recovery error: \(rollbackError.localizedDescription)"
+                    return .failure(String(localized: "Import failed: \(detail)")
+                        + " " + String(localized: "Fully quit and reopen NOOP to load it."))
+                }
+                return .failure(String(localized: "Import failed. Your existing data was kept. \(importError.localizedDescription)")
+                    + " " + String(localized: "Fully quit and reopen NOOP to load it."))
             }
 
             // #1014 defence-in-depth, post-swap: re-verify the file that actually LANDED at the
@@ -526,8 +566,14 @@ enum DataBackup {
             if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
                 removeIfPresent(dbURL)
                 if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
-                    try? fm.copyItem(at: sidecar, to: dbURL)
-                    return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint))). Your previous data was rolled back automatically and is unchanged."))
+                    if let rollbackError = restoreRollbackSnapshot(from: sidecar, to: dbURL,
+                                                                   copyItem: copyItem) {
+                        let detail = "SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint)). Recovery snapshot: \(sidecar.path). Recovery error: \(rollbackError.localizedDescription)"
+                        return .failure(String(localized: "Import failed: \(detail)")
+                            + " " + String(localized: "Fully quit and reopen NOOP to load it."))
+                    }
+                    return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint))). Your previous data was rolled back automatically and is unchanged.")
+                        + " " + String(localized: "Fully quit and reopen NOOP to load it."))
                 }
                 // Fresh install: there was no previous store to preserve, so removing the damaged
                 // file (done above) restores the exact pre-import state — an empty slate.
@@ -567,8 +613,9 @@ enum DataBackup {
                     }
                 }
             }
-            // #57 debug: record when a restore swapped the DB, so the export can correlate a restore with a
-            // later write stall (a restore not followed by a relaunch is the #57 failure).
+            // #57 / AUDIT-BACKUP-02: record when a restore swapped the DB. The process-wide write
+            // barrier remains CLOSED from this point until relaunch, so no old DatabasePool can accept a
+            // mutation against the detached pre-restore inode.
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "backup.lastRestoreAt")
             return .imported(sidecar: sidecar)
         } catch {
@@ -638,6 +685,81 @@ enum DataBackup {
             return .android
         }
         return .unknown
+    }
+
+    /// Create a transactionally consistent, self-contained copy of a live SQLite database.
+    /// SQLite's online backup API reads through WAL, so committed pages that have not yet checkpointed
+    /// into the main file are included. This is the correct primitive for the pre-restore rollback
+    /// sidecar while the app's DatabasePool is still open.
+    private static func snapshotLiveDatabase(from source: URL, to destination: URL) throws {
+        var sourceDB: OpaquePointer?
+        var destinationDB: OpaquePointer?
+
+        guard sqlite3_open_v2(source.path, &sourceDB, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let sourceDB else {
+            if sourceDB != nil { sqlite3_close(sourceDB) }
+            throw NSError(domain: "DataBackup", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't open the current NOOP database for a safe rollback snapshot."])
+        }
+        defer { sqlite3_close(sourceDB) }
+
+        guard sqlite3_open_v2(destination.path, &destinationDB,
+                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+              let destinationDB else {
+            if destinationDB != nil { sqlite3_close(destinationDB) }
+            throw NSError(domain: "DataBackup", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't create the rollback snapshot database."])
+        }
+        defer { sqlite3_close(destinationDB) }
+
+        guard let backup = sqlite3_backup_init(destinationDB, "main", sourceDB, "main") else {
+            throw NSError(domain: "DataBackup", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't start the rollback snapshot: \(String(cString: sqlite3_errmsg(destinationDB)))."])
+        }
+        let stepResult = sqlite3_backup_step(backup, -1)
+        let finishResult = sqlite3_backup_finish(backup)
+        guard stepResult == SQLITE_DONE, finishResult == SQLITE_OK else {
+            throw NSError(domain: "DataBackup", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't finish the rollback snapshot: \(String(cString: sqlite3_errmsg(destinationDB)))."])
+        }
+
+        // sqlite3_backup copies the source database header as well as its pages. When the live
+        // database is in WAL mode, leaving that header intact can make a later read-only open of
+        // this sidecar depend on a writable `-shm` file. A rollback sidecar must stand on its own,
+        // including when it is opened read-only while recovery is deciding whether to restore it.
+        var journalError: UnsafeMutablePointer<CChar>?
+        let journalResult = sqlite3_exec(destinationDB, "PRAGMA journal_mode=DELETE", nil, nil, &journalError)
+        let journalDescription = journalError.map { String(cString: $0) }
+            ?? String(cString: sqlite3_errmsg(destinationDB))
+        if let journalError { sqlite3_free(journalError) }
+        guard journalResult == SQLITE_OK else {
+            throw NSError(domain: "DataBackup", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't finalize the rollback snapshot journal: \(journalDescription)."])
+        }
+    }
+
+    /// Put the verified pre-restore snapshot back at the live pathname and verify the copy that landed.
+    /// Returning an error (rather than swallowing it) is essential: the caller must never promise that
+    /// rollback succeeded when a full disk, permissions failure, or torn copy left the path unusable.
+    private static func restoreRollbackSnapshot(from sidecar: URL, to destination: URL,
+                                                copyItem: (URL, URL) throws -> Void) -> Error? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sidecar.path) else {
+            return NSError(domain: "DataBackup", code: 6,
+                           userInfo: [NSLocalizedDescriptionKey: "The recovery snapshot is missing."])
+        }
+        removeIfPresent(destination)
+        do {
+            try copyItem(sidecar, destination)
+            if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: destination.path) {
+                throw NSError(domain: "DataBackup", code: 7,
+                              userInfo: [NSLocalizedDescriptionKey:
+                                "The recovery copy failed its integrity check (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint)))."])
+            }
+            return nil
+        } catch {
+            return error
+        }
     }
 
     /// Every table name in a SQLite file, opened READ-ONLY through the system SQLite so the probed
