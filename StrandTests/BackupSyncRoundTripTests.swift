@@ -92,6 +92,35 @@ final class BackupSyncRoundTripTests: XCTestCase {
                       "A successful retry must close the gate until relaunch")
     }
 
+    func testSecondRestoreIsRejectedUntilRelaunchWithoutReopeningOldPools() throws {
+        let firstSource = tmp.appendingPathComponent("first-source.sqlite")
+        try makeNoopDatabase(at: firstSource, deviceRows: ["first-backup"])
+        let firstBackup = tmp.appendingPathComponent("first.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: firstSource, to: firstBackup)
+
+        let secondSource = tmp.appendingPathComponent("second-source.sqlite")
+        try makeNoopDatabase(at: secondSource, deviceRows: ["second-backup"])
+        let secondBackup = tmp.appendingPathComponent("second.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: secondSource, to: secondBackup)
+
+        let liveDB = tmp.appendingPathComponent("live-repeated.sqlite")
+        guard case .imported = DataBackup.restore(from: firstBackup, toDatabaseAt: liveDB.path) else {
+            return XCTFail("First valid restore must succeed")
+        }
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+        XCTAssertEqual(try deviceRows(in: liveDB), ["first-backup"])
+
+        // Every pool opened before the first restore still refers to its old SQLite inode.
+        // Even a valid second archive must not be allowed to replace the path in this process.
+        guard case .failure = DataBackup.restore(from: secondBackup, toDatabaseAt: liveDB.path) else {
+            return XCTFail("A second restore must require a full app relaunch")
+        }
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "Rejected second restore must never reopen write permits to stale pools")
+        XCTAssertEqual(try deviceRows(in: liveDB), ["first-backup"],
+                       "Rejected attempt must not change the first restored database")
+    }
+
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
 
     func testBackupWithSettingsRestoresSettingsAfterDbSwap() throws {
