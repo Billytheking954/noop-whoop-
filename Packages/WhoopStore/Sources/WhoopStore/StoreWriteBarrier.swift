@@ -68,6 +68,24 @@ public enum StoreWriteBarrier {
         state.condition.unlock()
     }
 
+    /// Atomically acquire the one allowed restore attempt for this process and drain writers.
+    /// A second or concurrently racing restore must not reuse an already-suspended gate: if it
+    /// subsequently fails, it might otherwise reopen old SQLite pools after the first restore.
+    /// The successful caller is responsible for resuming ONLY if its own restore fails.
+    public static func trySuspendAndDrainForRestore() -> Bool {
+        state.condition.lock()
+        guard !state.suspended else {
+            state.condition.unlock()
+            return false
+        }
+        state.suspended = true
+        while state.activeWriters > 0 {
+            state.condition.wait()
+        }
+        state.condition.unlock()
+        return true
+    }
+
     /// Re-open the write gate after a restore attempt that did not complete.
     ///
     /// A successful restore deliberately never calls this: the existing pools point at the pre-restore
