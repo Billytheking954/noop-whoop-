@@ -407,6 +407,9 @@ enum DataBackup {
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
                         settingsDefaults: UserDefaults = .standard,
                         allowOversize: Bool = false,
+                        stageCopyItem: (URL, URL) throws -> Void = { source, destination in
+                            try FileManager.default.copyItem(at: source, to: destination)
+                        },
                         copyItem: (URL, URL) throws -> Void = { source, destination in
                             try FileManager.default.copyItem(at: source, to: destination)
                         }) -> BackupResult {
@@ -415,6 +418,8 @@ enum DataBackup {
         let fm = FileManager.default
         let source: URL
         let extractedDir: URL?
+        var stagedDir: URL?
+        defer { if let d = stagedDir { try? fm.removeItem(at: d) } }
 
         if isZipFile(at: pickedSource) {
             let tmpExtract = NoopScratch.subdirectory("import-\(UUID().uuidString)")
@@ -443,8 +448,33 @@ enum DataBackup {
             source = sqliteEntry
             extractedDir = tmpExtract
         } else {
-            source = pickedSource
             extractedDir = nil
+            guard isSQLiteFile(at: pickedSource) else {
+                return .failure(String(localized: "That file isn't a NOOP backup. It doesn't look like a SQLite database."))
+            }
+            // A legacy SQLite backup can carry committed history only in its WAL. Work exclusively
+            // on private copies: probing the selected file can create SHM/checkpoint state, and copying
+            // its WAL after the live-path check used to silently lose history when that copy failed.
+            let tmpStage = NoopScratch.subdirectory("import-\(UUID().uuidString)")
+            stagedDir = tmpStage
+            let stagedMain = tmpStage.appendingPathComponent("legacy.sqlite")
+            do {
+                try fm.createDirectory(at: tmpStage, withIntermediateDirectories: true)
+                try stageCopyItem(pickedSource, stagedMain)
+                let wal = URL(fileURLWithPath: pickedSource.path + "-wal")
+                if fm.fileExists(atPath: wal.path) {
+                    try stageCopyItem(wal, URL(fileURLWithPath: stagedMain.path + "-wal"))
+                    // SHM is a derived index, not backup data. SQLite rebuilds it in our writable
+                    // staging directory; the online backup folds committed WAL pages into one file.
+                    let snapshot = tmpStage.appendingPathComponent("noop-backup.sqlite")
+                    try snapshotLiveDatabase(from: stagedMain, to: snapshot)
+                    source = snapshot
+                } else {
+                    source = stagedMain
+                }
+            } catch {
+                return .failure(String(localized: "Import failed: \(error.localizedDescription)"))
+            }
         }
         defer { if let d = extractedDir { try? fm.removeItem(at: d) } }
 
@@ -471,15 +501,9 @@ enum DataBackup {
         // silently shows no data (the #1014 report; the #1000 settings code was exonerated, the
         // family needed armour). Run SQLite's own `PRAGMA quick_check` over the STAGED file,
         // read-only, BEFORE anything touches the live database, and refuse the swap honestly.
-        // One carve-out: a legacy plain-SQLite file still travelling with its -wal/-shm siblings
-        // (an uncheckpointed manual copy) skips THIS gate — a read-only probe can't recover someone
-        // else's WAL (shm rebuild needs write access) and would refuse spuriously. Those rare files
-        // are still verified by the post-swap check below, which runs on the landed main file
-        // BEFORE the sidecars are laid down and rolls back automatically on failure.
-        let legacySidecarsPresent = extractedDir == nil
-            && (fm.fileExists(atPath: source.path + "-wal") || fm.fileExists(atPath: source.path + "-shm"))
-        if !legacySidecarsPresent,
-           let complaint = DatabaseIntegrity.quickCheckFailure(atPath: source.path) {
+        // Legacy WAL backups have already been folded into a self-contained staged snapshot, so
+        // the entire logical backup is checked before any live pathname or write gate is touched.
+        if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: source.path) {
             return .failure(String(localized: "This backup file is damaged and can't be restored (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint))). Your current data was left untouched. Try an earlier backup file."))
         }
 
@@ -511,11 +535,11 @@ enum DataBackup {
         }
 
         do {
-            // Snapshot the current DB (+ sidecars) to a timestamped side file so the user can roll back.
+            // Preserve each rollback snapshot independently, including restores in the same second
+            // across relaunches. Never delete an earlier recovery copy to reuse its timestamp.
             var sidecar = dbURL.deletingLastPathComponent()
-                .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
+                .appendingPathComponent("whoop-replaced-\(timestamp())-\(UUID().uuidString).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
-                if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
                 // The live store runs in WAL mode. A plain file copy can omit committed pages that
                 // still live only in `-wal`, leaving the rollback snapshot silently stale. Use
                 // SQLite's online backup API so the sidecar is a consistent, self-contained snapshot
@@ -557,10 +581,8 @@ enum DataBackup {
             // #1014 defence-in-depth, post-swap: re-verify the file that actually LANDED at the
             // live path with a second read-only quick_check. The staged file was verified above,
             // but the copy itself can tear — disk-full mid-copy, a dying filesystem, the device
-            // sleeping — and the next launch would meet a corrupt store. Runs BEFORE any legacy
-            // sidecars are laid down: a bare main file is always read-only verifiable, and WAL
-            // frames carry their own checksums (SQLite validates them on the first real open), so
-            // the sidecars don't need this gate. On failure, roll back to the snapshot
+            // sleeping — and the next launch would meet a corrupt store. The landed file is
+            // self-contained, including all staged legacy WAL pages. On failure, roll back to the snapshot
             // AUTOMATICALLY and say so; the snapshot file is kept either way (same policy as a
             // successful import: the user can always reach the pre-import bytes).
             if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
@@ -578,15 +600,6 @@ enum DataBackup {
                 // Fresh install: there was no previous store to preserve, so removing the damaged
                 // file (done above) restores the exact pre-import state — an empty slate.
                 return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint))). The damaged file was removed; there was no previous data to roll back."))
-            }
-
-            // Restore sidecars only for legacy plain-SQLite backups whose WAL wasn't
-            // checkpointed at export. ZIP imports are always checkpointed; no sidecars expected.
-            // Deliberately AFTER the post-swap integrity check (see above) — this is best-effort
-            // (`try?` inside) and can't throw, so the rollback semantics are unchanged.
-            if extractedDir == nil {
-                restoreSidecar(from: source, toMainPath: dbPath, suffix: "-wal")
-                restoreSidecar(from: source, toMainPath: dbPath, suffix: "-shm")
             }
 
             // #1000: re-apply the backup's whitelisted profile/display settings (weight, height, age,
@@ -844,15 +857,4 @@ enum DataBackup {
         if fm.fileExists(atPath: url.path) { try? fm.removeItem(at: url) }
     }
 
-    /// Copy a legacy backup's `<source><suffix>` sidecar next to the live DB if it exists, so an
-    /// old plain-SQLite backup whose WAL wasn't checkpointed at export restores its committed pages
-    /// (SQLite folds them in on open). Not called for ZIP imports (those are always checkpointed).
-    private static func restoreSidecar(from source: URL, toMainPath dbPath: String, suffix: String) {
-        let fm = FileManager.default
-        let src = URL(fileURLWithPath: source.path + suffix)
-        guard fm.fileExists(atPath: src.path) else { return }
-        let dst = URL(fileURLWithPath: dbPath + suffix)
-        if fm.fileExists(atPath: dst.path) { try? fm.removeItem(at: dst) }
-        try? fm.copyItem(at: src, to: dst)
-    }
 }

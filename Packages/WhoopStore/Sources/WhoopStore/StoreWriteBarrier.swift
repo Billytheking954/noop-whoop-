@@ -12,7 +12,8 @@ import Foundation
 ///
 /// The suspended state is intentionally process-local. A successful restore keeps it set until the app is
 /// relaunched, at which point a fresh process starts unsuspended and opens the restored database normally.
-/// A failed restore resumes writes in the current process.
+/// Only failures before pathname replacement resume writes. Once replacement begins, both success
+/// and failure keep the gate closed until relaunch because the existing pools refer to stale inodes.
 public enum StoreWriteBarrier {
     private final class State: @unchecked Sendable {
         let condition = NSCondition()
@@ -71,7 +72,7 @@ public enum StoreWriteBarrier {
     /// Atomically acquire the one allowed restore attempt for this process and drain writers.
     /// A second or concurrently racing restore must not reuse an already-suspended gate: if it
     /// subsequently fails, it might otherwise reopen old SQLite pools after the first restore.
-    /// The successful caller is responsible for resuming ONLY if its own restore fails.
+    /// The successful caller may resume ONLY if its own restore fails before pathname replacement.
     public static func trySuspendAndDrainForRestore() -> Bool {
         state.condition.lock()
         guard !state.suspended else {
@@ -86,10 +87,10 @@ public enum StoreWriteBarrier {
         return true
     }
 
-    /// Re-open the write gate after a restore attempt that did not complete.
+    /// Re-open the write gate after a restore attempt failed before pathname replacement.
     ///
-    /// A successful restore deliberately never calls this: the existing pools point at the pre-restore
-    /// inode, so writes must remain blocked until process relaunch.
+    /// Once replacement begins, neither success nor failure may call this: existing pools can point
+    /// at detached inodes even after rollback succeeds. Writes must remain blocked until relaunch.
     public static func resumeAfterFailedRestore() {
         state.condition.lock()
         state.suspended = false

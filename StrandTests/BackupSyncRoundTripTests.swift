@@ -493,6 +493,116 @@ final class BackupSyncRoundTripTests: XCTestCase {
 
     // MARK: - Restore safety: pre-import snapshot must include committed WAL pages
 
+    func testLegacyWalRestoreLandsSelfContainedDatabaseWithoutMutatingSelectedBackup() throws {
+        let source = try makeDetachedWalBackup()
+        let wal = URL(fileURLWithPath: source.path + "-wal")
+        let originalMain = try Data(contentsOf: source)
+        let originalWal = try Data(contentsOf: wal)
+        let liveDB = tmp.appendingPathComponent("legacy-wal-restored.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+
+        let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path)
+        guard case .imported = result else {
+            return XCTFail("A legacy backup with committed WAL must restore, got \(result)")
+        }
+        // Check before querying: opening a WAL-mode database can create these files itself.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: liveDB.path + "-wal"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: liveDB.path + "-shm"))
+        XCTAssertEqual(try deviceRows(in: liveDB), ["wal-only-row"])
+        XCTAssertEqual(try Data(contentsOf: source), originalMain)
+        XCTAssertEqual(try Data(contentsOf: wal), originalWal)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path + "-shm"),
+                       "All SQLite probing must happen on private staged files")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+    }
+
+    func testLegacyWalCopyFailureLeavesLiveDatabaseAndSettingsUntouched() throws {
+        let source = try makeDetachedWalBackup()
+        let liveDB = tmp.appendingPathComponent("legacy-wal-copy-failure.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let before = try Data(contentsOf: liveDB)
+        let defaults = try freshDefaults()
+        defaults.set(24, forKey: "profile.age")
+        var replacementCopies = 0
+
+        let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path,
+            settingsDefaults: defaults, stageCopyItem: { source, destination in
+                if source.path.hasSuffix("-wal") { throw TestError("injected WAL copy failure") }
+                try FileManager.default.copyItem(at: source, to: destination)
+            }, copyItem: { source, destination in
+                replacementCopies += 1
+                try FileManager.default.copyItem(at: source, to: destination)
+            })
+
+        guard case .failure = result else {
+            return XCTFail("A failed WAL copy must abort before replacement, got \(result)")
+        }
+        XCTAssertEqual(replacementCopies, 0)
+        XCTAssertEqual(try Data(contentsOf: liveDB), before)
+        XCTAssertEqual(try deviceRows(in: liveDB), ["original"])
+        XCTAssertEqual(defaults.integer(forKey: "profile.age"), 24)
+        XCTAssertFalse(StoreWriteBarrier.isSuspended)
+    }
+
+    func testTornLegacyStagingCopyIsRejectedBeforeLivePathOrBarrierChanges() throws {
+        let source = tmp.appendingPathComponent("legacy-torn-source.sqlite")
+        try makeNoopDatabase(at: source, deviceRows: ["replacement"])
+        let liveDB = tmp.appendingPathComponent("legacy-torn-live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let before = try Data(contentsOf: liveDB)
+
+        let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path,
+            stageCopyItem: { source, destination in
+                try FileManager.default.copyItem(at: source, to: destination)
+                let handle = try FileHandle(forWritingTo: destination)
+                try handle.truncate(atOffset: 100)
+                try handle.close()
+            })
+
+        guard case .failure = result else {
+            return XCTFail("A torn staging copy must fail before replacement, got \(result)")
+        }
+        XCTAssertEqual(try Data(contentsOf: liveDB), before)
+        XCTAssertFalse(StoreWriteBarrier.isSuspended)
+    }
+
+    func testShmSiblingCannotBypassPreSwapIntegrityCheck() throws {
+        let source = tmp.appendingPathComponent("damaged-with-shm.sqlite")
+        try makeMultiPageNoopDatabase(at: source)
+        let handle = try FileHandle(forWritingTo: source)
+        try handle.truncate(atOffset: 4096)
+        try handle.close()
+        try Data(repeating: 0, count: 32).write(to: URL(fileURLWithPath: source.path + "-shm"))
+        let liveDB = tmp.appendingPathComponent("shm-live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let before = try Data(contentsOf: liveDB)
+
+        guard case .failure = DataBackup.restore(from: source, toDatabaseAt: liveDB.path) else {
+            return XCTFail("A derived SHM sibling must not disable the integrity gate")
+        }
+        XCTAssertEqual(try Data(contentsOf: liveDB), before)
+        XCTAssertFalse(StoreWriteBarrier.isSuspended,
+                       "A damaged backup must be rejected before any live-path replacement")
+    }
+
+    func testRecoverySnapshotHasUniqueSuffixAndEarlierSnapshotsSurvive() throws {
+        let source = tmp.appendingPathComponent("unique-snapshot-source.sqlite")
+        try makeNoopDatabase(at: source, deviceRows: ["replacement"])
+        let liveDB = tmp.appendingPathComponent("unique-snapshot-live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let earlierSnapshot = tmp.appendingPathComponent("whoop-replaced-earlier.sqlite")
+        try makeNoopDatabase(at: earlierSnapshot, deviceRows: ["earlier"])
+
+        guard case .imported(let snapshot) = DataBackup.restore(from: source, toDatabaseAt: liveDB.path) else {
+            return XCTFail("Restore must succeed")
+        }
+        let name = snapshot.deletingPathExtension().lastPathComponent
+        XCTAssertNotNil(UUID(uuidString: String(name.suffix(36))),
+                        "Timestamp alone cannot uniquely identify preserved recovery copies")
+        XCTAssertEqual(try deviceRows(in: snapshot), ["original"])
+        XCTAssertEqual(try deviceRows(in: earlierSnapshot), ["earlier"])
+    }
+
     func testRestoreSidecarIncludesCommittedWalPages() throws {
         // The live app uses WAL. A committed row may therefore exist only in -wal while the main
         // sqlite file is still stale. The pre-restore sidecar promises to preserve the current store,
@@ -561,6 +671,26 @@ final class BackupSyncRoundTripTests: XCTestCase {
     }
 
     // MARK: - SQLite fixtures (system SQLite3)
+
+    /// Copy a main/WAL pair while its writer is open, without SHM. Even the schema remains in WAL,
+    /// so inspecting the main file alone yields a healthy empty database and misses every row.
+    private func makeDetachedWalBackup() throws -> URL {
+        let writerURL = tmp.appendingPathComponent("wal-writer-\(UUID().uuidString).sqlite")
+        var writer: OpaquePointer?
+        guard sqlite3_open(writerURL.path, &writer) == SQLITE_OK else { throw TestError("open WAL writer failed") }
+        defer { sqlite3_close(writer) }
+        try exec(writer, "PRAGMA journal_mode=WAL")
+        try exec(writer, "PRAGMA wal_autocheckpoint=0")
+        try exec(writer, "CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY)")
+        try exec(writer, "INSERT INTO grdb_migrations VALUES ('v1')")
+        try exec(writer, "CREATE TABLE device (id TEXT NOT NULL PRIMARY KEY)")
+        try exec(writer, "INSERT INTO device VALUES ('wal-only-row')")
+        let source = tmp.appendingPathComponent("detached-\(UUID().uuidString).sqlite")
+        try FileManager.default.copyItem(at: writerURL, to: source)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: writerURL.path + "-wal"),
+                                        to: URL(fileURLWithPath: source.path + "-wal"))
+        return source
+    }
 
     /// Build a minimal valid GRDB-origin NOOP DB: a `grdb_migrations` bookkeeping table (so the origin
     /// gate accepts it as this app's backup) plus a `device` table holding the given identifiers.
