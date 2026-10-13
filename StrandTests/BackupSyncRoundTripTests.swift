@@ -516,6 +516,61 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertTrue(StoreWriteBarrier.isSuspended)
     }
 
+    func testFailedWalRemovalAbortsReplacementAndRecoversLogicalLiveRows() throws {
+        let source = tmp.appendingPathComponent("removal-source.sqlite")
+        try makeNoopDatabase(at: source, deviceRows: ["replacement"])
+        let liveDB = try makeDetachedWalBackup()
+        var walRemovals = 0
+        var copiedDestinations: [URL] = []
+        let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path,
+            removeItem: { url in
+                if url.path == liveDB.path + "-wal" {
+                    walRemovals += 1
+                    if walRemovals == 1 { throw TestError("injected WAL removal failure") }
+                }
+                try FileManager.default.removeItem(at: url)
+            }, copyItem: { source, destination in
+                copiedDestinations.append(destination)
+                try FileManager.default.copyItem(at: source, to: destination)
+            })
+
+        guard case .failure(let message) = result else {
+            return XCTFail("Failed WAL removal must fail restore even when rollback succeeds, got \(result)")
+        }
+        XCTAssertEqual(walRemovals, 2, "Rollback must retry removal before copying the recovery database")
+        XCTAssertEqual(copiedDestinations, [liveDB], "Only the recovery copy may land at the live path")
+        XCTAssertTrue(message.contains("existing data was kept"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: liveDB.path + "-wal"))
+        XCTAssertEqual(try deviceRows(in: liveDB), ["wal-only-row"])
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+    }
+
+    func testPersistentWalRemovalFailureReportsRecoverySnapshotWithoutClaimingRollback() throws {
+        let source = tmp.appendingPathComponent("persistent-removal-source.sqlite")
+        try makeNoopDatabase(at: source, deviceRows: ["replacement"])
+        let liveDB = try makeDetachedWalBackup()
+        var liveCopies = 0
+        let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path,
+            removeItem: { url in
+                if url.path == liveDB.path + "-wal" { throw TestError("persistent WAL removal failure") }
+                try FileManager.default.removeItem(at: url)
+            }, copyItem: { source, destination in
+                liveCopies += 1
+                try FileManager.default.copyItem(at: source, to: destination)
+            })
+
+        guard case .failure(let message) = result else {
+            return XCTFail("Persistent cleanup failure must be disclosed, got \(result)")
+        }
+        XCTAssertEqual(liveCopies, 0, "Neither replacement nor recovery may land beside an uncleared WAL")
+        XCTAssertFalse(message.contains("existing data was kept"))
+        XCTAssertTrue(message.contains("Recovery snapshot:"))
+        let snapshots = try FileManager.default.contentsOfDirectory(at: tmp,
+            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("whoop-replaced-") }
+        XCTAssertEqual(try deviceRows(in: try XCTUnwrap(snapshots.first)), ["wal-only-row"])
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+    }
+
     func testLegacyWalCopyFailureLeavesLiveDatabaseAndSettingsUntouched() throws {
         let source = try makeDetachedWalBackup()
         let liveDB = tmp.appendingPathComponent("legacy-wal-copy-failure.sqlite")

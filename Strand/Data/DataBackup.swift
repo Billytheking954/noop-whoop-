@@ -410,6 +410,9 @@ enum DataBackup {
                         stageCopyItem: (URL, URL) throws -> Void = { source, destination in
                             try FileManager.default.copyItem(at: source, to: destination)
                         },
+                        removeItem: (URL) throws -> Void = { url in
+                            try FileManager.default.removeItem(at: url)
+                        },
                         copyItem: (URL, URL) throws -> Void = { source, destination in
                             try FileManager.default.copyItem(at: source, to: destination)
                         }) -> BackupResult {
@@ -552,11 +555,8 @@ enum DataBackup {
 
             // Remove the live DB and its WAL/SHM siblings, then drop the backup in.
             databasePathWasTouched = true
-            removeIfPresent(dbURL)
-            removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
-            removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
-
             do {
+                try removeDatabaseFiles(at: dbURL, removeItem: removeItem)
                 try copyItem(source, dbURL)
             } catch let importError {
                 // The live DB was just removed and the replacement didn't land. Roll back to the
@@ -569,6 +569,7 @@ enum DataBackup {
                         + " " + String(localized: "Fully quit and reopen NOOP to load it."))
                 }
                 if let rollbackError = restoreRollbackSnapshot(from: sidecar, to: dbURL,
+                                                               removeItem: removeItem,
                                                                copyItem: copyItem) {
                     let detail = "\(importError.localizedDescription) Recovery snapshot: \(sidecar.path). Recovery error: \(rollbackError.localizedDescription)"
                     return .failure(String(localized: "Import failed: \(detail)")
@@ -586,9 +587,9 @@ enum DataBackup {
             // AUTOMATICALLY and say so; the snapshot file is kept either way (same policy as a
             // successful import: the user can always reach the pre-import bytes).
             if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
-                removeIfPresent(dbURL)
                 if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
                     if let rollbackError = restoreRollbackSnapshot(from: sidecar, to: dbURL,
+                                                                   removeItem: removeItem,
                                                                    copyItem: copyItem) {
                         let detail = "SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint)). Recovery snapshot: \(sidecar.path). Recovery error: \(rollbackError.localizedDescription)"
                         return .failure(String(localized: "Import failed: \(detail)")
@@ -597,8 +598,12 @@ enum DataBackup {
                     return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint))). Your previous data was rolled back automatically and is unchanged.")
                         + " " + String(localized: "Fully quit and reopen NOOP to load it."))
                 }
-                // Fresh install: there was no previous store to preserve, so removing the damaged
-                // file (done above) restores the exact pre-import state — an empty slate.
+                // Fresh install: cleanup must succeed before claiming the damaged copy was removed.
+                do { try removeDatabaseFiles(at: dbURL, removeItem: removeItem) }
+                catch {
+                    return .failure(String(localized: "Import failed: \(error.localizedDescription)")
+                        + " " + String(localized: "Fully quit and reopen NOOP to load it."))
+                }
                 return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(DatabaseIntegrity.readableComplaint(complaint))). The damaged file was removed; there was no previous data to roll back."))
             }
 
@@ -755,14 +760,17 @@ enum DataBackup {
     /// Returning an error (rather than swallowing it) is essential: the caller must never promise that
     /// rollback succeeded when a full disk, permissions failure, or torn copy left the path unusable.
     private static func restoreRollbackSnapshot(from sidecar: URL, to destination: URL,
+                                                removeItem: (URL) throws -> Void,
                                                 copyItem: (URL, URL) throws -> Void) -> Error? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: sidecar.path) else {
             return NSError(domain: "DataBackup", code: 6,
                            userInfo: [NSLocalizedDescriptionKey: "The recovery snapshot is missing."])
         }
-        removeIfPresent(destination)
         do {
+            // A failed removal during replacement may have left the old WAL/SHM beside the path.
+            // Clear all three, with checked errors, before landing a self-contained recovery copy.
+            try removeDatabaseFiles(at: destination, removeItem: removeItem)
             try copyItem(sidecar, destination)
             if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: destination.path) {
                 throw NSError(domain: "DataBackup", code: 7,
@@ -852,9 +860,14 @@ enum DataBackup {
         return Array(head) == magic
     }
 
-    private static func removeIfPresent(_ url: URL) {
+    /// Remove the complete live SQLite file set. A failed removal must abort replacement/recovery;
+    /// swallowing it can attach an old WAL to a different main database on its next open.
+    private static func removeDatabaseFiles(at url: URL, removeItem: (URL) throws -> Void) throws {
         let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) { try? fm.removeItem(at: url) }
+        for suffix in ["", "-wal", "-shm"] {
+            let file = URL(fileURLWithPath: url.path + suffix)
+            if fm.fileExists(atPath: file.path) { try removeItem(file) }
+        }
     }
 
 }
