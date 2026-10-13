@@ -144,6 +144,26 @@ final class BackupSyncRoundTripTests: XCTestCase {
                       "Unlinking the pathname makes old pools stale even when rollback succeeds")
     }
 
+    func testFailedCopyToFreshDestinationRemovesPartialDatabaseBeforeRelaunch() throws {
+        let source = tmp.appendingPathComponent("fresh-failed-copy-source.sqlite")
+        try makeNoopDatabase(at: source, deviceRows: ["replacement"])
+        let liveDB = tmp.appendingPathComponent("fresh-partial-live.sqlite")
+        let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path,
+            copyItem: { _, destination in
+                try Data("incomplete database".utf8).write(to: destination)
+                throw TestError("injected partial-copy failure")
+            })
+        guard case .failure = result else { return XCTFail("A partial copy must fail restore") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: liveDB.path),
+                       "A corrupt partial file must not block database creation on the next launch")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended)
+        StoreWriteBarrier.resumeAfterFailedRestore() // Model a new process with no stale pools.
+        guard case .imported = DataBackup.restore(from: source, toDatabaseAt: liveDB.path) else {
+            return XCTFail("A clean retry after relaunch must succeed")
+        }
+        XCTAssertEqual(try deviceRows(in: liveDB), ["replacement"])
+    }
+
     func testRollbackCopyFailureIsReportedHonestlyAndPreservesRecoverySnapshot() throws {
         let sourceDB = tmp.appendingPathComponent("rollback-failure-source.sqlite")
         try makeNoopDatabase(at: sourceDB, deviceRows: ["replacement"])
@@ -394,6 +414,25 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: liveDB), before,
                        "The live DB must be byte-for-byte unchanged after a rejected restore")
         XCTAssertEqual(try deviceRows(in: liveDB), ["original"])
+    }
+
+    func testForeignSchemaWithoutDeviceOrHrTablesIsAlsoRejected() throws {
+        let foreign = tmp.appendingPathComponent("unmarked-foreign.sqlite")
+        var db: OpaquePointer?
+        guard sqlite3_open(foreign.path, &db) == SQLITE_OK else { throw TestError("open foreign failed") }
+        defer { sqlite3_close(db) }
+        try exec(db, "CREATE TABLE externalHistory (id TEXT)")
+        try exec(db, "INSERT INTO externalHistory VALUES ('another-app')")
+        let liveDB = tmp.appendingPathComponent("unmarked-foreign-live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let before = try Data(contentsOf: liveDB)
+
+        guard case .failure = DataBackup.restore(from: foreign, toDatabaseAt: liveDB.path) else {
+            return XCTFail("An unmarked non-empty foreign schema must never replace NOOP history")
+        }
+        XCTAssertEqual(try Data(contentsOf: liveDB), before)
+        XCTAssertEqual(try deviceRows(in: liveDB), ["original"])
+        XCTAssertFalse(StoreWriteBarrier.isSuspended)
     }
 
     // MARK: - Corrupt file is rejected, live DB untouched

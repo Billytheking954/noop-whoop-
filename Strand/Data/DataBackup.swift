@@ -499,8 +499,8 @@ enum DataBackup {
         // NOOP-Mac/iOS backup always carries `grdb_migrations`; reject everything else that holds data.
         let backupTables = sqliteTableNames(at: source)
         let origin = backupOrigin(of: backupTables)
-        let holdsData = backupTables.contains("device") || backupTables.contains("hrSample")
-        if origin == .android || (origin == .unknown && holdsData) {
+        let hasTables = !backupTables.isEmpty
+        if origin == .android || (origin == .unknown && hasTables) {
             return .failure(String(localized: "This isn't a NOOP backup from this app. It's missing the migration bookkeeping a NOOP backup carries (it looks like an Android backup or another app's database), and restoring it would strand your store. To move your history across platforms, export the WHOOP-format CSV on the other device (Settings → Export data) and import that here, or import your original WHOOP / Apple Health export."))
         }
 
@@ -571,6 +571,14 @@ enum DataBackup {
                 // leftover first — copyItem fails if the destination exists, which would otherwise
                 // block the restore.
                 guard sidecar != dbURL else {
+                    // A fresh destination has no recovery snapshot. A failed copy can still leave
+                    // partial bytes: clear them before relaunch can mistake them for a live store.
+                    do { try removeDatabaseFiles(at: dbURL, removeItem: removeItem) }
+                    catch {
+                        let detail = "\(importError.localizedDescription) Partial database: \(dbURL.path). Cleanup error: \(error.localizedDescription)"
+                        return .failure(String(localized: "Import failed: \(detail)")
+                            + " " + String(localized: "Fully quit and reopen NOOP to load it."))
+                    }
                     return .failure(String(localized: "Import failed: \(importError.localizedDescription)")
                         + " " + String(localized: "Fully quit and reopen NOOP to load it."))
                 }
@@ -696,8 +704,8 @@ enum DataBackup {
 
     /// Pure classification over a backup's `sqlite_master` table names: GRDB (this app) writes
     /// `grdb_migrations`, Room (the Android app) writes `room_master_table`. `.unknown` (neither —
-    /// an empty or pre-migration file) falls through to the normal import path, where the
-    /// open-time migrator decides. Mirrors the Android `DataBackup.backupOriginOf`.
+    /// an empty or pre-migration file) is not evidence of this app's origin. Restore permits that
+    /// case only when there are no tables; populated schemas require the GRDB bookkeeping marker.
     static func backupOrigin(of tableNames: Set<String>) -> BackupOrigin {
         // This platform's marker wins on the (degenerate) both-present case: restoring here is the
         // less destructive read.
