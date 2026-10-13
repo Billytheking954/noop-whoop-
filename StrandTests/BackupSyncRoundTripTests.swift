@@ -128,11 +128,11 @@ final class BackupSyncRoundTripTests: XCTestCase {
         let liveDB = tmp.appendingPathComponent("live-copy-failure.sqlite")
         try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
         var copyCalls = 0
-        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path) { source, destination in
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, copyItem: { source, destination in
             copyCalls += 1
             if copyCalls == 1 { throw TestError("injected replacement-copy failure") }
             try FileManager.default.copyItem(at: source, to: destination)
-        }
+        })
 
         guard case .failure(let message) = result else {
             return XCTFail("Injected replacement-copy failure must fail restore, got \(result)")
@@ -152,9 +152,9 @@ final class BackupSyncRoundTripTests: XCTestCase {
 
         let liveDB = tmp.appendingPathComponent("live-rollback-failure.sqlite")
         try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
-        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path) { _, _ in
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, copyItem: { _, _ in
             throw TestError("injected copy failure")
-        }
+        })
 
         guard case .failure(let message) = result else {
             return XCTFail("A failed replacement and failed rollback must fail restore, got \(result)")
@@ -168,7 +168,9 @@ final class BackupSyncRoundTripTests: XCTestCase {
                       "An unverified live pathname must never reopen stale database pools")
 
         let snapshots = try FileManager.default.contentsOfDirectory(at: tmp,
-            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("whoop-replaced-") }
+            includingPropertiesForKeys: nil).filter {
+                $0.lastPathComponent.hasPrefix("whoop-replaced-") && $0.pathExtension == "sqlite"
+            }
         XCTAssertEqual(snapshots.count, 1)
         XCTAssertEqual(try deviceRows(in: try XCTUnwrap(snapshots.first)), ["original"],
                        "The self-contained recovery sidecar must remain readable")
@@ -183,13 +185,13 @@ final class BackupSyncRoundTripTests: XCTestCase {
         let liveDB = tmp.appendingPathComponent("live-post-swap.sqlite")
         try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
         var copyCalls = 0
-        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path) { source, destination in
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, copyItem: { source, destination in
             copyCalls += 1
             try FileManager.default.copyItem(at: source, to: destination)
             // Simulate a torn filesystem copy after both the replacement and rollback operations claim
             // success. The rollback helper must independently verify what landed.
             try Data(repeating: 0x41, count: 4096).write(to: destination)
-        }
+        })
 
         guard case .failure(let message) = result else {
             return XCTFail("A torn landed database must fail restore, got \(result)")
@@ -201,7 +203,9 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertTrue(StoreWriteBarrier.isSuspended)
 
         let snapshots = try FileManager.default.contentsOfDirectory(at: tmp,
-            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("whoop-replaced-") }
+            includingPropertiesForKeys: nil).filter {
+                $0.lastPathComponent.hasPrefix("whoop-replaced-") && $0.pathExtension == "sqlite"
+            }
         XCTAssertEqual(try deviceRows(in: try XCTUnwrap(snapshots.first)), ["original"])
     }
 
@@ -256,11 +260,11 @@ final class BackupSyncRoundTripTests: XCTestCase {
         let loserCopyCount = LockedValue<Int>(0)
 
         DispatchQueue.global().async {
-            let result = DataBackup.restore(from: winnerBackup, toDatabaseAt: liveDB.path) { source, destination in
+            let result = DataBackup.restore(from: winnerBackup, toDatabaseAt: liveDB.path, copyItem: { source, destination in
                 winnerAtCopy.signal()
                 releaseWinner.wait()
                 try FileManager.default.copyItem(at: source, to: destination)
-            }
+            })
             winnerResult.set(result)
             winnerDone.fulfill()
         }
@@ -268,10 +272,10 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertEqual(winnerAtCopy.wait(timeout: .now() + 2), .success,
                        "The winner must reserve and reach replacement without hanging")
         DispatchQueue.global().async {
-            let result = DataBackup.restore(from: loserBackup, toDatabaseAt: liveDB.path) { source, destination in
+            let result = DataBackup.restore(from: loserBackup, toDatabaseAt: liveDB.path, copyItem: { source, destination in
                 loserCopyCount.mutate { $0 += 1 }
                 try FileManager.default.copyItem(at: source, to: destination)
-            }
+            })
             loserResult.set(result)
             loserDone.fulfill()
         }
@@ -550,6 +554,9 @@ final class BackupSyncRoundTripTests: XCTestCase {
         try makeNoopDatabase(at: source, deviceRows: ["replacement"])
         let liveDB = try makeDetachedWalBackup()
         var liveCopies = 0
+        // The directory can contain derived SQLite files as well as the actual recovery main file.
+        let derived = tmp.appendingPathComponent("whoop-replaced-decoy.sqlite-shm")
+        try Data("derived index; not a SQLite main database".utf8).write(to: derived)
         let result = DataBackup.restore(from: source, toDatabaseAt: liveDB.path,
             removeItem: { url in
                 if url.path == liveDB.path + "-wal" { throw TestError("persistent WAL removal failure") }
@@ -566,8 +573,13 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertFalse(message.contains("existing data was kept"))
         XCTAssertTrue(message.contains("Recovery snapshot:"))
         let snapshots = try FileManager.default.contentsOfDirectory(at: tmp,
-            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix("whoop-replaced-") }
-        XCTAssertEqual(try deviceRows(in: try XCTUnwrap(snapshots.first)), ["wal-only-row"])
+            includingPropertiesForKeys: nil).filter {
+                $0.lastPathComponent.hasPrefix("whoop-replaced-") && $0.pathExtension == "sqlite"
+            }
+        XCTAssertEqual(snapshots.count, 1, "Recovery verification must select only the main SQLite snapshot")
+        let recovery = try XCTUnwrap(snapshots.first)
+        XCTAssertTrue(message.contains(recovery.path), "The verified file must be the recovery snapshot named in the error")
+        XCTAssertEqual(try deviceRows(in: recovery), ["wal-only-row"])
         XCTAssertTrue(StoreWriteBarrier.isSuspended)
     }
 
@@ -597,6 +609,25 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertEqual(try deviceRows(in: liveDB), ["original"])
         XCTAssertEqual(defaults.integer(forKey: "profile.age"), 24)
         XCTAssertFalse(StoreWriteBarrier.isSuspended)
+    }
+
+    func testCorruptLegacyWalIsRejectedBeforeHealthyButStaleMainCanReplaceLiveData() throws {
+        for offset in [0, 32 + 24 + 100] {
+            let source = try makeDetachedWalBackup()
+            let wal = URL(fileURLWithPath: source.path + "-wal")
+            var bytes = try Data(contentsOf: wal)
+            bytes[offset] ^= 1
+            try bytes.write(to: wal)
+            let liveDB = tmp.appendingPathComponent("corrupt-wal-live-\(offset).sqlite")
+            try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+            let before = try Data(contentsOf: liveDB)
+
+            guard case .failure = DataBackup.restore(from: source, toDatabaseAt: liveDB.path) else {
+                return XCTFail("Corrupt WAL must not become an apparently healthy, incomplete restore")
+            }
+            XCTAssertEqual(try Data(contentsOf: liveDB), before)
+            XCTAssertFalse(StoreWriteBarrier.isSuspended)
+        }
     }
 
     func testTornLegacyStagingCopyIsRejectedBeforeLivePathOrBarrierChanges() throws {
@@ -801,7 +832,7 @@ final class BackupSyncRoundTripTests: XCTestCase {
         defer { sqlite3_close(db) }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT id FROM device ORDER BY id", -1, &stmt, nil) == SQLITE_OK else {
-            throw TestError("prepare failed")
+            throw TestError("prepare failed: \(url.path)")
         }
         defer { sqlite3_finalize(stmt) }
         var rows: [String] = []

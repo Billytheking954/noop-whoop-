@@ -466,7 +466,13 @@ enum DataBackup {
                 try stageCopyItem(pickedSource, stagedMain)
                 let wal = URL(fileURLWithPath: pickedSource.path + "-wal")
                 if fm.fileExists(atPath: wal.path) {
-                    try stageCopyItem(wal, URL(fileURLWithPath: stagedMain.path + "-wal"))
+                    let stagedWal = URL(fileURLWithPath: stagedMain.path + "-wal")
+                    try stageCopyItem(wal, stagedWal)
+                    if let complaint = SQLiteWALIntegrity.failure(atPath: stagedWal.path,
+                                                                  databaseAtPath: stagedMain.path) {
+                        throw NSError(domain: "DataBackup", code: 8,
+                                      userInfo: [NSLocalizedDescriptionKey: complaint])
+                    }
                     // SHM is a derived index, not backup data. SQLite rebuilds it in our writable
                     // staging directory; the online backup folds committed WAL pages into one file.
                     let snapshot = tmpStage.appendingPathComponent("noop-backup.sqlite")
