@@ -83,14 +83,16 @@ jobs:
             -destination "platform=iOS Simulator,id=$UDID" \
             -resultBundlePath "$RUNNER_TEMP/noop-iphone-tests.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test 2>&1 | tee "$RUNNER_TEMP/noop-iphone-tests.log"
 
       - name: Upload iPhone test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: noop-iphone-test-results
-          path: ${{ runner.temp }}/noop-iphone-tests.xcresult
+          path: |
+            ${{ runner.temp }}/noop-iphone-tests.xcresult
+            ${{ runner.temp }}/noop-iphone-tests.log
           if-no-files-found: warn
           retention-days: 14
 
