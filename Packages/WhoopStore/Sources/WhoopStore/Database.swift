@@ -1129,6 +1129,7 @@ extension WhoopStore {
                 t.column("uuid", .text).notNull()
                 t.column("day", .text).notNull()
                 t.column("startTs", .integer).notNull()
+                t.column("value", .double)
                 t.primaryKey(["deviceId", "typeIdentifier", "uuid"])
             }
         }
