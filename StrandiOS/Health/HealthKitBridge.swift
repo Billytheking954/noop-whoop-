@@ -549,12 +549,21 @@ final class HealthKitBridge: ObservableObject {
     private func persistAnchor(_ anchor: HKQueryAnchor, for type: HKSampleType) {
         guard let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true) else { return }
         UserDefaults.standard.set(data, forKey: HealthKitBridge.anchorDefaultsKey(for: type))
+        // The new workout cursor starts from nil once, so its first successful delta backfills UUIDs for
+        // all currently-visible workouts. Only retire the old bounded cursor AFTER the new one is saved.
+        if type.identifier == HKObjectType.workoutType().identifier {
+            UserDefaults.standard.removeObject(forKey: "hkAnchor.v1.\(type.identifier)")
+        }
     }
 
-    /// UserDefaults key for a type's persisted HealthKit anchor. Namespaced so it can't collide with
-    /// other app defaults, and keyed by the stable HK identifier so it survives across launches.
+    /// UserDefaults key for a type's persisted HealthKit anchor. High-rate sensor streams keep their
+    /// bounded v1 cursor. Workouts use a new nil-start cursor once to backfill low-volume UUID identities
+    /// across all visible history, then retain that cursor for precise historical deletion tombstones.
     private static func anchorDefaultsKey(for type: HKSampleType) -> String {
-        "hkAnchor.v1.\(type.identifier)"
+        if type.identifier == HKObjectType.workoutType().identifier {
+            return "hkAnchor.v2.workouts"
+        }
+        return "hkAnchor.v1.\(type.identifier)"
     }
 
     // MARK: - Read → store
