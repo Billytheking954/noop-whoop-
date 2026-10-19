@@ -792,7 +792,7 @@ final class HealthKitBridge: ObservableObject {
                 dailyMetricRows: dmRows,
                 metricPoints: points,
                 deviceId: appleDeviceId)
-            if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
+            if !workoutRows.isEmpty { try await store.mergeAppleHealthWorkoutRows(workoutRows, deviceId: appleDeviceId) }
             // Imported water (#949) goes to the hydration source, not apple-health, because the hydration
             // screen is what reads it. Every day in the window is written — including the ones with no
             // water at all, as 0 — so deleting a drink in the source app takes it away here on the next
