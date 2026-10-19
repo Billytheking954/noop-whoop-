@@ -443,7 +443,7 @@ final class HealthKitBridge: ObservableObject {
             // empty HealthKit read, because read denial is intentionally indistinguishable from absence.
             if !addedWorkoutIdentities.isEmpty || !deletedWorkoutUUIDs.isEmpty {
                 guard let identityStore = await repo.storeHandle() else {
-                    lastError = String(localized: "Apple Health workout identity changes could not be saved.")
+                    reportAppleHealthSyncFailure(["workout identity store unavailable"])
                     return
                 }
                 do {
@@ -451,13 +451,19 @@ final class HealthKitBridge: ObservableObject {
                         added: addedWorkoutIdentities, deletedUUIDs: deletedWorkoutUUIDs,
                         deviceId: appleDeviceId, workoutSource: Self.appleWorkoutSource)
                 } catch {
-                    lastError = String(localized: "Apple Health workout identity changes could not be saved: \(error.localizedDescription)")
+                    reportAppleHealthSyncFailure([error.localizedDescription])
                     // Keep the anchor unchanged. HealthKit will replay the delta on a later wake.
                     return
                 }
             }
             if let newAnchor { persistAnchor(newAnchor, for: type) }
         }
+    }
+
+    /// Reuse the established, localized Health sync error format for new persistence failure paths.
+    private func reportAppleHealthSyncFailure(_ details: [String]) {
+        let failedReads = details
+        lastError = String(localized: "Apple Health sync failed: \(failedReads.joined(separator: ", "))")
     }
 
     /// Pure observer-delta reconciliation rule. HealthKit deletion tombstones expose identity but no
@@ -1815,7 +1821,7 @@ final class HealthKitBridge: ObservableObject {
                 added: identities, deletedUUIDs: [],
                 deviceId: appleDeviceId, workoutSource: Self.appleWorkoutSource)
         } catch {
-            lastError = String(localized: "Apple Health workout identities could not be saved: \(error.localizedDescription)")
+            reportAppleHealthSyncFailure([error.localizedDescription])
             return nil
         }
 
