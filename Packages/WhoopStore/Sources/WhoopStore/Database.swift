@@ -1103,6 +1103,21 @@ extension WhoopStore {
         migrator.registerMigration("v47-rr-whoop5-fill") { db in
             try db.execute(sql: WhoopStore.whoop5RrFillMigrationSQL)
         }
+        // v48: keep the HealthKit UUID for each imported workout beside its canonical row key.
+        // HKDeletedObject provides a UUID, not a timestamp. This small ledger lets the observer remove
+        // exactly the Apple Health workout row that was deleted without clearing ambiguous daily aggregates.
+        migrator.registerMigration("v48-apple-health-workout-identity") { db in
+            try db.create(table: "appleHealthWorkoutIdentity") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("uuid", .text).notNull()
+                t.column("startTs", .integer).notNull()
+                t.column("sport", .text).notNull()
+                t.column("day", .text).notNull()
+            }
+            try db.create(index: "idx_appleHealthWorkoutIdentity_natural",
+                          on: "appleHealthWorkoutIdentity", columns: ["deviceId", "uuid"],
+                          options: [.unique])
+        }
         return migrator
     }
 }
