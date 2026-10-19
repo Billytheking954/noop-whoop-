@@ -34,10 +34,10 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
                             sport: "Running", source: "apple-health")
             // Same timestamp, different sport: must survive because the UUID ledger resolves the full
             // natural key rather than deleting every row that overlaps the time window.
-            try seedWorkout(db, deviceId: "apple-health", startTs: 1_000,
+            try self.seedWorkout(db, deviceId: "apple-health", startTs: 1_000,
                             sport: "Cycling", source: "apple-health")
             // Same natural key under another source device: must also survive.
-            try seedWorkout(db, deviceId: "my-whoop", startTs: 1_000,
+            try self.seedWorkout(db, deviceId: "my-whoop", startTs: 1_000,
                             sport: "Running", source: "whoop")
         }
 
@@ -56,9 +56,9 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
             (
                 try self.countWorkout(db, deviceId: "apple-health", startTs: 1_000,
                                  sport: "Running", source: "apple-health"),
-                try countWorkout(db, deviceId: "apple-health", startTs: 1_000,
+                try self.countWorkout(db, deviceId: "apple-health", startTs: 1_000,
                                  sport: "Cycling", source: "apple-health"),
-                try countWorkout(db, deviceId: "my-whoop", startTs: 1_000,
+                try self.countWorkout(db, deviceId: "my-whoop", startTs: 1_000,
                                  sport: "Running", source: "whoop")
             )
         }
@@ -70,8 +70,8 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
     func testRepeatedDeletionTombstoneIsIdempotent() async throws {
         let store = try await WhoopStore.inMemory()
         let db = store.registryWriter
-        try db.write { db in
-            try seedWorkout(db, deviceId: "apple-health", startTs: 2_000,
+        try await db.write { db in
+            try self.seedWorkout(db, deviceId: "apple-health", startTs: 2_000,
                             sport: "Hiking", source: "apple-health")
         }
         _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
@@ -86,7 +86,7 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
             deviceId: "apple-health", workoutSource: "apple-health")
         XCTAssertEqual(replayed, 0)
         let remains = try await db.read {
-            try countWorkout($0, deviceId: "apple-health", startTs: 2_000,
+            try self.countWorkout($0, deviceId: "apple-health", startTs: 2_000,
                              sport: "Hiking", source: "apple-health")
         }
         XCTAssertEqual(remains, 0)
