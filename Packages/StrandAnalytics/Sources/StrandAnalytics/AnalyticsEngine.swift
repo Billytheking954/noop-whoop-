@@ -336,7 +336,7 @@ public enum AnalyticsEngine {
                                   // falls back to the same night window the rest of the analysis uses
                                   // (preserving the pure-function contract). The caller
                                   // (IntelligenceEngine) supplies a full
-                                  // [localMidnight(day), localMidnight(day)+86400) read here so a
+                                  // [localMidnight(day), nextLocalMidnight(day)) read here so a
                                   // day's late hours — which fall outside the ~42h night-detection
                                   // window (it ends at dayStart+12h ≈ noon) — are still seen.
                                   //
@@ -491,17 +491,21 @@ public enum AnalyticsEngine {
                                   // %HRR with no floor. Threaded rather than read from a global so this
                                   // stays a pure function, and defaulted so every existing caller and
                                   // test is byte-identical.
-                                  effortMethod: StrainScorer.Method = .edwards) -> DayResult {
+                                  effortMethod: StrainScorer.Method = .edwards,
+                                  // Exact UTC bounds of the local calendar day when the caller owns a
+                                  // rule-aware TimeZone. nil preserves the fixed-offset pure-function contract.
+                                  calendarDayBounds: Range<Int>? = nil) -> DayResult {
 
-        // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
-        // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
-        // [dayStartUtc, +86400). That turns the day-bucketing filters below — otherwise a per-sample
-        // DateFormatter over the full-day dayHr/daySteps streams (~86k 1 Hz samples each) once per
-        // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
-        // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
+        // Precompute the legacy fixed-offset bounds once (#996). Production scoring supplies
+        // calendarDayBounds, resolved from the time zone's own rules, so a 23/25-hour DST day is
+        // bounded by its two real local midnights. The fixed-offset fallback remains byte-identical
+        // for pure-function callers that do not own a TimeZone.
         let dayStartUtc = dayStartUtcSeconds(day)
         let dayEndUtc = dayStartUtc + 86_400
-        func tsInDay(_ ts: Int) -> Bool { (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc }
+        func tsInDay(_ ts: Int) -> Bool {
+            if let calendarDayBounds { return calendarDayBounds.contains(ts) }
+            return (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc
+        }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
         let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
