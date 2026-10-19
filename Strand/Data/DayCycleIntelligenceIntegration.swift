@@ -96,6 +96,7 @@ import WhoopStore
                         mode: DayCycleMode, cache: Cache,
                         profile: UserProfile, maxHROverride: Double?, effortMethod: StrainScorer.Method,
                         recoveryReader: BoundaryRecoveryReader? = nil,
+                        timeZone: TimeZone = .autoupdatingCurrent,
                         trace: ((String) -> Void)? = nil) async -> Result {
         guard mode == .sleepOnset else {
             return Result(stepsByWakeDay: [:], strainByWakeDay: [:], caloriesByWakeDay: [:],
@@ -168,7 +169,7 @@ import WhoopStore
             let active = DayCycleResolver.activeWindow(mode: mode,
                 latestSleep: DayCycleWindow(id: latest.sleepId, startInclusive: latest.onset,
                     endExclusive: now, displayDay: day, source: .detectedSleep), now: now,
-                offsetSec: offsetSec)
+                timeZone: timeZone)
             if active.source == .syntheticMidnight {
                 boundaries.append(.init(sleepId: active.id, onset: active.startInclusive))
                 wakeDayById[active.id] = active.displayDay; ownerById[active.id] = owner
