@@ -44,39 +44,36 @@ extension WhoopStore {
 
             let uuids = Array(Set(deletedUUIDs)).sorted()
             guard !uuids.isEmpty else { return 0 }
-            let placeholders = Array(repeating: "?", count: uuids.count).joined(separator: ",")
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                    SELECT startTs, sport
-                    FROM appleHealthWorkoutIdentity
-                    WHERE deviceId = ? AND uuid IN (\(placeholders))
-                    """,
-                arguments: [deviceId] + uuids
-            )
 
             var deletedWorkoutRows = 0
-            for row in rows {
-                try db.execute(
+            for uuid in uuids {
+                let identity = try Row.fetchOne(
+                    db,
                     sql: """
-                        DELETE FROM workout
-                        WHERE deviceId = ? AND startTs = ? AND sport = ? AND source = ?
+                        SELECT startTs, sport
+                        FROM appleHealthWorkoutIdentity
+                        WHERE deviceId = ? AND uuid = ?
                         """,
-                    arguments: [deviceId, row["startTs"] as Int,
-                                row["sport"] as String, workoutSource]
+                    arguments: [deviceId, uuid]
                 )
-                deletedWorkoutRows += db.changesCount
-            }
+                if let identity {
+                    try db.execute(
+                        sql: """
+                            DELETE FROM workout
+                            WHERE deviceId = ? AND startTs = ? AND sport = ? AND source = ?
+                            """,
+                        arguments: [deviceId, identity["startTs"] as Int,
+                                    identity["sport"] as String, workoutSource]
+                    )
+                    deletedWorkoutRows += db.changesCount
+                }
 
-            // The UUID tombstone is affirmative evidence of source deletion. Remove just those
-            // identities; unrelated workout rows and all daily aggregates remain untouched.
-            try db.execute(
-                sql: """
-                    DELETE FROM appleHealthWorkoutIdentity
-                    WHERE deviceId = ? AND uuid IN (\(placeholders))
-                    """,
-                arguments: [deviceId] + uuids
-            )
+                // Only remove the mapping corresponding to this confirmed UUID tombstone.
+                try db.execute(
+                    sql: "DELETE FROM appleHealthWorkoutIdentity WHERE deviceId = ? AND uuid = ?",
+                    arguments: [deviceId, uuid]
+                )
+            }
             return deletedWorkoutRows
         }
     }
