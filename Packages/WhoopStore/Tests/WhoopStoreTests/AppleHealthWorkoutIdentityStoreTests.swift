@@ -29,8 +29,8 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
     func testDeletedUUIDRemovesOnlyExactAppleHealthWorkoutRow() async throws {
         let store = try await WhoopStore.inMemory()
         let db = store.registryWriter
-        try db.write { db in
-            try seedWorkout(db, deviceId: "apple-health", startTs: 1_000,
+        try await db.write { db in
+            try self.seedWorkout(db, deviceId: "apple-health", startTs: 1_000,
                             sport: "Running", source: "apple-health")
             // Same timestamp, different sport: must survive because the UUID ledger resolves the full
             // natural key rather than deleting every row that overlaps the time window.
@@ -52,9 +52,9 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
             deviceId: "apple-health", workoutSource: "apple-health")
         XCTAssertEqual(removed, 1)
 
-        let counts = try db.read { db in
+        let counts = try await db.read { db in
             (
-                try countWorkout(db, deviceId: "apple-health", startTs: 1_000,
+                try self.countWorkout(db, deviceId: "apple-health", startTs: 1_000,
                                  sport: "Running", source: "apple-health"),
                 try countWorkout(db, deviceId: "apple-health", startTs: 1_000,
                                  sport: "Cycling", source: "apple-health"),
@@ -85,7 +85,7 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
             added: [], deletedUUIDs: ["workout-uuid-2"],
             deviceId: "apple-health", workoutSource: "apple-health")
         XCTAssertEqual(replayed, 0)
-        let remains = try db.read {
+        let remains = try await db.read {
             try countWorkout($0, deviceId: "apple-health", startTs: 2_000,
                              sport: "Hiking", source: "apple-health")
         }
@@ -104,7 +104,7 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
         _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
             added: [corrected, corrected], deletedUUIDs: [],
             deviceId: "apple-health", workoutSource: "apple-health")
-        let identities = try store.registryWriter.read { db in
+        let identities = try await store.registryWriter.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT uuid, startTs, sport FROM appleHealthWorkoutIdentity
                 WHERE deviceId = 'apple-health'
