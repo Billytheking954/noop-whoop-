@@ -137,16 +137,15 @@ public struct LocalDayStart: Hashable, Sendable {
 
 /// When a local calendar date begins and ends in a time zone, taken from the zone's own rules.
 ///
-/// The analysis core answers this question by adding fixed 86,400-second blocks to a midnight derived
-/// from a single UTC offset. That is wrong by an hour on every day boundary beyond a transition,
-/// because a day on which the clocks move is 23 or 25 hours long. This type is the shared primitive
-/// that answers it correctly; it changes no caller on its own.
+/// The analysis core historically answered this question by adding fixed 86,400-second blocks to a
+/// midnight derived from one UTC offset. That is wrong across a DST transition because a civil day can
+/// be 23 or 25 hours long. IntelligenceEngine now uses this type for production scoring-window
+/// enumeration and additive daily reads. AnalyticsEngine retains a fixed-offset fallback only for pure
+/// callers that do not own a TimeZone; production passes the exact resolved bounds.
 ///
-/// SO TWO ANSWERS COEXIST, and this one is not yet the shipped one. `AnalyticsEngine.dayStartUtcSeconds`
-/// with `AnalyticsEngine.dayString` remains what every scored day actually uses; this file is called by
-/// nothing but its own tests until a switch-over lands. They disagree by an hour on the far side of a
-/// transition, which `LocalDayWindowsTests` pins deliberately by asserting BOTH answers for
-/// America/New_York on 2025-10-19. Reach for the core unless you are writing that switch-over.
+/// LocalDayWindowsTests also pin the historical failure mode directly: after the New York fall-back,
+/// recalculating 2025-10-19 with the later standard-time offset would move midnight from 04:00Z to
+/// 05:00Z. The rule-aware window remains at the real 04:00Z boundary.
 ///
 /// Kotlin twin: `LocalDayWindows`.
 ///
