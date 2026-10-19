@@ -1996,6 +1996,50 @@ final class HealthKitBridge: ObservableObject {
         !heartRateFailed && !stepsFailed
     }
 
+    static let appleWorkoutSource = "apple-health"
+
+    /// Map an `HKWorkoutActivityType` to NOOP's human sport label. Strength training routes to the
+    /// shared lifting sport so a gym session lands in the Lifting lane; anything we don't name explicitly
+    /// falls back to a generic "Workout" rather than an opaque numeric type.
+    private static func sportName(_ type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .running:                    return "Running"
+        case .walking:                    return "Walking"
+        case .hiking:                     return "Hiking"
+        case .cycling:                    return "Cycling"
+        case .traditionalStrengthTraining,
+             .functionalStrengthTraining: return LiftingImporter.sport
+        case .highIntensityIntervalTraining: return "HIIT"
+        case .coreTraining:               return "Core training"
+        case .yoga:                       return "Yoga"
+        case .pilates:                    return "Pilates"
+        case .rowing:                     return "Rowing"
+        case .elliptical:                 return "Elliptical"
+        case .stairClimbing, .stairs:     return "Stairs"
+        case .jumpRope:                   return "Jump rope"
+        case .boxing, .kickboxing:        return "Boxing"
+        case .basketball:                 return "Basketball"
+        case .soccer:                     return "Soccer"
+        case .americanFootball:           return "Football"
+        case .baseball:                   return "Baseball"
+        case .badminton:                  return "Badminton"
+        case .tennis:                     return "Tennis"
+        case .tableTennis:                return "Table tennis"
+        case .volleyball:                 return "Volleyball"
+        case .squash, .racquetball:       return "Squash"
+        case .martialArts, .taiChi:       return "Martial arts"
+        case .dance, .cardioDance, .socialDance: return "Dancing"
+        case .golf:                       return "Golf"
+        case .climbing:                   return "Climbing"
+        case .downhillSkiing, .crossCountrySkiing: return "Skiing"
+        case .snowboarding:               return "Snowboarding"
+        case .swimming:                   return "Swimming"
+        case .surfingSports:              return "Surfing"
+        case .paddleSports:               return "Paddling"
+        default:                          return "Workout"
+        }
+    }
+
     // MARK: - Entitlement detection (#348)
 
     /// True when this running build actually carries the `com.apple.developer.healthkit` entitlement —
