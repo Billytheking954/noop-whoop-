@@ -687,13 +687,13 @@ final class AppModel: ObservableObject {
     /// already resolves the active strap per day via the registry's own active id (`resolveDayOwner`), so it
     /// reads + scores the re-added strap's raw and writes the computed result to the STABLE canonical
     /// `-noop` sibling, no engine re-point needed.
-    private func adoptActiveDevice(_ activeId: String) async {
+    private func adoptActiveDevice(_ activeId: String, analyze: Bool = true) async {
         let trimmed = activeId.trimmingCharacters(in: .whitespaces)
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
         await repo.refresh()
-        await intelligence.analyzeRecent()
+        if analyze { await intelligence.analyzeRecent() }
     }
 
     #if os(iOS)
@@ -1262,10 +1262,23 @@ final class AppModel: ObservableObject {
     /// Materialize Apple Health as a device and update the source that feeds Today.
     /// Only replaces the seeded WHOOP row while it is still a placeholder with no strap and no data;
     /// a physical or user-selected source always keeps priority.
-    func refreshAfterAppleHealthSync(authorized: Bool, now: Date = Date()) async {
+    func refreshAfterAppleHealthSync(authorized: Bool, syncSucceeded: Bool = true,
+                                         now: Date = Date()) async {
         await wireSourceCoordinator()
+        func finishHealthRefresh() {
+            // HealthKit's import intentionally writes observation-only DailyMetric rows with recovery=nil.
+            // A successful sync therefore invalidates the prior Apple-Watch recovery and MUST queue the
+            // fold that rebuilds it from the newly imported HRV/RHR history. Run it independently from the
+            // foreground refresh: analyzeRecent can be long on a large store, and its forced-call lock will
+            // queue behind any pass already running rather than lose this trigger.
+            guard syncSucceeded else { return }
+            Task { [weak self] in
+                await self?.intelligence.analyzeRecent(triggerLabel: "apple-health-sync")
+            }
+        }
         guard let registry = deviceRegistry, let store = await repo.storeHandle() else {
             await repo.refresh()
+            finishHealthRefresh()
             return
         }
 
@@ -1284,20 +1297,22 @@ final class AppModel: ObservableObject {
             registry: registry, store: store, authorized: authorized, now: now)
         guard registry.devices.contains(where: { $0.id == AppleWatchDevice.deviceId }) else {
             await repo.refresh()
+            finishHealthRefresh()
             return
         }
 
         if AppleWatchDevice.shouldAutoActivate(
             current: current, currentHasRecentData: currentHasRecentData) {
             registry.setActive(AppleWatchDevice.deviceId)
-            await adoptActiveDevice(AppleWatchDevice.deviceId)
+            await adoptActiveDevice(AppleWatchDevice.deviceId, analyze: !syncSucceeded)
         } else if registry.activeDeviceId == AppleWatchDevice.deviceId {
             // Covers relaunches: the row was already active, but the read spine may still be initializing.
-            await adoptActiveDevice(AppleWatchDevice.deviceId)
+            await adoptActiveDevice(AppleWatchDevice.deviceId, analyze: !syncSucceeded)
             await repo.refresh()
         } else {
             await repo.refresh()
         }
+        finishHealthRefresh()
     }
     #endif
 
@@ -2654,6 +2669,13 @@ final class AppModel: ObservableObject {
         switch outcome {
         case .imported(let days, let workouts):
             await repo.refresh()
+            // Shortcut days carry the same Apple-Watch HRV/RHR inputs as live HealthKit and intentionally
+            // import with recovery=nil. Queue the same recovery/scoring fold so a HealthKit-free sideload
+            // does not leave Charge blank until some unrelated later rescore. Forced triggers queue behind
+            // an in-flight pass, so this cannot be lost; independent Task keeps the import UI responsive.
+            Task { [weak self] in
+                await self?.intelligence.analyzeRecent(triggerLabel: "shortcut-health-import")
+            }
             // #833/v7.7.2: the Shortcuts import writes body-composition series (e.g. weight) into
             // metricSeries, which sits OUTSIDE refresh()'s diff, so refresh() may leave `refreshSeq`
             // unchanged and AppleHealthView's re-mount cache would serve stale data. Drop the cache so the
