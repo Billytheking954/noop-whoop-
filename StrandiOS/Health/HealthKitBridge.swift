@@ -392,10 +392,9 @@ final class HealthKitBridge: ObservableObject {
         // cuts the work per wake, not the wakes — this is what shows whether the wake itself is the cost.
         HealthSyncStats.recordWake()
         let (sampleTouched, newAnchor, hadDeletions, addedWorkoutIdentities, deletedWorkoutUUIDs) = await fetchTouchedDayWindow(type: type)
-        // HKDeletedObject carries the UUID, not the deleted sample's original timestamp. A deletion-only
-        // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon to
-        // refresh still-visible aggregates, but do NOT claim this deletes stale rows: aggregate caches lack
-        // the object identity needed for safe exact reconciliation. That remains a known data-consistency gap.
+        // HKDeletedObject carries a UUID, not its original timestamp. The bounded reread refreshes visible
+        // aggregates but does not authorize deleting absent daily values: HealthKit can hide read access.
+        // Workout UUID tombstones are reconciled separately against the durable identity ledger below.
         let deletionHorizon = Calendar.current.date(byAdding: .day, value: -31,
                                                              to: Calendar.current.startOfDay(for: Date())) ?? Date()
         let touched = Self.observerTouchedDate(oldestAdded: sampleTouched,
@@ -482,10 +481,10 @@ final class HealthKitBridge: ObservableObject {
             return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
         }()
 
-        // Observer ingestion already caps its re-aggregation window at 31 days. Match that bound
-        // here so a fresh anchor does not decode years of Watch samples that cannot be ingested by
-        // this path. Explicit historical imports keep their existing query windows, and anchors
-        // still advance only after the corresponding aggregate sync commits.
+        // Sensor re-aggregation is capped at 31 days. The workout stream is deliberately unbounded because
+        // its low-volume UUID tombstones have no timestamps; restricting it to the last month would make
+        // older, previously-imported workouts impossible to reconcile when deleted. The resulting sync
+        // window is still clamped to 31 days below; the complete workout delta is only metadata.
         let cal = Calendar.current
         guard let oldestRelevant = cal.date(byAdding: .day, value: -31,
                                             to: cal.startOfDay(for: Date())) else { return (nil, nil, false, [], []) }
@@ -2063,7 +2062,7 @@ final class HealthKitBridge: ObservableObject {
     /// Map an `HKWorkoutActivityType` to NOOP's human sport label. Strength training routes to the
     /// shared lifting sport so a gym session lands in the Lifting lane; anything we don't name explicitly
     /// falls back to a generic "Workout" rather than an opaque numeric type.
-    private static func sportName(_ type: HKWorkoutActivityType) -> String {
+    nonisolated private static func sportName(_ type: HKWorkoutActivityType) -> String {
         switch type {
         case .running:                    return "Running"
         case .walking:                    return "Walking"
