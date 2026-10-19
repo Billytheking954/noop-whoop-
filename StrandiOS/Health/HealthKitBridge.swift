@@ -391,7 +391,7 @@ final class HealthKitBridge: ObservableObject {
         // #1578: counted before any early return, so the ratio of wakes to syncs is honest. Coalescing
         // cuts the work per wake, not the wakes — this is what shows whether the wake itself is the cost.
         HealthSyncStats.recordWake()
-        let (sampleTouched, newAnchor, hadDeletions) = await fetchTouchedDayWindow(type: type)
+        let (sampleTouched, newAnchor, hadDeletions, deletedWorkoutUUIDs) = await fetchTouchedDayWindow(type: type)
         // HKDeletedObject carries the UUID, not the deleted sample's original timestamp. A deletion-only
         // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon to
         // refresh still-visible aggregates, but do NOT claim this deletes stale rows: aggregate caches lack
@@ -438,8 +438,26 @@ final class HealthKitBridge: ObservableObject {
         // Advance the anchor ONLY after the ingestion commits (@bhelm). If sync() bails (another sync holds
         // `syncing`, or the store is unavailable), the anchor stays put so the next wake re-fetches this
         // window and re-ingests — sync re-reads aggregates, so the replay is idempotent.
-        if await sync(days: window), let newAnchor {
-            persistAnchor(newAnchor, for: type)
+        if await sync(days: window) {
+            // Workout UUID tombstones are precise identity evidence. Reconcile only the matching Apple
+            // Health workout row after the bounded import commits; never clear daily aggregates from an
+            // empty HealthKit read, because read denial is intentionally indistinguishable from absence.
+            if !deletedWorkoutUUIDs.isEmpty {
+                guard let identityStore = await repo.storeHandle() else {
+                    lastError = String(localized: "Apple Health workout deletion could not be saved.")
+                    return
+                }
+                do {
+                    try await identityStore.reconcileAppleHealthWorkoutIdentityDelta(
+                        added: [], deletedUUIDs: deletedWorkoutUUIDs,
+                        deviceId: appleDeviceId, workoutSource: Self.appleWorkoutSource)
+                } catch {
+                    lastError = String(localized: "Apple Health workout deletion could not be saved: \(error.localizedDescription)")
+                    // Keep the anchor unchanged. HealthKit will replay the tombstone on a later wake.
+                    return
+                }
+            }
+            if let newAnchor { persistAnchor(newAnchor, for: type) }
         }
     }
 
@@ -457,7 +475,7 @@ final class HealthKitBridge: ObservableObject {
     /// `sync(days:)` re-reads the aggregate for the affected window — the anchor's only job is to tell
     /// us how far back the change reached.
     private func fetchTouchedDayWindow(type: HKSampleType) async
-        -> (oldest: Date?, newAnchor: HKQueryAnchor?, hadDeletions: Bool) {
+        -> (oldest: Date?, newAnchor: HKQueryAnchor?, hadDeletions: Bool, deletedWorkoutUUIDs: [String]) {
         let key = HealthKitBridge.anchorDefaultsKey(for: type)
         let priorAnchor: HKQueryAnchor? = {
             guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
@@ -470,13 +488,13 @@ final class HealthKitBridge: ObservableObject {
         // still advance only after the corresponding aggregate sync commits.
         let cal = Calendar.current
         guard let oldestRelevant = cal.date(byAdding: .day, value: -31,
-                                            to: cal.startOfDay(for: Date())) else { return (nil, nil, false) }
+                                            to: cal.startOfDay(for: Date())) else { return (nil, nil, false, []) }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: oldestRelevant, end: nil, options: []),
             Self.notNoopAuthored,
         ])
         return await withCheckedContinuation {
-            (cont: CheckedContinuation<(Date?, HKQueryAnchor?, Bool), Never>) in
+            (cont: CheckedContinuation<(Date?, HKQueryAnchor?, Bool, [String]), Never>) in
             let q = HKAnchoredObjectQuery(
                 type: type, predicate: predicate,
                 anchor: priorAnchor, limit: HKObjectQueryNoLimit
@@ -484,14 +502,19 @@ final class HealthKitBridge: ObservableObject {
                 // A failed delta query is NOT an empty authoritative delta. Keep the prior anchor so the
                 // next observer wake can retry instead of stepping over unknown changes.
                 guard error == nil else {
-                    cont.resume(returning: (nil, nil, false))
+                    cont.resume(returning: (nil, nil, false, []))
                     return
                 }
                 // Return the advanced anchor but do NOT persist it here: the caller commits it only after
                 // the ensuing sync has actually stored the window (@bhelm). Deleted objects have no
                 // timestamp, so the caller widens a deletion-bearing delta to the bounded 31-day horizon.
                 let oldest = (samples ?? []).map { $0.startDate }.min()
-                cont.resume(returning: (oldest, newAnchor, !(deletedObjects ?? []).isEmpty))
+                let isWorkoutType = type.identifier == HKObjectType.workoutType().identifier
+                let deletedWorkoutUUIDs = isWorkoutType
+                    ? (deletedObjects ?? []).map { $0.uuid.uuidString }
+                    : []
+                cont.resume(returning: (oldest, newAnchor, !(deletedObjects ?? []).isEmpty,
+                                        deletedWorkoutUUIDs))
             }
             store.execute(q)
         }
@@ -1758,6 +1781,28 @@ final class HealthKitBridge: ObservableObject {
             store.execute(q)
         }
         guard let workoutsAndRows = queried else { return nil }
+
+        // Record the stable HealthKit UUID for every currently-visible workout in this bounded query.
+        // The observer's later deletion tombstone contains the UUID but not the original timestamp.
+        // This ledger is deliberately separate from aggregate metrics: a failed/sparse read must never
+        // imply that a whole daily row or date range should be cleared.
+        guard let identityStore = await repo.storeHandle() else { return nil }
+        let identities = workoutsAndRows.map { workout in
+            AppleHealthWorkoutIdentity(
+                uuid: workout.uuid.uuidString,
+                startTs: Int(workout.startDate.timeIntervalSince1970),
+                sport: Self.sportName(workout.workoutActivityType),
+                day: Self.dayString(workout.endDate))
+        }
+        do {
+            try await identityStore.reconcileAppleHealthWorkoutIdentityDelta(
+                added: identities, deletedUUIDs: [],
+                deviceId: appleDeviceId, workoutSource: Self.appleWorkoutSource)
+        } catch {
+            lastError = String(localized: "Apple Health workout identities could not be saved: \(error.localizedDescription)")
+            return nil
+        }
+
         // #1205: fetch and store GPS routes for each workout. Best-effort — a route read failure
         // (permission not granted, no route data, HealthKit error) leaves the workout intact with
         // no map, which is exactly the pre-change behaviour. Stored via RouteStore under the same
