@@ -135,12 +135,15 @@ public struct AppleHealthSampleIdentity: Equatable, Sendable {
     public let uuid: String
     public let day: String
     public let startTs: Int
+    /// Sample value in canonical importer units (ml for water, mg for caffeine).
+    public let value: Double?
 
-    public init(typeIdentifier: String, uuid: String, day: String, startTs: Int) {
+    public init(typeIdentifier: String, uuid: String, day: String, startTs: Int, value: Double? = nil) {
         self.typeIdentifier = typeIdentifier
         self.uuid = uuid
         self.day = day
         self.startTs = startTs
+        self.value = value
     }
 }
 
@@ -172,6 +175,40 @@ extension WhoopStore {
         }
     }
 
+    /// Read existing identity rows in bounded chunks, avoiding one SQLite query per sample on the
+    /// first unbounded anchor backfill. Prior values let deletion reconciliation apply an exact delta
+    /// when HealthKit no longer returns a daily aggregate.
+    public func appleHealthSampleIdentities(
+        deviceId: String,
+        typeIdentifier: String,
+        uuids: [String]
+    ) throws -> [String: AppleHealthSampleIdentity] {
+        let keys = Array(Set(uuids)).filter { !$0.isEmpty }.sorted()
+        guard !keys.isEmpty else { return [:] }
+        return try syncRead { db in
+            var result: [String: AppleHealthSampleIdentity] = [:]
+            for offset in stride(from: 0, to: keys.count, by: 400) {
+                let chunk = Array(keys[offset..<min(offset + 400, keys.count)])
+                let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                let rows = try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT uuid, day, startTs, value FROM appleHealthSampleIdentity
+                        WHERE deviceId = ? AND typeIdentifier = ? AND uuid IN (\(placeholders))
+                        """,
+                    arguments: [deviceId, typeIdentifier] + chunk
+                )
+                for row in rows {
+                    let uuid: String = row["uuid"]
+                    result[uuid] = AppleHealthSampleIdentity(
+                        typeIdentifier: typeIdentifier, uuid: uuid,
+                        day: row["day"], startTs: row["startTs"], value: row["value"])
+                }
+            }
+            return result
+        }
+    }
+
     /// Reconcile one anchored-query delta atomically. UUIDs present in added win over a duplicate
     /// tombstone in the same batch. Replaying a delta is safe, and the caller advances its HealthKit
     /// anchor only after this transaction succeeds.
@@ -185,7 +222,9 @@ extension WhoopStore {
         try syncWrite { db in
             for identity in added {
                 guard !identity.typeIdentifier.isEmpty, !identity.uuid.isEmpty,
-                      !identity.day.isEmpty else {
+                      !identity.day.isEmpty,
+                      identity.value?.isFinite != false,
+                      identity.value.map({ $0 >= 0 }) != false else {
                     throw NSError(domain: "WhoopStore.AppleHealthSampleIdentity", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: "Invalid HealthKit sample identity."])
                 }
@@ -224,13 +263,14 @@ extension WhoopStore {
             for identity in added {
                 try db.execute(sql: """
                     INSERT INTO appleHealthSampleIdentity
-                        (deviceId, typeIdentifier, uuid, day, startTs)
-                    VALUES (?, ?, ?, ?, ?)
+                        (deviceId, typeIdentifier, uuid, day, startTs, value)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, typeIdentifier, uuid) DO UPDATE SET
                         day = excluded.day,
-                        startTs = excluded.startTs
+                        startTs = excluded.startTs,
+                        value = excluded.value
                     """, arguments: [deviceId, typeIdentifier, identity.uuid, identity.day,
-                                     identity.startTs])
+                                     identity.startTs, identity.value])
             }
             return deletedDays
         }
