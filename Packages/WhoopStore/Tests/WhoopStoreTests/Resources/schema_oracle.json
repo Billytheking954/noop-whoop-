@@ -2392,6 +2392,12 @@
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
+        },
+        {
+          "name": "value",
+          "affinity": "REAL",
+          "notNull": false,
+          "default": null
         }
       ],
       "primaryKey": [
