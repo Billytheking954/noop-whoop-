@@ -1118,6 +1118,20 @@ extension WhoopStore {
                           on: "appleHealthWorkoutIdentity", columns: ["deviceId", "uuid"],
                           options: [.unique])
         }
+        // v49: durable UUID-to-day mapping for low-volume HealthKit sample types where deletions
+        // must be reconciled exactly (currently dietary water and caffeine). A successful-but-empty read
+        // is not deletion evidence because HealthKit hides read authorization; only a tombstone plus this
+        // identity record may clear the exact affected imported item/day.
+        migrator.registerMigration("v49-apple-health-sample-identity") { db in
+            try db.create(table: "appleHealthSampleIdentity") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("typeIdentifier", .text).notNull()
+                t.column("uuid", .text).notNull()
+                t.column("day", .text).notNull()
+                t.column("startTs", .integer).notNull()
+                t.primaryKey(["deviceId", "typeIdentifier", "uuid"])
+            }
+        }
         return migrator
     }
 }
