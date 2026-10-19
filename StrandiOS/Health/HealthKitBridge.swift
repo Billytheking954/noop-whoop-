@@ -393,8 +393,9 @@ final class HealthKitBridge: ObservableObject {
         HealthSyncStats.recordWake()
         let (sampleTouched, newAnchor, hadDeletions) = await fetchTouchedDayWindow(type: type)
         // HKDeletedObject carries the UUID, not the deleted sample's original timestamp. A deletion-only
-        // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon
-        // instead; source-window replacement below can then actually REMOVE rows that disappeared.
+        // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon to
+        // refresh still-visible aggregates, but do NOT claim this deletes stale rows: aggregate caches lack
+        // the object identity needed for safe exact reconciliation. That remains a known data-consistency gap.
         let deletionHorizon = Calendar.current.date(byAdding: .day, value: -31,
                                                              to: Calendar.current.startOfDay(for: Date())) ?? Date()
         let touched = Self.observerTouchedDate(oldestAdded: sampleTouched,
