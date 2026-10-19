@@ -126,3 +126,113 @@ extension WhoopStore {
         ) ?? 0
     }
 }
+
+/// Durable identity for a low-volume HealthKit sample whose deletion must be reconciled to a day.
+/// The day is assigned when the sample is observed, so a future HKDeletedObject (which contains only
+/// UUID/type, not the original timestamp) can still target the exact cached day.
+public struct AppleHealthSampleIdentity: Equatable, Sendable {
+    public let typeIdentifier: String
+    public let uuid: String
+    public let day: String
+    public let startTs: Int
+
+    public init(typeIdentifier: String, uuid: String, day: String, startTs: Int) {
+        self.typeIdentifier = typeIdentifier
+        self.uuid = uuid
+        self.day = day
+        self.startTs = startTs
+    }
+}
+
+extension WhoopStore {
+    /// Find previously recorded day keys for confirmed tombstones before the read/sync pass runs.
+    /// These days may be explicitly cleared only after the corresponding HealthKit reread succeeds.
+    public func appleHealthSampleIdentityDays(
+        deviceId: String,
+        typeIdentifier: String,
+        uuids: [String]
+    ) throws -> Set<String> {
+        let keys = Array(Set(uuids)).filter { !$0.isEmpty }.sorted()
+        guard !keys.isEmpty else { return [] }
+        return try syncRead { db in
+            var days = Set<String>()
+            for uuid in keys {
+                if let day = try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT day FROM appleHealthSampleIdentity
+                        WHERE deviceId = ? AND typeIdentifier = ? AND uuid = ?
+                        """,
+                    arguments: [deviceId, typeIdentifier, uuid]
+                ) {
+                    days.insert(day)
+                }
+            }
+            return days
+        }
+    }
+
+    /// Reconcile one anchored-query delta atomically. UUIDs present in added win over a duplicate
+    /// tombstone in the same batch. Replaying a delta is safe, and the caller advances its HealthKit
+    /// anchor only after this transaction succeeds.
+    @discardableResult
+    public func reconcileAppleHealthSampleIdentityDelta(
+        added: [AppleHealthSampleIdentity],
+        deletedUUIDs: [String],
+        deviceId: String,
+        typeIdentifier: String
+    ) async throws -> Set<String> {
+        try syncWrite { db in
+            for identity in added {
+                guard !identity.typeIdentifier.isEmpty, !identity.uuid.isEmpty,
+                      !identity.day.isEmpty else {
+                    throw NSError(domain: "WhoopStore.AppleHealthSampleIdentity", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Invalid HealthKit sample identity."])
+                }
+                guard identity.typeIdentifier == typeIdentifier else {
+                    throw NSError(domain: "WhoopStore.AppleHealthSampleIdentity", code: 2,
+                                  userInfo: [NSLocalizedDescriptionKey: "HealthKit sample type does not match its identity batch."])
+                }
+            }
+
+            let addedUUIDs = Set(added.map(\.uuid))
+            let tombstones = Array(Set(deletedUUIDs))
+                .filter { !$0.isEmpty && !addedUUIDs.contains($0) }
+                .sorted()
+            var deletedDays = Set<String>()
+
+            for uuid in tombstones {
+                if let day = try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT day FROM appleHealthSampleIdentity
+                        WHERE deviceId = ? AND typeIdentifier = ? AND uuid = ?
+                        """,
+                    arguments: [deviceId, typeIdentifier, uuid]
+                ) {
+                    deletedDays.insert(day)
+                }
+                try db.execute(
+                    sql: """
+                        DELETE FROM appleHealthSampleIdentity
+                        WHERE deviceId = ? AND typeIdentifier = ? AND uuid = ?
+                        """,
+                    arguments: [deviceId, typeIdentifier, uuid]
+                )
+            }
+
+            for identity in added {
+                try db.execute(sql: """
+                    INSERT INTO appleHealthSampleIdentity
+                        (deviceId, typeIdentifier, uuid, day, startTs)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(deviceId, typeIdentifier, uuid) DO UPDATE SET
+                        day = excluded.day,
+                        startTs = excluded.startTs
+                    """, arguments: [deviceId, typeIdentifier, identity.uuid, identity.day,
+                                     identity.startTs])
+            }
+            return deletedDays
+        }
+    }
+}
