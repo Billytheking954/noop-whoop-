@@ -31,21 +31,19 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
         let db = store.registryWriter
         try await db.write { db in
             try self.seedWorkout(db, deviceId: "apple-health", startTs: 1_000,
-                            sport: "Running", source: "apple-health")
-            // Same timestamp, different sport: must survive because the UUID ledger resolves the full
-            // natural key rather than deleting every row that overlaps the time window.
+                                 sport: "Running", source: "apple-health")
+            // Same timestamp, different sport must survive an exact-identity tombstone.
             try self.seedWorkout(db, deviceId: "apple-health", startTs: 1_000,
-                            sport: "Cycling", source: "apple-health")
-            // Same natural key under another source device: must also survive.
+                                 sport: "Cycling", source: "apple-health")
+            // A matching natural key from another device/source must survive too.
             try self.seedWorkout(db, deviceId: "my-whoop", startTs: 1_000,
-                            sport: "Running", source: "whoop")
+                                 sport: "Running", source: "whoop")
         }
 
-        let identity = AppleHealthWorkoutIdentity(
-            uuid: "workout-uuid-1", startTs: 1_000, sport: "Running", day: "1970-01-01")
         _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
-            added: [identity], deletedUUIDs: [],
-            deviceId: "apple-health", workoutSource: "apple-health")
+            added: [AppleHealthWorkoutIdentity(uuid: "workout-uuid-1", startTs: 1_000,
+                                               sport: "Running", day: "1970-01-01")],
+            deletedUUIDs: [], deviceId: "apple-health", workoutSource: "apple-health")
 
         let removed = try await store.reconcileAppleHealthWorkoutIdentityDelta(
             added: [], deletedUUIDs: ["workout-uuid-1"],
@@ -55,11 +53,11 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
         let counts = try await db.read { db in
             (
                 try self.countWorkout(db, deviceId: "apple-health", startTs: 1_000,
-                                 sport: "Running", source: "apple-health"),
+                                      sport: "Running", source: "apple-health"),
                 try self.countWorkout(db, deviceId: "apple-health", startTs: 1_000,
-                                 sport: "Cycling", source: "apple-health"),
+                                      sport: "Cycling", source: "apple-health"),
                 try self.countWorkout(db, deviceId: "my-whoop", startTs: 1_000,
-                                 sport: "Running", source: "whoop")
+                                      sport: "Running", source: "whoop")
             )
         }
         XCTAssertEqual(counts.0, 0)
@@ -72,47 +70,84 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
         let db = store.registryWriter
         try await db.write { db in
             try self.seedWorkout(db, deviceId: "apple-health", startTs: 2_000,
-                            sport: "Hiking", source: "apple-health")
+                                 sport: "Hiking", source: "apple-health")
         }
         _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
             added: [AppleHealthWorkoutIdentity(uuid: "workout-uuid-2", startTs: 2_000,
                                                sport: "Hiking", day: "1970-01-01")],
             deletedUUIDs: [], deviceId: "apple-health", workoutSource: "apple-health")
-        _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
+
+        let first = try await store.reconcileAppleHealthWorkoutIdentityDelta(
             added: [], deletedUUIDs: ["workout-uuid-2"],
             deviceId: "apple-health", workoutSource: "apple-health")
         let replayed = try await store.reconcileAppleHealthWorkoutIdentityDelta(
             added: [], deletedUUIDs: ["workout-uuid-2"],
             deviceId: "apple-health", workoutSource: "apple-health")
+        XCTAssertEqual(first, 1)
         XCTAssertEqual(replayed, 0)
+
         let remains = try await db.read {
             try self.countWorkout($0, deviceId: "apple-health", startTs: 2_000,
-                             sport: "Hiking", source: "apple-health")
+                                  sport: "Hiking", source: "apple-health")
         }
         XCTAssertEqual(remains, 0)
     }
 
-    func testIdentityUpsertIsIdempotentAndRefreshesTheNaturalKey() async throws {
+    func testCorrectedIdentityRetainsSharedOldKeyUntilLastOwnerIsRemoved() async throws {
         let store = try await WhoopStore.inMemory()
-        let first = AppleHealthWorkoutIdentity(
-            uuid: "workout-uuid-3", startTs: 3_000, sport: "Running", day: "1970-01-01")
-        let corrected = AppleHealthWorkoutIdentity(
-            uuid: "workout-uuid-3", startTs: 3_100, sport: "Running", day: "1970-01-01")
+        let db = store.registryWriter
+        try await db.write { db in
+            try self.seedWorkout(db, deviceId: "apple-health", startTs: 3_000,
+                                 sport: "Running", source: "apple-health")
+            try self.seedWorkout(db, deviceId: "apple-health", startTs: 3_100,
+                                 sport: "Running", source: "apple-health")
+        }
+
+        let first = AppleHealthWorkoutIdentity(uuid: "workout-uuid-3", startTs: 3_000,
+                                               sport: "Running", day: "1970-01-01")
+        let shared = AppleHealthWorkoutIdentity(uuid: "workout-uuid-4", startTs: 3_000,
+                                                sport: "Running", day: "1970-01-01")
+        let corrected = AppleHealthWorkoutIdentity(uuid: "workout-uuid-3", startTs: 3_100,
+                                                   sport: "Running", day: "1970-01-01")
         _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
-            added: [first], deletedUUIDs: [],
+            added: [first, shared], deletedUUIDs: [],
             deviceId: "apple-health", workoutSource: "apple-health")
-        _ = try await store.reconcileAppleHealthWorkoutIdentityDelta(
+
+        // A HealthKit correction changes the UUID's natural key. It must not strand the old row if
+        // another UUID still maps to that row.
+        let moved = try await store.reconcileAppleHealthWorkoutIdentityDelta(
             added: [corrected, corrected], deletedUUIDs: [],
             deviceId: "apple-health", workoutSource: "apple-health")
-        let identities = try await store.registryWriter.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT uuid, startTs, sport FROM appleHealthWorkoutIdentity
-                WHERE deviceId = 'apple-health'
-                """)
+        XCTAssertEqual(moved, 0)
+        var counts = try await db.read { db in
+            (
+                try self.countWorkout(db, deviceId: "apple-health", startTs: 3_000,
+                                      sport: "Running", source: "apple-health"),
+                try self.countWorkout(db, deviceId: "apple-health", startTs: 3_100,
+                                      sport: "Running", source: "apple-health")
+            )
         }
-        XCTAssertEqual(identities.count, 1)
-        XCTAssertEqual(identities.first?["uuid"] as String?, "workout-uuid-3")
-        XCTAssertEqual(identities.first?["startTs"] as Int?, 3_100)
-        XCTAssertEqual(identities.first?["sport"] as String?, "Running")
+        XCTAssertEqual(counts.0, 1)
+        XCTAssertEqual(counts.1, 1)
+
+        let removedOld = try await store.reconcileAppleHealthWorkoutIdentityDelta(
+            added: [], deletedUUIDs: ["workout-uuid-4"],
+            deviceId: "apple-health", workoutSource: "apple-health")
+        XCTAssertEqual(removedOld, 1)
+
+        let removedNew = try await store.reconcileAppleHealthWorkoutIdentityDelta(
+            added: [], deletedUUIDs: ["workout-uuid-3"],
+            deviceId: "apple-health", workoutSource: "apple-health")
+        XCTAssertEqual(removedNew, 1)
+        counts = try await db.read { db in
+            (
+                try self.countWorkout(db, deviceId: "apple-health", startTs: 3_000,
+                                      sport: "Running", source: "apple-health"),
+                try self.countWorkout(db, deviceId: "apple-health", startTs: 3_100,
+                                      sport: "Running", source: "apple-health")
+            )
+        }
+        XCTAssertEqual(counts.0, 0)
+        XCTAssertEqual(counts.1, 0)
     }
 }
