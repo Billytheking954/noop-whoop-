@@ -14,7 +14,7 @@ The audit intentionally does not change production Recovery, Strain, Stress, or 
 - **Workout ownership:** route and HR reads are scoped to the workout itself, avoiding contamination from other workouts with overlapping times.
 - **Timezone correctness:** production scoring receives bounds from local calendar-date rules rather than treating each day as 86,400 seconds. HealthKit day keys and parsing use the supplied/auto-updating timezone rather than a formatter frozen to the timezone at first access. Regression tests cover 23-hour and 25-hour days and same-instant day labels in different zones.
 - **Post-import scoring:** successful Apple Health syncs queue a rescore of Watch-derived recovery after updating source data, instead of leaving an invalidated recovery blank until another unrelated trigger. Failed syncs still refresh visible state but do not schedule this rescore; Shortcuts-based Health imports also queue it.
-- **Import error reporting:** activity-file HR/step persistence errors propagate instead of reporting a successful import with missing dependent data.
+- **Import error reporting:** activity-file HR/step persistence errors propagate instead of reporting a successful import with missing dependent data. Detected-workout suggestions remain open if saving the manual workout fails.
 - **Backup provenance:** the backup manifest reports the current GRDB schema version rather than stale metadata. Migration execution is unchanged.
 - **Sideload consistency:** the unsigned IPA preparation script preserves and checks the HealthKit background-delivery entitlement. The notification-permission UI test accepts supported denied-permission behaviour instead of assuming every simulator grants access.
 
