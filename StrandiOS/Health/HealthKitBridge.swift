@@ -391,9 +391,17 @@ final class HealthKitBridge: ObservableObject {
         // #1578: counted before any early return, so the ratio of wakes to syncs is honest. Coalescing
         // cuts the work per wake, not the wakes — this is what shows whether the wake itself is the cost.
         HealthSyncStats.recordWake()
-        let (touched, newAnchor) = await fetchTouchedDayWindow(type: type)
-        // No new samples since the last anchor (a spurious wake): nothing to ingest, so advancing the
-        // anchor now loses nothing and skips a redundant re-query next wake.
+        let (sampleTouched, newAnchor, hadDeletions) = await fetchTouchedDayWindow(type: type)
+        // HKDeletedObject carries the UUID, not the deleted sample's original timestamp. A deletion-only
+        // delta therefore cannot name the exact day to rebuild. Re-read the bounded observer horizon
+        // instead; source-window replacement below can then actually REMOVE rows that disappeared.
+        let deletionHorizon = Calendar.current.date(byAdding: .day, value: -31,
+                                                             to: Calendar.current.startOfDay(for: Date())) ?? Date()
+        let touched = Self.observerTouchedDate(oldestAdded: sampleTouched,
+                                               hadDeletions: hadDeletions,
+                                               deletionHorizon: deletionHorizon)
+        // No additions or deletions since the last anchor (a spurious wake): nothing to ingest, so
+        // advancing the anchor now loses nothing and skips a redundant re-query next wake.
         guard let touched else {
             HealthSyncStats.recordEmptyWake()
             if let newAnchor { persistAnchor(newAnchor, for: type) }
@@ -434,12 +442,21 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
+    /// Pure observer-delta reconciliation rule. HealthKit deletion tombstones expose identity but no
+    /// original timestamp, so any deletion widens the aggregate reread to the bounded observer horizon.
+    /// Additions keep their exact oldest touched date; a genuinely empty delta remains nil.
+    nonisolated static func observerTouchedDate(oldestAdded: Date?, hadDeletions: Bool,
+                                                deletionHorizon: Date) -> Date? {
+        hadDeletions ? deletionHorizon : oldestAdded
+    }
+
     /// Advance this type's stored anchor over any new samples and return the OLDEST sample date seen,
     /// or nil when there were no new samples. Anchors are persisted in UserDefaults per type so live
     /// deltas are neither re-ingested nor missed across launches. We don't consume the samples here —
     /// `sync(days:)` re-reads the aggregate for the affected window — the anchor's only job is to tell
     /// us how far back the change reached.
-    private func fetchTouchedDayWindow(type: HKSampleType) async -> (oldest: Date?, newAnchor: HKQueryAnchor?) {
+    private func fetchTouchedDayWindow(type: HKSampleType) async
+        -> (oldest: Date?, newAnchor: HKQueryAnchor?, hadDeletions: Bool) {
         let key = HealthKitBridge.anchorDefaultsKey(for: type)
         let priorAnchor: HKQueryAnchor? = {
             guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
@@ -452,22 +469,28 @@ final class HealthKitBridge: ObservableObject {
         // still advance only after the corresponding aggregate sync commits.
         let cal = Calendar.current
         guard let oldestRelevant = cal.date(byAdding: .day, value: -31,
-                                            to: cal.startOfDay(for: Date())) else { return (nil, nil) }
+                                            to: cal.startOfDay(for: Date())) else { return (nil, nil, false) }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: oldestRelevant, end: nil, options: []),
             Self.notNoopAuthored,
         ])
-        return await withCheckedContinuation { (cont: CheckedContinuation<(Date?, HKQueryAnchor?), Never>) in
+        return await withCheckedContinuation {
+            (cont: CheckedContinuation<(Date?, HKQueryAnchor?, Bool), Never>) in
             let q = HKAnchoredObjectQuery(
                 type: type, predicate: predicate,
                 anchor: priorAnchor, limit: HKObjectQueryNoLimit
-            ) { _, samples, _, newAnchor, _ in
+            ) { _, samples, deletedObjects, newAnchor, error in
+                // A failed delta query is NOT an empty authoritative delta. Keep the prior anchor so the
+                // next observer wake can retry instead of stepping over unknown changes.
+                guard error == nil else {
+                    cont.resume(returning: (nil, nil, false))
+                    return
+                }
                 // Return the advanced anchor but do NOT persist it here: the caller commits it only after
-                // the ensuing sync has actually stored the window (@bhelm). Persisting in this callback,
-                // before ingestion was known to run, advanced the cursor past samples a later-bailed
-                // sync() never stored — silently losing days for the background/watch-only path.
+                // the ensuing sync has actually stored the window (@bhelm). Deleted objects have no
+                // timestamp, so the caller widens a deletion-bearing delta to the bounded 31-day horizon.
                 let oldest = (samples ?? []).map { $0.startDate }.min()
-                cont.resume(returning: (oldest, newAnchor))
+                cont.resume(returning: (oldest, newAnchor, !(deletedObjects ?? []).isEmpty))
             }
             store.execute(q)
         }
@@ -693,7 +716,11 @@ final class HealthKitBridge: ObservableObject {
         // imports these from a static Health export and Android reads them from Health Connect; iOS now
         // reads them live on-device too, so the platforms reach parity. ON-DEVICE ONLY: this is a plain
         // HealthKit read of workouts NOOP did NOT author, never any cloud/3rd-party API. (#835)
-        let workoutRows = await collectWorkouts(start: start, end: end)
+        guard let workoutRows = await collectWorkouts(start: start, end: end) else {
+            lastSyncDays = 0
+            lastError = String(localized: "Apple Health sync failed: \(String(localized: "Workouts"))")
+            return false
+        }
 
         // Persist all the apple-health rows AND write back, advancing lastSync only when the WHOLE
         // round-trip succeeds. The three read-side upserts used to be swallowed by `try?`, so a failed
@@ -701,9 +728,15 @@ final class HealthKitBridge: ObservableObject {
         // lastSync — a false "success", and the next delta sync skipped the window. (Reimplemented
         // from @vulnix0x4's PR #375.)
         do {
-            try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
-            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
-            try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
+            // Do not replace an entire visible Health window on an empty read. HealthKit intentionally
+            // makes denied read access look like no matching samples, so an empty query cannot authorize
+            // destructive reconciliation. Ordinary foreground sync stays upsert-only; observer deletion
+            // tombstones are handled separately because the tombstone itself is affirmative evidence.
+            try await store.mergeAppleHealthReadRows(
+                appleDailyRows: appleRows,
+                dailyMetricRows: dmRows,
+                metricPoints: points,
+                deviceId: appleDeviceId)
             if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
             // Imported water (#949) goes to the hydration source, not apple-health, because the hydration
             // screen is what reads it. Every day in the window is written — including the ones with no
@@ -739,25 +772,12 @@ final class HealthKitBridge: ObservableObject {
                     CaffeineLogStore.shared.replaceImported(imported)
                 }
             }
-            // Hourly step counts (v38-apple-step-hour). `appleDaily.steps` above flattens a whole day to
-            // one total, so an hour the phone spent dead/on a desk is invisible — the day just reads low.
-            // Walk the same window at HOURLY granularity into `appleStepHour` so a UI can show the shape
-            // of the day. First run ever (flag unset) widens to 90 days back: HealthKit keeps hourly
-            // statistics historically, so this answers PAST days retroactively rather than only from the
-            // day it ships; later syncs re-cover the normal start...end window like the daily collectors.
-            //
-            // Collected HERE (not earlier) so a transient HealthKit error throws into the existing catch
-            // below and the backfill flag is never set — a failed first run retries next sync instead of
-            // permanently skipping the one-time 90-day widen.
+            // Hourly steps remain non-destructive for the same privacy reason: no visible samples can
+            // mean either genuinely no data or denied read access.
             let hourlyStepsBackfilled = UserDefaults.standard.bool(forKey: Self.hourlyStepsBackfilledKey)
             let hourlyStepsStart: Date = hourlyStepsBackfilled ? start
                 : (cal.date(byAdding: .day, value: -90, to: cal.startOfDay(for: end)) ?? start)
             let hourlySteps = try await collectHourlySteps(start: hourlyStepsStart, end: end)
-            // Only mark the backfill done once hourly data actually lands. HealthKit returns EMPTY (not
-            // an error) when step read-access is denied, and users grant Health scopes incrementally — so
-            // gating on non-empty, not merely on no-throw, stops a deny-then-grant sequence from burning
-            // the one-time 90-day widen before the user ever authorises steps. A genuinely step-less
-            // window just re-scans next sync: cheap, bounded, self-healing.
             if !hourlySteps.isEmpty {
                 try await store.upsertAppleStepHours(hourlySteps, deviceId: appleDeviceId)
                 if !hourlyStepsBackfilled {
@@ -1568,7 +1588,7 @@ final class HealthKitBridge: ObservableObject {
     /// `unavailable` is deliberately NOT a failure. A quantity type this device does not have will never
     /// have one, so absence IS the true answer and writing it is correct. Folding the two together would
     /// let one missing type abort every Health sync forever on that device.
-    enum HealthRead {
+    enum HealthRead: Equatable {
         /// The query ran. Whatever it found, including nothing, is authoritative.
         case read
         /// The quantity type does not exist on this device. Nothing to read, now or later.
@@ -1710,7 +1730,10 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
-    private func collectWorkouts(start: Date, end: Date) async -> [WorkoutRow] {
+    /// nil means the HealthKit workout query FAILED. An empty array is authoritative "no workouts".
+    /// Replacement callers must preserve that distinction or a transient/denied read could erase the
+    /// previously imported workout window.
+    private func collectWorkouts(start: Date, end: Date) async -> [WorkoutRow]? {
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate),
             Self.notNoopAuthored,
@@ -1720,14 +1743,20 @@ final class HealthKitBridge: ObservableObject {
         // with each workout; they cannot be read inside the sample query's completion handler
         // (HealthKit does not allow nested queries on the same store), so we hold the workouts and
         // fetch routes in a second pass below.
-        let workoutsAndRows: [HKWorkout] = await withCheckedContinuation { (cont: CheckedContinuation<[HKWorkout], Never>) in
+        let queried: [HKWorkout]? = await withCheckedContinuation {
+            (cont: CheckedContinuation<[HKWorkout]?, Never>) in
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
             let q = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate,
-                                  limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, _ in
-                cont.resume(returning: (samples ?? []).compactMap { $0 as? HKWorkout })
+                                  limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, error in
+                guard error == nil, let samples else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: samples.compactMap { $0 as? HKWorkout })
             }
             store.execute(q)
         }
+        guard let workoutsAndRows = queried else { return nil }
         // #1205: fetch and store GPS routes for each workout. Best-effort — a route read failure
         // (permission not granted, no route data, HealthKit error) leaves the workout intact with
         // no map, which is exactly the pre-change behaviour. Stored via RouteStore under the same
@@ -1966,53 +1995,6 @@ final class HealthKitBridge: ObservableObject {
         !heartRateFailed && !stepsFailed
     }
 
-    /// Source tag stamped on workouts imported from Apple Health. Matches the macOS importer's
-    /// `WorkoutSource.appleHealthSource` ("apple-health") and `appleDeviceId`, so the workout list and
-    /// source filters treat an iOS-read workout exactly like a macOS-imported one.
-    static let appleWorkoutSource = "apple-health"
-
-    /// Map an `HKWorkoutActivityType` to NOOP's human sport label. Strength training routes to the
-    /// shared lifting sport so a gym session lands in the Lifting lane; anything we don't name explicitly
-    /// falls back to a generic "Workout" rather than an opaque numeric type.
-    private static func sportName(_ type: HKWorkoutActivityType) -> String {
-        switch type {
-        case .running:                    return "Running"
-        case .walking:                    return "Walking"
-        case .hiking:                     return "Hiking"
-        case .cycling:                    return "Cycling"
-        case .traditionalStrengthTraining,
-             .functionalStrengthTraining: return LiftingImporter.sport
-        case .highIntensityIntervalTraining: return "HIIT"
-        case .coreTraining:               return "Core training"
-        case .yoga:                       return "Yoga"
-        case .pilates:                    return "Pilates"
-        case .rowing:                     return "Rowing"
-        case .elliptical:                 return "Elliptical"
-        case .stairClimbing, .stairs:     return "Stairs"
-        case .jumpRope:                   return "Jump rope"
-        case .boxing, .kickboxing:        return "Boxing"
-        case .basketball:                 return "Basketball"
-        case .soccer:                     return "Soccer"
-        case .americanFootball:           return "Football"
-        case .baseball:                   return "Baseball"
-        case .badminton:                  return "Badminton"
-        case .tennis:                     return "Tennis"
-        case .tableTennis:                return "Table tennis"
-        case .volleyball:                 return "Volleyball"
-        case .squash, .racquetball:       return "Squash"
-        case .martialArts, .taiChi:       return "Martial arts"
-        case .dance, .cardioDance, .socialDance: return "Dancing"
-        case .golf:                       return "Golf"
-        case .climbing:                   return "Climbing"
-        case .downhillSkiing, .crossCountrySkiing: return "Skiing"
-        case .snowboarding:               return "Snowboarding"
-        case .swimming:                   return "Swimming"
-        case .surfingSports:              return "Surfing"
-        case .paddleSports:               return "Paddling"
-        default:                          return "Workout"
-        }
-    }
-
     // MARK: - Entitlement detection (#348)
 
     /// True when this running build actually carries the `com.apple.developer.healthkit` entitlement —
@@ -2063,14 +2045,25 @@ final class HealthKitBridge: ObservableObject {
     // matching local formatter is strictly 1:1; using UTC instead mislabelled a full local day
     // under the previous UTC date for users east of UTC, so apple-health rows never merged with
     // the strap-computed/imported rows for the same civil day.
-    // `nonisolated` so the HealthKit query completion handlers — which HealthKit invokes on a private
-    // background queue (a nonisolated context) — can label day buckets without a main-actor-isolation
-    // warning. They only read a thread-safe DateFormatter, so this is safe off the main actor.
-    nonisolated private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone.current; return f
-    }()
-    nonisolated private static func dayString(_ date: Date) -> String { dayFormatter.string(from: date) }
-    nonisolated private static func date(from day: String) -> Date? { dayFormatter.date(from: day) }
+    // These helpers intentionally resolve the zone at EACH call. A static DateFormatter configured with
+    // TimeZone.current freezes the zone from first access; if the phone changes zone while NOOP remains
+    // alive, HealthKit can bucket with the new local calendar while NOOP labels the bucket with the old
+    // zone. That silently moves Apple Health data onto the wrong day until relaunch. LocalDayWindows gives
+    // us the same rule-aware civil-day contract as scoring, including DST boundaries, without shared
+    // formatter state on HealthKit's callback queues.
+    nonisolated static func dayString(_ date: Date,
+                                      in timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        LocalDayWindows(timeZone: timeZone, referenceInstant: date).dayKey(for: date)
+    }
+
+    nonisolated static func date(from day: String,
+                                 in timeZone: TimeZone = .autoupdatingCurrent) -> Date? {
+        let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]), let month = Int(parts[1]), let dayOfMonth = Int(parts[2]),
+              (1...12).contains(month), (1...31).contains(dayOfMonth) else { return nil }
+        return LocalDayWindows(timeZone: timeZone)
+            .start(of: LocalCalendarDate(year: year, month: month, day: dayOfMonth))
+    }
 }
 #endif
