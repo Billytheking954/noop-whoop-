@@ -2173,7 +2173,7 @@ struct TodayView: View {
                 .buttonStyle(.plain)
             } else {
                 NavigationLink(value: TabRoute.workouts) {
-                    NoopCard { Text(repo.loaded ? "No workouts for this day · Open history" : "Loading activities…") }
+                    NoopCard { Text(repo.loaded ? String(localized: "No workouts for this day · Open history", table: "AuraPreview") : "Loading activities…") }
                 }
                 .buttonStyle(.plain)
             }
