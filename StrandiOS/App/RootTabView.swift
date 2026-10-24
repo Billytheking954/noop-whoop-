@@ -517,8 +517,12 @@ struct RootTabView: View {
         moreSection("Insights") {
             MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
             MoreRow("Intelligence", "brain.head.profile", .intelligence)
-            MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
-            MoreRow("Sleep", "bed.double", .sleep)
+            // Aura already has dedicated Trends and Rest tabs, with links to the original
+            // V2 detail screens. Avoid showing duplicate top-level routes in You.
+            if !auraTodayPreviewEnabled {
+                MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
+                MoreRow("Sleep", "bed.double", .sleep)
+            }
             if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
             MoreRow("Insights", "lightbulb.fill", .insights)
             MoreRow("Explore", "square.grid.2x2.fill", .explore)
@@ -529,7 +533,10 @@ struct RootTabView: View {
                 MoreRow("Health & Stress", "heart.text.square", .auraHealth)
             }
             MoreRow("Live", "waveform.path.ecg", .live)
-            MoreRow("Workouts", "figure.run", .workouts)
+            // Aura Fitness owns the primary workouts path and links to V2 management.
+            if !auraTodayPreviewEnabled {
+                MoreRow("Workouts", "figure.run", .workouts)
+            }
             MoreRow("Lift Log", "dumbbell.fill", .liftLog)
             MoreRow("Health", "heart.text.square.fill", .health)
             MoreRow("Lab Book", "books.vertical.fill", .labBook)
