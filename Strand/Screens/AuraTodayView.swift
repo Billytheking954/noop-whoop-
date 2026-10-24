@@ -107,7 +107,7 @@ struct AuraTodayView: View {
                         }
                     }
 
-                    Text("This Aura preview uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.")
+                    Text(String(localized: "This Aura preview uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.", table: "AuraPreview"))
                         .font(NoopSpecType.finePrint)
                         .foregroundStyle(NoopPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
