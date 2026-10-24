@@ -28,6 +28,16 @@ private struct AuraDetailReading: View {
     let tint: Color
     var digits = 0
 
+    private var statusLabel: String {
+        switch reading.state {
+        case .loading: return String(localized: "Loading reading", table: "AuraPreview")
+        case .available: return String(localized: "Daily aggregate", table: "AuraPreview")
+        case .stale: return String(localized: "Older reading", table: "AuraPreview")
+        case .unavailable: return String(localized: "No measured data", table: "AuraPreview")
+        case .failed: return String(localized: "Reading unavailable", table: "AuraPreview")
+        }
+    }
+
     var body: some View {
         NoopSpecCard {
             VStack(alignment: .leading, spacing: 9) {
@@ -42,9 +52,7 @@ private struct AuraDetailReading: View {
                             .foregroundStyle(NoopPalette.textSecondary)
                     }
                 }
-                Text(reading.state == .stale
-                     ? String(localized: "Older reading", table: "AuraPreview")
-                     : String(localized: "Daily aggregate", table: "AuraPreview"))
+                Text(statusLabel)
                     .font(NoopSpecType.finePrint)
                     .foregroundStyle(NoopPalette.textTertiary)
             }
