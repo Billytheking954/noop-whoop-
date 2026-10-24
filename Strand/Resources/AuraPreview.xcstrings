@@ -748,6 +748,156 @@
           }
         }
       }
+    },
+    "Time asleep": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time asleep"
+          }
+        }
+      }
+    },
+    "Sleep efficiency": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep efficiency"
+          }
+        }
+      }
+    },
+    "Deep sleep (estimated)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deep sleep (estimated)"
+          }
+        }
+      }
+    },
+    "REM sleep (estimated)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REM sleep (estimated)"
+          }
+        }
+      }
+    },
+    "Open sleep records": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open sleep records"
+          }
+        }
+      }
+    },
+    "Activity": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        }
+      }
+    },
+    "Steps": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steps"
+          }
+        }
+      }
+    },
+    "Open workouts": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open workouts"
+          }
+        }
+      }
+    },
+    "Trends": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trends"
+          }
+        }
+      }
+    },
+    "Past 30 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past 30 days"
+          }
+        }
+      }
+    },
+    "Metric": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metric"
+          }
+        }
+      }
+    },
+    "No measurements in this period": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No measurements in this period"
+          }
+        }
+      }
+    },
+    "Recorded daily values": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded daily values"
+          }
+        }
+      }
+    },
+    "Gaps indicate missing measurements; no values are estimated.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gaps indicate missing measurements; no values are estimated."
+          }
+        }
+      }
+    },
+    "Open full trends": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open full trends"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
