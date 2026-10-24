@@ -130,7 +130,7 @@ struct RootTabView: View {
                 guard selectedTab != 0 else { return }
                 let dx = v.translation.width, dy = v.translation.height
                 guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
-                let tabs = [0, 1, 2, 4]
+                let tabs = auraTodayPreviewEnabled ? [0, 1, 2, 3, 4] : [0, 1, 2, 4]
                 guard let index = tabs.firstIndex(of: selectedTab) else { return }
                 let next = tabs[min(tabs.count - 1, max(0, index + (dx < 0 ? 1 : -1)))]
                 if next != selectedTab {
@@ -145,16 +145,30 @@ struct RootTabView: View {
         // the corresponding system material and safe-area behaviour from the same TabView.
         TabView(selection: nativeTabSelection) {
             tab(todayTabRoot, "Today", "house", path: $tabPaths[0], scrollSignal: scrollTop[0]).tag(0)
-            tab(HealthView(), "Health", "heart", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
-            tab(WorkoutsView(), "Activity", "chart.bar", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
+            if auraTodayPreviewEnabled {
+                // This is a presentation-only alternate shell. It reuses the original five
+                // navigation paths, V2-owned Repository and all existing More/deep-link routes.
+                tab(AuraRestDetailView(), "Rest", "moon.stars", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
+                tab(AuraFitnessDetailView(), "Fitness", "figure.run", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
+                tab(AuraTrendsDetailView(), "Trends", "chart.xyaxis.line", path: $tabPaths[3], scrollSignal: scrollTop[3]).tag(3)
+            } else {
+                tab(HealthView(), "Health", "heart", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
+                tab(WorkoutsView(), "Activity", "chart.bar", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
+            }
             moreTab(path: $tabPaths[4], scrollSignal: scrollTop[4]).tag(4)
         }
-        .tint(StrandPalette.accent)
+        .tint(auraTodayPreviewEnabled ? NoopSpecTokens.auraPale : StrandPalette.accent)
+        // Switching between shells never carries a route from a differently typed tab root.
+        // The five NavigationStack identities stay stable; only the opted-in tab content changes.
+        .onChangeCompat(of: auraTodayPreviewEnabled) { _ in
+            selectedTab = 0
+            for index in 1...3 { tabPaths[index] = NavigationPath() }
+        }
         // Switching Coach off while STANDING on it leaves `selectedTab` pointing at a tag no tab claims
         // any more, which renders as an empty tab rather than as an error. Send that wearer to Today, and
         // only in that case, so a flip made from anywhere else does not move them.
         .onChangeCompat(of: coachEnabled) { enabled in
-            if !enabled && selectedTab == 3 { selectedTab = 0 }
+            if !enabled && !auraTodayPreviewEnabled && selectedTab == 3 { selectedTab = 0 }
         }
         // #1841: the same "Hide bar when scrolling" preference Android drives its own bar with. Here the
         // system owns the behaviour — iOS 26's tab bar MINIMISES to a pill on scroll down rather than
@@ -536,7 +550,13 @@ struct RootTabView: View {
         }
         // Scroll the More index to the top on an at-root re-tap (#198 follow-up); read by its ScreenScaffold.
         .environment(\.scrollToTopSignal, scrollSignal)
-        .tabItem { Label("More", systemImage: "ellipsis") }
+        .tabItem {
+            if auraTodayPreviewEnabled {
+                Label("You", systemImage: "person.crop.circle")
+            } else {
+                Label("More", systemImage: "ellipsis")
+            }
+        }
     }
 
     /// One titled, COLLAPSIBLE group in the More index (S2): the app's overline (UPPERCASE) becomes a
