@@ -31,6 +31,7 @@ struct RootTabView: View {
     /// that state; keeping it explicit here prevents this shell's window-level sheet from covering a gate.
     let homeScreenQuickActionsEnabled: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var repo: Repository
     /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab — it lives
     /// behind the More list — so a request presents it as a sheet, matching the quick-action screens.
@@ -156,6 +157,9 @@ struct RootTabView: View {
             moreTab(path: $tabPaths[4], scrollSignal: scrollTop[4]).tag(4)
         }
         .tint(auraTodayPreviewEnabled ? NoopSpecTokens.auraPale : StrandPalette.accent)
+        // Aura's palette is a scheme-invariant dark composition. Avoid a light system bar
+        // over its dark text/surfaces without rewriting the app-wide appearance preference.
+        .preferredColorScheme(auraTodayPreviewEnabled ? .dark : nil)
         // Switching between shells never carries a route from a differently typed tab root.
         // The five NavigationStack identities stay stable; only the opted-in tab content changes.
         .onChangeCompat(of: auraTodayPreviewEnabled) { _ in
@@ -174,7 +178,8 @@ struct RootTabView: View {
         .noopTabBarAutoHide(bottomBarAutoHide)
             // Tab crossfade — README §Motion: ~240ms opacity swap between tab roots, global calm
             // easing cubic-bezier(0.22,1,0.36,1).
-            .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
+            .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.24),
+                       value: selectedTab)
             // Swipe left/right anywhere to move between tabs (2026-07-02), but ONLY while the current
             // tab is at its root. Attaching this ancestor drag gesture unconditionally defeated the
             // edge-restriction of a pushed NavigationStack screen's native interactive-pop gesture —
