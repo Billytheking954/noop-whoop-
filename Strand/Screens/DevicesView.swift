@@ -432,7 +432,7 @@ private struct ConceptDeviceView: View {
 /// The screen body once `DeviceRegistry` exists. Split out so it can observe the registry's
 /// `@Published devices` / `activeDeviceId` directly — the parent only observes `model.deviceRegistry`
 /// becoming non-nil.
-private struct DevicesContent: View {
+struct DevicesContent: View {
     @ObservedObject var registry: DeviceRegistry
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
