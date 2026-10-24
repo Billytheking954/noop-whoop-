@@ -708,6 +708,7 @@ private enum MoreDestination: Hashable {
 /// trailing `chevron.right` in `textTertiary`. ~44pt min height + the card's row insets keep the whole row a
 /// comfortable tap target.
 private struct MoreRow: View {
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraEnabled = false
     let title: LocalizedStringKey
     let icon: String
     let route: MoreDestination
@@ -724,15 +725,15 @@ private struct MoreRow: View {
                 // explicit foregroundStyle on the image overrides that; the title keeps the primary colour.
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(StrandPalette.accent)
+                    .foregroundStyle(auraEnabled ? NoopPalette.accent : StrandPalette.accent)
                     .frame(width: 26, alignment: .center)
                 Text(title)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .font(auraEnabled ? NoopSpecType.rowLabel : StrandFont.body)
+                    .foregroundStyle(auraEnabled ? NoopPalette.textPrimary : StrandPalette.textPrimary)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
+                    .foregroundStyle(auraEnabled ? NoopPalette.textSecondary : StrandPalette.textTertiary)
             }
             .padding(.horizontal, 16)
             .frame(minHeight: 44)
@@ -742,7 +743,7 @@ private struct MoreRow: View {
             // edge stays clean (the divider sits inside the card's rounded corners).
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(StrandPalette.hairline)
+                    .fill(auraEnabled ? NoopPalette.cardBorder : StrandPalette.hairline)
                     .frame(height: 1)
                     .padding(.leading, 16)
             }
