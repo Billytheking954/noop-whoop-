@@ -32,7 +32,7 @@ Check the **exact head SHA of PR #53** in GitHub Actions for the authoritative l
 
 ## Incomplete / intentionally deferred
 
-- Exact Aura shell/navigation, complete Rest/Sleep, Fitness and workout-detail, Trends/history, Devices/Pairing, Health, Stress, You and Settings **not yet ported as full production screens**. The adapters alone do not equal complete features.
+- The Aura shell/You hub, Rest, Fitness, Trends and Devices overview now exist **behind an opt-in toggle**. Complete Aura Rest/Sleep editing and timelines, Fitness workout/HR detail, historical presentations, Health/Stress, and settings/pairing polish remain incomplete. A V2 deep link is not a completed Aura screen.
 - `NoopDesign.swift`, `NoopHistoryPlot.swift`, the visual-only portions of `NoopNavigation.swift` and `NoopShell.swift` remain to integrate after isolated compile validation.
 - Real source-specific times/provenance from `SourcedDailyMetric` and sample-level stores need robust wiring. The daily aggregate adapter deliberately does not invent timestamps or claim per-value source identity.
 - Physical WHOOP 4 / 5 / MG pairing, disconnect/reconnect, HealthKit entitlement/writeback and SideStore signing remain hardware-unverified.
@@ -44,11 +44,32 @@ Check the **exact head SHA of PR #53** in GitHub Actions for the authoritative l
 - Continued from PR #53's original `0441f6c3` head without changing `main` or the PR #52 branch.
 - Added `Strand/Screens/AuraDetailViews.swift`: Aura-styled Rest (sleep time, efficiency and explicitly estimated stages), Fitness (stored Effort and steps) and 30-day Trends. These use the existing `Repository` and pure adapters, with source uncertainty preserved. Historical chart marks are discrete rather than connecting across missing days.
 - Linked the opt-in Aura Today preview into these detail screens; preserved links to V2 `SleepView`, `WorkoutsView` and `TrendsView` for complete editing and reporting.
-- Added new English Aura string catalogue keys for the detail navigation and labels.
+- Added Aura catalogue labels and translations for the detail navigation; subsequent shell/device translations are recorded below.
 - **Commit checkpoint before this documentation update:** `afe9dfe4c7a02b95e22b05662af47cdc9b46dfa8`.
 - **Validation:** the original head's Swift packages, Python, i18n and hygiene workflows succeeded; its iPhone simulator build and hosted unit-test steps succeeded, with screenshot capture still in progress when checked. The new changes triggered fresh workflows. **No passing exact-new-head claim is made**; inspect GitHub Actions before promoting this checkpoint.
 - **Still missing:** Aura root-shell transformation, full device/pairing redesign, workout detail, sleep editing integrated into Aura, source-specific provenance, complete accessibility visual review, additional localisation, real-hardware BLE/HealthKit tests, final IPA.
 - No personal export, raw measurements or fabricated data were added. No changes to BLE, HealthKit, database schema, backup or scoring in this slice.
+
+## Continued integration checkpoint — 24 October 2026 (normal ChatGPT)
+
+**Implementation-head before this documentation commit:** `6bcc01ddb7a4363307ab8384afe95da6be5b0346`. Treat PR #53's live `head_sha` as canonical after this documentation update.
+
+### Additional changes actually pushed
+
+- **Opt-in Aura navigation shell:** When `noop.auraTodayPreviewEnabled` is true, V2's native `TabView` presents Today, Rest, Fitness, Trends and You. When disabled, the classic Today, Health, Activity and More tabs stay intact. Native `NavigationStack` ownership, `NavigationPath` indexing, existing sheet routers, quick actions, route destinations and `main` remain unchanged. Switching shells clears only the repurposed tab navigation paths to avoid stale destinations. A pure `AuraShellTabs` map and regressions cover tab order and edge swipes. This is an Aura-style *integrated navigation treatment*, not full pixel-parity with Aura's custom tab bar.
+- **You index:** The same 31 More-index `MoreRow` destinations are reused by an Aura-styled You surface, rather than re-implemented or silently dropped. Original routes to health, stress, data, backup, Apple Health, device management and settings are kept.
+- **Device visual integration:** `AuraDevicesOverview` is opted into from existing `DevicesView`. It uses V2's `DeviceRegistry`, `LiveState`, existing `DeviceBatteryPresentation`, `AddDeviceWizard` and `DevicesContent`. The device UI does not own or replace BLE scanning, reconnection, offload, storage or permissions. Missing/disconnected battery shows an em dash rather than a fabricated live percentage.
+- **Presentation state:** Aura Rest/Fitness/Trends readings now distinguish loading, available, stale, missing and failed states. Existing `AuraTodayAdapter`, `AuraRestAdapter`, `AuraFitnessAdapter` and `AuraTrendsAdapter` remain the value boundary. Added deterministic tab-order and nil-measurement regression cases.
+- **Localisation:** Added translations of new Aura shell, metric-status and device text in the AuraPreview catalogue for English, German, Spanish, French and Portuguese.
+- **Source correctness:** No change to the V2 BLE engine, HealthKit bridge, storage/schema, backup/recovery or physiological score weights in this continuation. The earlier absolute-vs-deviation WHOOP skin-temperature safeguards remain, but legacy historic rows are *not* automatically repaired.
+
+### Verification and limitations
+
+- At the starting `1cb55d19` head, Source Hygiene, Python regressions and iPhone localisation **passed**. The Swift package and simulator workflows were running/queued when inspected. Their eventual result must be checked separately.
+- Source commits triggered GitHub Actions; old iPhone runs have at times been **cancelled due to branch updates**. Cancellation is not a compiler failure and is **not a pass**. Only complete workflows at the *final exact PR head* establish a validated checkpoint.
+- Visual snapshots, a polished Aura custom bottom-bar, comprehensive sleep timing/editing, complete workout detail/HR charts, complete health/stress restyling, per-sample timestamps and source attribution are **not yet finished**. V2 screens remain reachable and authoritative, but a link to the V2 screen does not mean its Aura replacement is complete.
+- Physical WHOOP 4/5/MG Bluetooth, HealthKit permissions after SideStore resigning, sleep overnight, actual battery timestamps, restore and 24–72-hour reliability tests are **not tested**. No new IPA is produced by this document. Keep original pre-Aura `f701c2e` IPA as the known structural fallback.
+- **Phase 2 is not yet complete or Phase-3 ready.** Confirm final simulator compile + hosted tests, inspect screenshots, then complete the incomplete UI surfaces and data provenance work before promotion. No `main` merge.
 
 ## Handoff
 
