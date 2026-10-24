@@ -245,6 +245,7 @@ public enum StrainScorer {
 
     /// Scoring requires strictly increasing timestamps. Duplicate or out-of-order samples have no
     /// defensible elapsed-time interpretation, so the public scorer refuses them rather than guessing.
+    /// Capture paths may deduplicate before this boundary; an unclean imported/raw stream remains invalid.
     static func hasStrictlyIncreasingTimestamps(_ hr: [HRSample]) -> Bool {
         guard hr.count > 1 else { return true }
         for index in 1..<hr.count where hr[index - 1].ts >= hr[index].ts {
