@@ -471,67 +471,98 @@ struct RootTabView: View {
     // + SectionHeader's UPPERCASE overline + the 28pt section rhythm). Rebuilt on the shared page chrome:
     // ScreenScaffold for the title1 "More" + subtitle, a `SectionHeader` overline per group, and the group's
     // rows in a single grouped NoopCard with hairline dividers — the same row idiom Settings/Health use.
+    /// Single index shared by both shell skins: rows and destinations remain identical.
+    /// Navigation value links continue to resolve through the existing MoreDestination handler.
+    @ViewBuilder private var moreIndexContent: some View {
+        moreSection("Insights") {
+            MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
+            MoreRow("Intelligence", "brain.head.profile", .intelligence)
+            MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
+            MoreRow("Sleep", "bed.double", .sleep)
+            if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
+            MoreRow("Insights", "lightbulb.fill", .insights)
+            MoreRow("Explore", "square.grid.2x2.fill", .explore)
+            MoreRow("Compare", "rectangle.split.2x1.fill", .compare)
+        }
+        moreSection("Body") {
+            MoreRow("Live", "waveform.path.ecg", .live)
+            MoreRow("Workouts", "figure.run", .workouts)
+            MoreRow("Lift Log", "dumbbell.fill", .liftLog)
+            MoreRow("Health", "heart.text.square.fill", .health)
+            MoreRow("Lab Book", "books.vertical.fill", .labBook)
+            MoreRow("Stress", "bolt.heart.fill", .stress)
+            MoreRow("Breathe", "wind", .breathe)
+            MoreRow("Intervals", "timer", .intervals)
+            // Experimental beat-to-beat regularity visualization — self-gates on its own consent.
+            MoreRow("Rhythm", "waveform.path", .rhythm)
+        }
+        moreSection("Data") {
+            MoreRow("Your Data, Fused", "square.stack.3d.up.fill", .fusedRecord)
+            MoreRow("Apple Health", "heart.fill", .appleHealth)
+            MoreRow("Mi Band", "figure.walk.motion", .miBand)
+            MoreRow("Data Sources", "externaldrive.fill", .dataSources)
+            MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
+            // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
+            // reads the opt-in Documents/noop_sync.txt drop file).
+            MoreRow("Shortcuts Export", "square.and.arrow.up.fill", .shortcutsExport)
+            // The plain 4.0 vs 5.0/MG capability grid — what NOOP reads live off each strap.
+            MoreRow("NOOP Limitations", "list.bullet.rectangle", .noopLimitations)
+        }
+        moreSection("App") {
+            // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
+            // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
+            // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
+            // (route to SmartAlarmView, the cross-platform iOS/macOS surface).
+            //
+            // Notifications (RootView .notifications) is deliberately NOT added: that screen is
+            // macOS-only (it picks which Mac apps tap your wrist via NSWorkspace, imports AppKit,
+            // and project.yml excludes Screens/NotificationSettingsView.swift from the iOS target),
+            // so it can't compile or apply on iPhone. iPhone's wrist-alert controls live on the
+            // Automations screen instead. Its absence from the iPhone More list is correct.
+            MoreRow("Alarms", "alarm.fill", .alarms)
+            MoreRow("Automations", "wand.and.stars", .automations)
+            MoreRow("Notifications", "bell.badge", .dailyInsightNotifications)
+            // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
+            // just buried in Settings, so the feedback loop is one tap from the More tab.
+            MoreRow("Test Centre", "stethoscope", .testCentre)
+            MoreRow("Siri & Shortcuts", "mic.fill", .siriShortcuts)
+            // #477 lives here rather than inside Settings: the strap-battery levers are the
+            // ones people reach for when a strap is running down, so they get their own row.
+            MoreRow("Power saving", "battery.25", .powerSaving)
+            MoreRow("Settings", "gearshape.fill", .settings)
+        }
+
+    }
+
     private func moreTab(path: Binding<NavigationPath>, scrollSignal: Int) -> some View {
         NavigationStack(path: path) {
-            ScreenScaffold(title: "More", subtitle: "Everything else, one tap away",
-                           onRefresh: { await repo.refresh() },
-                           topBackground: liquidScaffoldSky()) {
-                moreSection("Insights") {
-                    MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
-                    MoreRow("Intelligence", "brain.head.profile", .intelligence)
-                    MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
-                    MoreRow("Sleep", "bed.double", .sleep)
-                    if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
-                    MoreRow("Insights", "lightbulb.fill", .insights)
-                    MoreRow("Explore", "square.grid.2x2.fill", .explore)
-                    MoreRow("Compare", "rectangle.split.2x1.fill", .compare)
-                }
-                moreSection("Body") {
-                    MoreRow("Live", "waveform.path.ecg", .live)
-                    MoreRow("Workouts", "figure.run", .workouts)
-                    MoreRow("Lift Log", "dumbbell.fill", .liftLog)
-                    MoreRow("Health", "heart.text.square.fill", .health)
-                    MoreRow("Lab Book", "books.vertical.fill", .labBook)
-                    MoreRow("Stress", "bolt.heart.fill", .stress)
-                    MoreRow("Breathe", "wind", .breathe)
-                    MoreRow("Intervals", "timer", .intervals)
-                    // Experimental beat-to-beat regularity visualization — self-gates on its own consent.
-                    MoreRow("Rhythm", "waveform.path", .rhythm)
-                }
-                moreSection("Data") {
-                    MoreRow("Your Data, Fused", "square.stack.3d.up.fill", .fusedRecord)
-                    MoreRow("Apple Health", "heart.fill", .appleHealth)
-                    MoreRow("Mi Band", "figure.walk.motion", .miBand)
-                    MoreRow("Data Sources", "externaldrive.fill", .dataSources)
-                    MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
-                    // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
-                    // reads the opt-in Documents/noop_sync.txt drop file).
-                    MoreRow("Shortcuts Export", "square.and.arrow.up.fill", .shortcutsExport)
-                    // The plain 4.0 vs 5.0/MG capability grid — what NOOP reads live off each strap.
-                    MoreRow("NOOP Limitations", "list.bullet.rectangle", .noopLimitations)
-                }
-                moreSection("App") {
-                    // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
-                    // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
-                    // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
-                    // (route to SmartAlarmView, the cross-platform iOS/macOS surface).
-                    //
-                    // Notifications (RootView .notifications) is deliberately NOT added: that screen is
-                    // macOS-only (it picks which Mac apps tap your wrist via NSWorkspace, imports AppKit,
-                    // and project.yml excludes Screens/NotificationSettingsView.swift from the iOS target),
-                    // so it can't compile or apply on iPhone. iPhone's wrist-alert controls live on the
-                    // Automations screen instead. Its absence from the iPhone More list is correct.
-                    MoreRow("Alarms", "alarm.fill", .alarms)
-                    MoreRow("Automations", "wand.and.stars", .automations)
-                    MoreRow("Notifications", "bell.badge", .dailyInsightNotifications)
-                    // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
-                    // just buried in Settings, so the feedback loop is one tap from the More tab.
-                    MoreRow("Test Centre", "stethoscope", .testCentre)
-                    MoreRow("Siri & Shortcuts", "mic.fill", .siriShortcuts)
-                    // #477 lives here rather than inside Settings: the strap-battery levers are the
-                    // ones people reach for when a strap is running down, so they get their own row.
-                    MoreRow("Power saving", "battery.25", .powerSaving)
-                    MoreRow("Settings", "gearshape.fill", .settings)
+            Group {
+                if auraTodayPreviewEnabled {
+                    ZStack {
+                        NoopPalette.canvas.ignoresSafeArea()
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 22) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    NoopSpecCaption(String(localized: "Your space", table: "AuraPreview"))
+                                    Text(String(localized: "You", table: "AuraPreview"))
+                                        .font(NoopSpecType.screenTitle)
+                                        .foregroundStyle(NoopPalette.textPrimary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                moreIndexContent
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 20)
+                        }
+                        .refreshable { await repo.refresh() }
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                } else {
+                    ScreenScaffold(title: "More", subtitle: "Everything else, one tap away",
+                                   onRefresh: { await repo.refresh() },
+                                   topBackground: liquidScaffoldSky()) {
+                        moreIndexContent
+                    }
                 }
             }
             // The rows push MoreDestination VALUES so a re-tap of the More tab can pop them off the
@@ -584,6 +615,7 @@ struct RootTabView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text(title).strandOverline()
+                        .foregroundStyle(auraTodayPreviewEnabled ? NoopPalette.textSecondary : StrandPalette.textSecondary)
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
@@ -602,12 +634,18 @@ struct RootTabView: View {
                 // Zero internal padding so each MoreRow owns its own comfortable insets + height; the rows
                 // supply their own hairline separators (drawn at the bottom of every row but the last via the
                 // divider overlay) so the group reads as one continuous grouped list, matching Settings/Health.
-                NoopCard(padding: 0) {
-                    VStack(spacing: 0) { rows() }
-                        // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
-                        // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
-                        // clip content itself, so without this the final divider would run past the rounded edge).
-                        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+                if auraTodayPreviewEnabled {
+                    NoopSpecCard(.list) {
+                        VStack(spacing: 0) { rows() }
+                    }
+                } else {
+                    NoopCard(padding: 0) {
+                        VStack(spacing: 0) { rows() }
+                            // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
+                            // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
+                            // clip content itself, so without this the final divider would run past the rounded edge).
+                            .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+                    }
                 }
             }
         }
