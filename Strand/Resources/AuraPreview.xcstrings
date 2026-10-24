@@ -646,6 +646,108 @@
           }
         }
       }
+    },
+    "Charge / Recovery": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge / Recovery"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge / Erholung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga / Recuperación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge / Récupération"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge / Recuperação"
+          }
+        }
+      }
+    },
+    "Stored daily score. V2 may contain either a NOOP estimate or an imported score; its merged summary does not identify which.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored daily score. V2 may contain either a NOOP estimate or an imported score; its merged summary does not identify which."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherter Tageswert. V2 kann eine NOOP-Schätzung oder einen importierten Wert enthalten; die zusammengeführte Übersicht unterscheidet sie nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puntuación diaria guardada. V2 puede contener una estimación de NOOP o un dato importado; el resumen combinado no distingue su origen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Score quotidien enregistré. V2 peut contenir une estimation NOOP ou un score importé; le résumé fusionné ne permet pas de les distinguer."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pontuação diária guardada. O V2 pode conter uma estimativa NOOP ou pontuação importada; o resumo combinado não distingue a origem."
+          }
+        }
+      }
+    },
+    "Stored activity score from V2. Imported and computed values may differ; missing samples are not fabricated.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored activity score from V2. Imported and computed values may differ; missing samples are not fabricated."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherter Aktivitätswert aus V2. Importierte und berechnete Werte können abweichen; fehlende Messwerte werden nicht erfunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puntuación de actividad guardada de V2. Los valores importados y calculados pueden diferir; no se inventan muestras ausentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Score d'activité enregistré dans V2. Les valeurs importées et calculées peuvent différer; les mesures manquantes ne sont pas inventées."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pontuação de atividade guardada no V2. Valores importados e calculados podem diferir; amostras em falta não são inventadas."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
