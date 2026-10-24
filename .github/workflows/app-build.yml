@@ -2,7 +2,7 @@ name: App build (iPhone)
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, integration/aura-v2-candidate-20261024]
     paths:
       - 'Strand/**'
       - 'StrandTests/**'
