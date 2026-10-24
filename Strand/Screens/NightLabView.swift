@@ -76,7 +76,9 @@ struct NightLabView: View {
 
     private func selectorTitle(_ entry: NightLabInspectionEntry) -> String {
         guard let m = entry.manifest else { return entry.id + " • Invalid archive" }
-        return entry.id + " • " + NightLabInspectionFormatting.timestamp(m.windowStartUnix,
+        // Archive ids are long machine identifiers; keep them in the expandable source
+        // details instead of widening the night picker on a compact iPhone.
+        return NightLabInspectionFormatting.timestamp(m.windowStartUnix,
             offset: m.timezoneOffsetSeconds) + " • " + m.state.rawValue
     }
 
@@ -143,10 +145,13 @@ struct NightLabView: View {
         }
         }
         if m.state == .sealed {
-            dataQuality(value)
-            NightLabSpO2DiagnosticsCard(inspection: value)
-            DisclosureGroup("Detailed signal coverage") {
-                coverage(value)
+            DisclosureGroup("Sensor evidence and diagnostics") {
+                VStack(alignment: .leading, spacing: 12) {
+                    dataQuality(value)
+                    coverage(value)
+                    NightLabSpO2DiagnosticsCard(inspection: value)
+                }
+                .padding(.top, 8)
             }
             NoopCard {
                 VStack(alignment: .leading, spacing: 8) {
