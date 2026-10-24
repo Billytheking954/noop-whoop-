@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 10021)
-Total output lines: 672
-
 import Foundation
 import WhoopProtocol
 
@@ -354,7 +351,8 @@ public enum StrainScorer {
     /// method's own denominator, or pass `logMapDenominator(method:sex:)` yourself. (#1545)
     public static func trimpToStrain(_ trimp: Double, denominator: Double = strainDenominator) -> Double {
         if trimp <= 0 { return 0 }
-        // D ≤ 1 (and NaN) is outside the…21 tokens truncated…gn, and ln(D) is NaN at or below 0. Out-of-domain D is no score, like
+        // D ≤ 1 (and NaN) is outside the map's domain: ln(1) = 0 divides to ±∞, ln(D) < 0 below 1
+        // flips the sign, and ln(D) is NaN at or below 0. Out-of-domain D is no score, like
         // TRIMP ≤ 0 — before this guard D = 1 returned +Inf here and a saturated 9.2e16 on Android
         // for the same input (the denominator-domain fix). The default 7201 is unaffected.
         guard denominator > 1 else { return 0 }
