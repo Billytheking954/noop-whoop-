@@ -43,6 +43,8 @@ struct RootTabView: View {
     @State private var quickAction: QuickAction?
     /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
     @State private var showDevices = false
+    /// Viewing classic Today is temporary; a quick visit must not silently replace every Aura tab.
+    @State private var showingClassicDashboard = false
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
@@ -72,7 +74,7 @@ struct RootTabView: View {
     /// Aura retains an explicit Full V2 dashboard fallback inside its Today screen.
     @ViewBuilder private var todayTabRoot: some View {
         if auraTodayPreviewEnabled {
-            AuraTodayView(onShowClassic: { auraTodayPreviewEnabled = false })
+            AuraTodayView(onShowClassic: { showingClassicDashboard = true })
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
@@ -226,6 +228,18 @@ struct RootTabView: View {
         }
         // Live's "Manage devices" affordance (and any future cross-screen link to Devices) routes here:
         // present the Devices manager in its own nav stack, the same way the quick-action screens do.
+        .sheet(isPresented: $showingClassicDashboard) {
+            NavigationStack {
+                TodayView()
+                    .tabRouteDestinations()
+                    .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingClassicDashboard = false }
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $showDevices) {
             devicesScreen
         }
@@ -540,6 +554,19 @@ struct RootTabView: View {
             MoreRow("NOOP Limitations", "list.bullet.rectangle", .noopLimitations)
         }
         moreSection("App") {
+            if auraTodayPreviewEnabled {
+                HStack(spacing: 12) {
+                    Text(String(localized: "Use Aura interface", table: "AuraPreview"))
+                        .font(NoopSpecType.rowLabel)
+                        .foregroundStyle(NoopPalette.textPrimary)
+                    Spacer(minLength: 8)
+                    Toggle(String(localized: "Use Aura interface", table: "AuraPreview"),
+                           isOn: $auraTodayPreviewEnabled)
+                        .labelsHidden()
+                }
+                .padding(16)
+                .frame(minHeight: 44)
+            }
             // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
             // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
             // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
