@@ -539,6 +539,9 @@ struct RootTabView: View {
             }
             MoreRow("Lift Log", "dumbbell.fill", .liftLog)
             MoreRow("Health", "heart.text.square.fill", .health)
+            if auraTodayPreviewEnabled {
+                MoreRow("Night Lab", "moon.stars", .nightLab)
+            }
             MoreRow("Lab Book", "books.vertical.fill", .labBook)
             MoreRow("Stress", "bolt.heart.fill", .stress)
             MoreRow("Breathe", "wind", .breathe)
@@ -726,7 +729,7 @@ struct RootTabView: View {
 private enum MoreDestination: Hashable {
     case auraHealth
     case insightsHub, intelligence, coach, insights, explore, compare, trends, sleep
-    case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
+    case live, workouts, liftLog, health, labBook, nightLab, stress, breathe, intervals, rhythm
     case fusedRecord, appleHealth, miBand, devices, dataSources, backupSync, shortcutsExport, noopLimitations
     case alarms, automations, dailyInsightNotifications, testCentre, siriShortcuts, powerSaving, settings
 
@@ -746,6 +749,7 @@ private enum MoreDestination: Hashable {
         case .liftLog:         LiftLogView()
         case .health:          HealthView()
         case .labBook:         LabBookView()
+        case .nightLab:        NightLabView()
         case .stress:          StressView()
         case .breathe:         BreathingView()
         case .intervals:       IntervalTimerView()
