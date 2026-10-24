@@ -74,9 +74,12 @@ struct AuraTodayView: View {
                         metricCard(title: "Overnight HRV", reading: today.hrv, tint: NoopPalette.rest)
                     }
 
-                    NoopSpecCard {
-                        VStack(alignment: .leading, spacing: 14) {
-                            NoopSpecCaption(String(localized: "Rest", table: "AuraPreview"))
+                    NavigationLink {
+                        AuraRestDetailView()
+                    } label: {
+                        NoopSpecCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                NoopSpecCaption(String(localized: "Rest", table: "AuraPreview"))
                             HStack {
                                 Text(number(rest.sleepMinutes, digits: 0))
                                     .font(NoopSpecType.headline)
@@ -94,11 +97,17 @@ struct AuraTodayView: View {
                                 .foregroundStyle(NoopPalette.textSecondary)
                             sourceCaption(rest.sleepMinutes)
                         }
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(Text(String(localized: "Open sleep records", table: "AuraPreview")))
 
-                    NoopSpecCard {
-                        VStack(alignment: .leading, spacing: 12) {
-                            NoopSpecCaption(String(localized: "NOOP Effort", table: "AuraPreview"))
+                    NavigationLink {
+                        AuraFitnessDetailView()
+                    } label: {
+                        NoopSpecCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                NoopSpecCaption(String(localized: "NOOP Effort", table: "AuraPreview"))
                             Text(number(fitness.effort, digits: 0) + (fitness.effort.value == nil ? "" : " / 100"))
                                 .font(NoopSpecType.headline)
                                 .foregroundStyle(NoopPalette.effort)
@@ -107,7 +116,27 @@ struct AuraTodayView: View {
                                 .foregroundStyle(NoopPalette.textSecondary)
                             sourceCaption(fitness.effort)
                         }
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(Text(String(localized: "Open workouts", table: "AuraPreview")))
+
+                    NavigationLink {
+                        AuraTrendsDetailView()
+                    } label: {
+                        NoopSpecCard(.row) {
+                            HStack {
+                                NoopSpecCaption(String(localized: "Trends", table: "AuraPreview"))
+                                Spacer()
+                                Image(systemName: "chart.bar.xaxis")
+                                    .foregroundStyle(NoopSpecTokens.auraPale)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(NoopPalette.textSecondary)
+                            }
+                            .frame(minHeight: 44)
+                        }
+                    }
+                    .buttonStyle(.plain)
 
                     Text(String(localized: "This Aura preview uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.", table: "AuraPreview"))
                         .font(NoopSpecType.finePrint)
