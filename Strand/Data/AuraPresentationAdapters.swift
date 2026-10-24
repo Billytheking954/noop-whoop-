@@ -19,6 +19,7 @@ enum AuraValueKind: Equatable {
     case recordedAggregate
     case estimated
     case vendorDerived
+    case unresolved
 }
 
 struct AuraDailyReading: Equatable {
@@ -50,10 +51,11 @@ struct AuraTodayState: Equatable {
 }
 
 enum AuraTodayAdapter {
-    static func map(_ day: DailyMetric?, todayKey: String, sourceID: String? = nil) -> AuraTodayState {
+    static func map(_ day: DailyMetric?, todayKey: String, sourceID: String? = nil,
+                    chargeKind: AuraValueKind = .unresolved) -> AuraTodayState {
         AuraTodayState(
             charge: .mapped(day?.recovery, unit: "%", day: day?.day, todayKey: todayKey,
-                            sourceID: sourceID, kind: .estimated),
+                            sourceID: sourceID, kind: chargeKind),
             hrv: .mapped(day?.avgHrv, unit: "ms", day: day?.day, todayKey: todayKey,
                          sourceID: sourceID, kind: .recordedAggregate),
             restingHeartRate: .mapped(day?.restingHr.map(Double.init), unit: "bpm",
@@ -76,7 +78,7 @@ enum AuraRestAdapter {
         let kind: AuraValueKind = stagesAreVendorDerived ? .vendorDerived : .estimated
         return AuraRestState(
             sleepMinutes: .mapped(day?.totalSleepMin, unit: "min", day: day?.day, todayKey: todayKey,
-                                  sourceID: sourceID, kind: .estimated),
+                                  sourceID: sourceID, kind: .recordedAggregate),
             sleepEfficiency: .mapped(day?.efficiency.map { $0 * 100 }, unit: "%",
                                      day: day?.day, todayKey: todayKey,
                                      sourceID: sourceID, kind: .estimated),
@@ -94,10 +96,11 @@ struct AuraFitnessState: Equatable {
 }
 
 enum AuraFitnessAdapter {
-    static func map(_ day: DailyMetric?, todayKey: String, sourceID: String? = nil) -> AuraFitnessState {
+    static func map(_ day: DailyMetric?, todayKey: String, sourceID: String? = nil,
+                    effortKind: AuraValueKind = .unresolved) -> AuraFitnessState {
         AuraFitnessState(
             effort: .mapped(day?.strain, unit: "/100", day: day?.day, todayKey: todayKey,
-                            sourceID: sourceID, kind: .estimated),
+                            sourceID: sourceID, kind: effortKind),
             steps: .mapped(day?.steps.map(Double.init), unit: "steps", day: day?.day,
                            todayKey: todayKey, sourceID: sourceID)
         )
