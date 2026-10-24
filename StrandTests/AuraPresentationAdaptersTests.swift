@@ -92,6 +92,29 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(stale.state, .stale)
     }
 
+    func testAuraShellVisibleTabTagsAndAdjacentSwipes() {
+        XCTAssertEqual(AuraShellTabs.visibleIDs(auraEnabled: false), [0, 1, 2, 4])
+        XCTAssertEqual(AuraShellTabs.visibleIDs(auraEnabled: true), [0, 1, 2, 3, 4])
+        XCTAssertEqual(AuraShellTabs.adjacent(to: 2, towardsNext: true, auraEnabled: false), 4)
+        XCTAssertEqual(AuraShellTabs.adjacent(to: 2, towardsNext: true, auraEnabled: true), 3)
+        XCTAssertEqual(AuraShellTabs.adjacent(to: 3, towardsNext: true, auraEnabled: true), 4)
+        XCTAssertEqual(AuraShellTabs.adjacent(to: 4, towardsNext: false, auraEnabled: false), 2)
+        XCTAssertNil(AuraShellTabs.adjacent(to: 0, towardsNext: false, auraEnabled: true))
+        XCTAssertNil(AuraShellTabs.adjacent(to: 4, towardsNext: true, auraEnabled: false))
+        XCTAssertNil(AuraShellTabs.adjacent(to: 3, towardsNext: true, auraEnabled: false))
+    }
+
+    func testMissingRestAndFitnessDisplayUnavailableInsteadOfInventedValues() {
+        let rest = AuraRestAdapter.map(nil, todayKey: "2026-10-24")
+        let activity = AuraFitnessAdapter.map(nil, todayKey: "2026-10-24")
+        XCTAssertNil(rest.sleepMinutes.value)
+        XCTAssertNil(rest.sleepMinutes.measuredAt)
+        XCTAssertEqual(rest.sleepMinutes.state, .unavailable)
+        XCTAssertNil(activity.effort.value)
+        XCTAssertNil(activity.steps.value)
+        XCTAssertNil(activity.effort.sourceID)
+    }
+
     func testBatteryFormattingAndSourceStaleness() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let recent = AuraDeviceAdapter.mapBattery(0.86, connected: true,
