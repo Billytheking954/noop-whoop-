@@ -30,6 +30,18 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(mapped.charge.sourceID, "whoop-export")
     }
 
+    func testLogicalTodayDoesNotBecomeStaleBeforeFourAM() {
+        // Before 04:00 a valid current dashboard row can carry yesterday's day key.
+        let logicalKey = "2026-10-23"
+        let localKey = "2026-10-24"
+        let row = day(logicalKey)
+        let chosen = Repository.resolveToday(days: [row], logicalKey: logicalKey, localKey: localKey)
+        XCTAssertEqual(chosen?.day, logicalKey)
+        let mapped = AuraTodayAdapter.map(chosen, todayKey: chosen?.day ?? logicalKey)
+        XCTAssertEqual(mapped.hrv.state, .available)
+        XCTAssertEqual(mapped.charge.state, .available)
+    }
+
     func testOldDailyAggregateMarkedStaleEvenWhenValueExists() {
         let mapped = AuraTodayAdapter.map(day("2026-10-20"), todayKey: "2026-10-24")
         XCTAssertEqual(mapped.hrv.state, .stale)
