@@ -3740,6 +3740,244 @@
           }
         }
       }
+    },
+    "Recording ends: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording ends: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufzeichnung endet: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La grabación termina: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fin de l’enregistrement : %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gravação termina: %@"
+          }
+        }
+      }
+    },
+    "No validated sleep-stage timeline": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No validated sleep-stage timeline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein validierter Schlafphasenverlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin cronología validada de fases del sueño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune chronologie validée des phases du sommeil"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem cronologia validada das fases do sono"
+          }
+        }
+      }
+    },
+    "This archived night has no validated staging baseline. Sleep stages and estimated time asleep cannot be shown without one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This archived night has no validated staging baseline. Sleep stages and estimated time asleep cannot be shown without one."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese archivierte Nacht hat keine validierte Schlafphasenbasis. Schlafphasen und geschätzte Schlafdauer können ohne diese nicht angezeigt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta noche archivada no tiene una base validada de fases del sueño. No se pueden mostrar las fases ni la duración estimada sin ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette nuit archivée ne possède pas de référence validée des phases du sommeil. Les phases et la durée estimée ne peuvent pas être affichées sans elle."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta noite arquivada não tem uma base validada das fases do sono. Sem ela, não é possível apresentar as fases nem a duração estimada do sono."
+          }
+        }
+      }
+    },
+    "Saved staging evidence failed validation; see archive details.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved staging evidence failed validation; see archive details."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherten Schlafphasendaten konnten nicht validiert werden; siehe Archivdetails."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos guardados de las fases no superaron la validación; consulta los detalles del archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de phases enregistrées n’ont pas passé la validation ; consultez les détails de l’archive."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados guardados das fases não passaram na validação; consulte os detalhes do arquivo."
+          }
+        }
+      }
+    },
+    "Percentages are of saved classified stage time, excluding gaps.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Percentages are of saved classified stage time, excluding gaps."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Prozentwerte beziehen sich nur auf klassifizierte Schlafphasen, ohne Aufzeichnungslücken."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los porcentajes corresponden al tiempo clasificado guardado y excluyen los intervalos sin datos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les pourcentages portent sur la durée classée enregistrée, hors périodes sans données."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As percentagens referem-se ao tempo classificado guardado, excluindo falhas de gravação."
+          }
+        }
+      }
+    },
+    "Time without saved stage estimates: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time without saved stage estimates: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeit ohne gespeicherte Schlafphasenschätzung: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo sin estimaciones guardadas de las fases: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée sans estimation enregistrée des phases : %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo sem estimativas guardadas das fases: %@"
+          }
+        }
+      }
+    },
+    "No saved classified sleep-stage intervals": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved classified sleep-stage intervals"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine gespeicherten klassifizierten Schlafphasenintervalle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay intervalos guardados de fases del sueño clasificadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun intervalle classé des phases du sommeil enregistré"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não existem intervalos classificados das fases do sono guardados"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
