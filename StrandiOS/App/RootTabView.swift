@@ -540,7 +540,7 @@ struct RootTabView: View {
             MoreRow("Lift Log", "dumbbell.fill", .liftLog)
             MoreRow("Health", "heart.text.square.fill", .health)
             if auraTodayPreviewEnabled {
-                MoreRow("Night Lab", "moon.stars", .nightLab)
+                MoreRow(LocalizedStringKey(String(localized: "Night Lab", table: "AuraPreview")), "moon.stars", .nightLab)
             }
             MoreRow("Lab Book", "books.vertical.fill", .labBook)
             MoreRow("Stress", "bolt.heart.fill", .stress)
