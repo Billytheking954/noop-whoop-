@@ -1984,19 +1984,7 @@ struct TodayView: View {
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .accessibilityHidden(true)
                         }
-                        if let hrvHistory = sparks["hrv"], hrvHistory.count > 1 {
-                            HStack(spacing: NoopMetrics.space4) {
-                                Text("HRV")
-                                    .font(StrandFont.footnote)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                                Sparkline(values: Array(hrvHistory.suffix(7)),
-                                          gradient: Gradient(colors: [StrandPalette.metricCyan.opacity(0.55),
-                                                                      StrandPalette.metricCyan]),
-                                          showsHover: false)
-                                    .frame(height: 36)
-                                    .accessibilityHidden(true)
-                            }
-                        }
+                        // History charts belong in Explore, not on the daily dashboard.
                     }
                 }
             }
@@ -2157,10 +2145,12 @@ struct TodayView: View {
     }
 
     @ViewBuilder private var editorialActivitySection: some View {
-        let recent = Self.recentWorkoutsFeed(workouts)
+        let dayWorkouts = Self.recentWorkoutsFeed(workouts).filter { row in
+            Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(row.startTs))) == selectedDayKey
+        }
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
 
-            if let row = recent.max(by: { $0.startTs < $1.startTs }) {
+            if let row = dayWorkouts.max(by: { $0.startTs < $1.startTs }) {
                 Button { workoutDetail = WorkoutDetailTarget(row: row) } label: {
                     NoopCard(tint: StrandPalette.effortColor) {
                         HStack(spacing: NoopMetrics.space4) {
@@ -2181,7 +2171,7 @@ struct TodayView: View {
                 .buttonStyle(.plain)
             } else {
                 NavigationLink(value: TabRoute.workouts) {
-                    NoopCard { Text(repo.loaded ? "No recent activities · Open workouts" : "Loading activities…") }
+                    NoopCard { Text(repo.loaded ? "No workouts for this day · Open history" : "Loading activities…") }
                 }
                 .buttonStyle(.plain)
             }
@@ -4038,7 +4028,8 @@ struct TodayView: View {
             // The section header keeps its "14-day trend" trailing label; an Edit control sits beside it
             // to open the local layout editor (#251). No new nav destination, a sheet over Today.
             HStack(alignment: .firstTextBaseline) {
-                SectionHeader("Key Metrics", overline: "\(selectedDayOverline)", trailing: String(localized: "14-day trend"))
+                SectionHeader("Key Metrics", overline: "\(selectedDayOverline)",
+                              trailing: keyMetricsDetailed ? String(localized: "14-day trend") : nil)
                 Button {
                     customizationDestination = .keyMetrics
                 } label: {
@@ -4176,7 +4167,7 @@ struct TodayView: View {
                     ?? Self.needsStrapCaption,
                 accent: d?.recovery.map { StrandPalette.recoveryColor($0) }
                     ?? carried.map { StrandPalette.recoveryColor($0.value) } ?? StrandPalette.textPrimary,
-                sparkline: sparks["recovery"],
+                sparkline: keyMetricsDetailed ? sparks["recovery"] : nil,
                 sparkColor: StrandPalette.accent
             )
         case .effort:
@@ -4191,7 +4182,7 @@ struct TodayView: View {
                 caption: effort != nil ? String(localized: "of \(UnitFormatter.effortScaleMax(effortScale))")
                                        : (buildingHint(.effort) ?? String(localized: "of \(UnitFormatter.effortScaleMax(effortScale))")),
                 accent: effort.map { StrandPalette.effortTint(fraction: $0 / StrainScorer.maxStrain) } ?? StrandPalette.textPrimary,
-                sparkline: sparks["strain"],
+                sparkline: keyMetricsDetailed ? sparks["strain"] : nil,
                 sparkColor: StrandPalette.strain066,
                 // Inline ⓘ in the tile header (not a corner overlay) so it never sits over the value (#495).
                 accessory: { scoreInfoButton(.effort) }
@@ -4216,7 +4207,7 @@ struct TodayView: View {
                         : (buildingHint(.rest) ?? restCaption(d) ?? Self.needsStrapCaption)),
                 accent: restScore.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textPrimary,
                 // The Rest composite (0–100) trend, not raw sleep minutes, tracks the score above (#614).
-                sparkline: sparks["sleep_performance"],
+                sparkline: keyMetricsDetailed ? sparks["sleep_performance"] : nil,
                 sparkColor: StrandPalette.metricPurple,
                 // Inline ⓘ in the tile header (not a corner overlay) so it never sits over the value (#495).
                 accessory: { scoreInfoButton(.rest) }
@@ -4231,7 +4222,7 @@ struct TodayView: View {
                 value: hrv.value,
                 caption: hrv.caption,
                 accent: hrv.value == "—" ? StrandPalette.textPrimary : StrandPalette.metricPurple,
-                sparkline: sparks["hrv"],
+                sparkline: keyMetricsDetailed ? sparks["hrv"] : nil,
                 sparkColor: StrandPalette.metricPurple
             )
         case .restingHr:
@@ -4242,7 +4233,7 @@ struct TodayView: View {
                 value: rhr.value,
                 caption: rhr.caption,
                 accent: rhr.value == "—" ? StrandPalette.textPrimary : StrandPalette.metricRose,
-                sparkline: sparks["rhr"],
+                sparkline: keyMetricsDetailed ? sparks["rhr"] : nil,
                 sparkColor: StrandPalette.metricRose
             )
         case .bloodOxygen:
@@ -4280,7 +4271,9 @@ struct TodayView: View {
                 value: spo2Value,
                 caption: spo2Caption,
                 accent: spo2Value == "—" ? StrandPalette.textPrimary : StrandPalette.metricCyan,
-                sparkline: spo2.value == "—" && candidateTail != nil ? sparks["spo2_candidate"] : sparks["spo2"],
+                sparkline: keyMetricsDetailed
+                    ? (spo2.value == "—" && candidateTail != nil ? sparks["spo2_candidate"] : sparks["spo2"])
+                    : nil,
                 sparkColor: StrandPalette.metricCyan
             )
         case .respiratory:
@@ -4298,7 +4291,7 @@ struct TodayView: View {
                 // state, so the caption matches the shown number (H10 mustn't mislabel a real value).
                 caption: (respValue != "—" && respCarry.value == "—") ? "rpm" : respCarry.caption,
                 accent: respValue == "—" ? StrandPalette.textPrimary : StrandPalette.accent,
-                sparkline: sparks["resp_rate"],
+                sparkline: keyMetricsDetailed ? sparks["resp_rate"] : nil,
                 sparkColor: StrandPalette.accent
             )
         case .steps:
@@ -4336,7 +4329,7 @@ struct TodayView: View {
                     : (estSteps != nil ? stepsEstimateCaption
                        : (needsCalibration ? stepsCalibrationCaption : String(localized: "today"))),
                 accent: (realSteps != nil || estSteps != nil) ? StrandPalette.metricCyan : StrandPalette.textPrimary,
-                sparkline: sparks["steps"],
+                sparkline: keyMetricsDetailed ? sparks["steps"] : nil,
                 sparkColor: StrandPalette.metricCyan,
                 // H6, an estimated (or awaiting-calibration) steps tile carries a small ⚙︎ that opens the
                 // steps-calibration sheet (the SAME one Settings hosts), so a WHOOP 4.0 user can tune or
@@ -4359,7 +4352,7 @@ struct TodayView: View {
                 value: weightTile(aLatest?.weightKg).value,
                 caption: weightTile(aLatest?.weightKg).caption,
                 accent: StrandPalette.accent,
-                sparkline: sparks["weight"],
+                sparkline: keyMetricsDetailed ? sparks["weight"] : nil,
                 sparkColor: StrandPalette.accent
             )
         case .calories:
@@ -4368,7 +4361,7 @@ struct TodayView: View {
                 value: caloriesValue(aLatest),
                 caption: String(localized: "active"),
                 accent: StrandPalette.metricAmber,
-                sparkline: sparks["active_kcal"],
+                sparkline: keyMetricsDetailed ? sparks["active_kcal"] : nil,
                 sparkColor: StrandPalette.metricAmber
             )
         case .skinTemp:
@@ -4382,7 +4375,7 @@ struct TodayView: View {
                 value: Self.skinTempCardValue(reading: skinTempValue, fahrenheit: temperatureUnit == .fahrenheit),
                 caption: skinTempValue == nil ? Self.needsStrapCaption : "",
                 accent: skinTempValue == nil ? StrandPalette.textPrimary : StrandPalette.metricAmber,
-                sparkline: sparks["skin_temp"],
+                sparkline: keyMetricsDetailed ? sparks["skin_temp"] : nil,
                 sparkColor: StrandPalette.metricAmber
             )
         }
