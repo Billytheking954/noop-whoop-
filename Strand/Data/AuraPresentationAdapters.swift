@@ -142,17 +142,29 @@ struct AuraDeviceState: Equatable {
 }
 
 enum AuraDeviceAdapter {
-    /// V2 supplies a fractional battery (0...1), source identity and a *real* reading time.
+    /// The existing V2 LiveState and DevicesView expose 0...100 percent, NOT a 0...1 fraction.
+    /// Make the source contract explicit so a perfectly valid 86% never becomes unavailable.
     /// A cached battery must never silently display as today's live status.
-    static func mapBattery(_ fraction: Double?, connected: Bool, measuredAt: Date?,
-                           now: Date, sourceID: String?, maxAge: TimeInterval = 15 * 60) -> AuraDeviceState {
-        guard let fraction, fraction.isFinite, (0...1).contains(fraction) else {
+    static func mapBatteryPercent(_ percent: Double?, connected: Bool, measuredAt: Date?,
+                                  now: Date, sourceID: String?, maxAge: TimeInterval = 15 * 60) -> AuraDeviceState {
+        guard let percent, percent.isFinite, (0...100).contains(percent) else {
             return AuraDeviceState(batteryLabel: "—", batterySourceID: sourceID,
                                    batteryMeasuredAt: measuredAt, state: .unavailable)
         }
-        let label = "\(Int((fraction * 100).rounded()))%"
+        let label = "\(Int(percent.rounded()))%"
         let fresh = connected && measuredAt.map { $0 <= now && now.timeIntervalSince($0) <= maxAge } == true
         return AuraDeviceState(batteryLabel: label, batterySourceID: sourceID,
                                batteryMeasuredAt: measuredAt, state: fresh ? .available : .stale)
+    }
+
+    /// Retain an explicit fractional entry point for callers that truly supply 0...1.
+    static func mapBattery(_ fraction: Double?, connected: Bool, measuredAt: Date?,
+                           now: Date, sourceID: String?, maxAge: TimeInterval = 15 * 60) -> AuraDeviceState {
+        guard let fraction, fraction.isFinite, (0...1).contains(fraction) else {
+            return mapBatteryPercent(nil, connected: connected, measuredAt: measuredAt,
+                                     now: now, sourceID: sourceID, maxAge: maxAge)
+        }
+        return mapBatteryPercent(fraction * 100, connected: connected, measuredAt: measuredAt,
+                                 now: now, sourceID: sourceID, maxAge: maxAge)
     }
 }

@@ -72,6 +72,26 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(series.map(\.sourceID), ["V2", "V2"])
     }
 
+    func testBatteryPercentAcceptsV2NativeUnitsWithoutFractionMistake() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let timestamp = now.addingTimeInterval(-20)
+        let present = AuraDeviceAdapter.mapBatteryPercent(86.00000, connected: true,
+                              measuredAt: timestamp, now: now, sourceID: "whoop-5")
+        XCTAssertEqual(present.batteryLabel, "86%")
+        XCTAssertEqual(present.state, .available)
+        XCTAssertEqual(present.batterySourceID, "whoop-5")
+        XCTAssertEqual(present.batteryMeasuredAt, timestamp)
+        let rounded = AuraDeviceAdapter.mapBatteryPercent(86.6, connected: true,
+                              measuredAt: timestamp, now: now, sourceID: "whoop-5")
+        XCTAssertEqual(rounded.batteryLabel, "87%")
+        let missing = AuraDeviceAdapter.mapBatteryPercent(101, connected: true,
+                              measuredAt: timestamp, now: now, sourceID: "whoop-5")
+        XCTAssertEqual(missing.state, .unavailable)
+        let stale = AuraDeviceAdapter.mapBatteryPercent(86, connected: false,
+                              measuredAt: timestamp, now: now, sourceID: "whoop-5")
+        XCTAssertEqual(stale.state, .stale)
+    }
+
     func testBatteryFormattingAndSourceStaleness() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let recent = AuraDeviceAdapter.mapBattery(0.86, connected: true,
