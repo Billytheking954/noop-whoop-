@@ -6,7 +6,14 @@ final class ReferenceJourneyUITests: XCTestCase {
 
     private func launch(screen: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo-seed", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        // These journeys deliberately protect the retained classic V2 fallback. Aura is now the
+        // shipping default, so pin the old shell through UserDefaults' launch-argument domain.
+        app.launchArguments = [
+            "--demo-seed",
+            "-noop.auraTodayPreviewEnabled", "NO",
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US"
+        ]
         if let screen { app.launchArguments += ["--demo-screen", screen] }
         app.launch()
         return app
