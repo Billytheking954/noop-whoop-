@@ -254,6 +254,8 @@ struct AddDeviceWizard: View {
                     Image(systemName: "chevron.left")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Back")
@@ -271,6 +273,8 @@ struct AddDeviceWizard: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 20))
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -450,18 +454,13 @@ struct AddDeviceWizard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frostedCardSurface(cornerRadius: 14)
 
-                Button {
+                NoopButton("Scan for device", systemImage: "dot.radiowaves.left.and.right",
+                           kind: .primary, fullWidth: true) {
                     startScan(for: type)
                     step = .pick
-                } label: {
-                    Label("Scan", systemImage: "dot.radiowaves.left.and.right")
-                        .font(StrandFont.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.accent)
                 .accessibilityLabel("Scan for \(typeTitle(type))")
+                .accessibilityIdentifier("noop.wizard.scan")
             }
         }
     }
@@ -1137,12 +1136,11 @@ struct AddDeviceWizard: View {
                             in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityLabel("Device name")
 
-            Button("Add") { askMakeActive = true }
-                .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.accent)
-                .frame(maxWidth: .infinity)
-                .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .padding(.top, 4)
+            NoopButton("Add device", systemImage: "plus", kind: .primary, fullWidth: true) {
+                askMakeActive = true
+            }
+            .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .padding(.top, 4)
         }
     }
 
@@ -1501,9 +1499,22 @@ private struct WhoopPickList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            ScanStatusBar(searching: true, onRescan: onRescan)
+            ScanStatusBar(searching: ble.isPresentingScan, onRescan: onRescan)
             let found = ble.discoveredWhoops.sorted { $0.rssi > $1.rssi }
-            if found.isEmpty {
+            if !ble.isPresentingScan {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Bluetooth scan is not active", systemImage: "exclamationmark.triangle")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                    Text("Check that Bluetooth is on and that NOOP has Bluetooth permission, then tap Rescan.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .noopPanel(tint: StrandPalette.statusWarning)
+            } else if found.isEmpty {
                 SearchingCard(whoopHint: true)
             } else {
                 ForEach(found, id: \.uuid) { strap in
@@ -1669,6 +1680,9 @@ private struct ScanStatusBar: View {
                 .font(StrandFont.subhead)
                 .buttonStyle(.plain)
                 .foregroundStyle(StrandPalette.accent)
+                .frame(minWidth: 64, minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("noop.wizard.rescan")
         }
     }
 }
