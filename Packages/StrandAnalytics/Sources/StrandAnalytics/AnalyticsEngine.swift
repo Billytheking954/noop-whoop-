@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 31712)
-Total output lines: 1701
-
 import Foundation
 import WhoopProtocol
 import WhoopStore   // OuraRespScale: the one place a ring's milli-bpm respiration row is read
@@ -773,7 +770,95 @@ public enum AnalyticsEngine {
             }
             guard !pairs.isEmpty else { return nil }
             let total = pairs.reduce(0.0) { $0 + $1.0 * $1.1 }
-      …1712 tokens truncated… same 13.3333 bpm — it carries no breathing
+            let weight = pairs.reduce(0.0) { $0 + $1.1 }
+            return weight > 0 ? total / weight : nil
+        }()
+
+        // Daily SDNN (ms) = the 5-min SDNN INDEX (Task Force) over the in-bed R-R across matched sessions —
+        // the mean of per-5-min-segment SDNN, the BROAD autonomic-variability metric (both branches) and the
+        // slow twin of the vagal RMSSD `avgHRVDaily` above. The index (not a single whole-night SD) is used
+        // deliberately: whole-night SD is dominated by the slow HR drift across sleep stages and reads 2-3×
+        // high, which would mislabel Apple Health (its SDNN samples are short-window) and make any cross-check
+        // against a watch meaningless. The 5-min index is window-comparable to those. nil when no segment has
+        // enough clean beats (HRVAnalyzer's own gate). Keeps the R-R timestamps (segmentation needs them).
+        let avgSDNNDaily: Double? = {
+            let inBed = rr.filter { r in physiologySessions.contains { r.ts >= $0.start && r.ts < $0.end } }
+            return inBed.isEmpty ? nil : HRVAnalyzer.sdnnIndex(inBed, segmentSec: 300)
+        }()
+
+        // ── HRV & Autonomic nightly trace (#141) ──────────────────────────────
+        // Per-5-min-window RMSSD tagged by the sleep stage at its center, then a night summary comparing
+        // NOOP's whole-night mean (what it reports) against a deep-only mean and a WHOOP-style
+        // last-slow-wave-sleep value — so an "HRV reads ~2x higher than WHOOP" report shows WHICH stages
+        // lift it, and lets a deep-sleep-windowed fix be validated before it ships. Reuses the SAME
+        // sessionHrvWindows the value is built from (can't diverge). Zero cost when the sink is nil.
+        if let hrvTraceSink {
+            func r2(_ x: Double) -> Double { (x * 100).rounded() / 100 }
+            // sessionHrvWindows requires ts-sorted rr (RMSSD = successive diffs); the value path passes the
+            // stager's pre-sorted rrS, so sort our own copy of the day's raw rr once here for the re-window.
+            let rrSorted = rr.sortedByTsStable()
+            var allWin: [SleepStager.HrvWindow] = []
+            for s in matched {
+                let wins = SleepStager.sessionHrvWindows(start: s.start, end: s.end, rr: rrSorted, stages: s.stages)
+                if hrvWindowDetail {
+                    for w in wins {
+                        let rm = w.rmssd.map { "\(r2($0))ms" } ?? "nil"
+                        hrvTraceSink("hrv window t=\((w.startTs - s.start) / 60)min stage=\(w.stage) beats=\(w.cleanBeats) rmssd=\(rm)")
+                    }
+                }
+                allWin.append(contentsOf: wins)
+            }
+            func meanMs(_ ws: [SleepStager.HrvWindow]) -> String {
+                let v = ws.compactMap { $0.rmssd }
+                return v.isEmpty ? "nil" : "\(r2(v.reduce(0, +) / Double(v.count)))ms"
+            }
+            let withR = allWin.filter { $0.rmssd != nil }
+            let deepW = withR.filter { $0.stage == "deep" }
+            let lastSws = SleepStager.lastDeepRun(allWin).filter { $0.rmssd != nil }
+            // `reported` is the value NOOP actually displays (duration-weighted session-mean-of-means);
+            // `wholeNight` is the pooled-window mean it equals on single-session nights and the apples-to-
+            // apples baseline for the deepOnly/lastSWS comparison (all three are pooled window means).
+            let reported = avgHRVDaily.map { "\(r2($0))ms" } ?? "nil"
+            // #2128: say WHY `reported` is nil, but ONLY when the night printed real window means beside
+            // it. That is the confusing case: a nil next to `wholeNight=31.55ms` reads as a value that went
+            // missing, when the usual cause is the #1118 gate refusing an over-counted night on purpose. A
+            // night with no windows at all explains itself and pays nothing here.
+            //
+            // The `hrv diag` row above carries `rrIntegrity`, but that verdict is scored over the whole DAY
+            // while the gate runs per SESSION, so the two disagree exactly when it matters: a day reading
+            // `underCovered` can still hold a session the gate refused. Reading the adjacent line is what
+            // led #2128 to be filed against intended behaviour.
+            //
+            // Derived from the two existing calls rather than by re-classifying the beats. Inside
+            // `sessionAvgHRV` the ONLY paths to nil are "no window yielded an RMSSD" and the gate, so
+            // windows-with-RMSSD plus a nil value IS the gate, with nothing restated that could later
+            // disagree with it. It says `overCount` rather than naming a verdict because that function pins
+            // every over-count to crossSecondOverCount internally to avoid a sort, so the specific label
+            // would be a distinction it does not actually make.
+            //
+            // NOT in deep-window mode. That branch re-derives from `sessionHrvWindows` and never reads
+            // `s.avgHRV`, so the gate plays no part in its nil and naming it would be a diagnostic
+            // asserting a cause it did not verify. `nDeep` on this same line already explains that case.
+            let refused = !deepHrvWindow && avgHRVDaily == nil && !withR.isEmpty
+                && physiologySessions.contains { s in
+                    SleepStager.sessionHrvWindows(start: s.start, end: s.end, rr: rrSorted, stages: [])
+                        .contains { $0.rmssd != nil }
+                        && SleepStager.sessionAvgHRV(start: s.start, end: s.end, rr: rrSorted) == nil
+                }
+            hrvTraceSink("hrv nightSummary reported=\(reported) \(refused ? "refused=overCount " : "")wholeNight=\(meanMs(withR)) deepOnly=\(meanMs(deepW)) lastSWS=\(meanMs(lastSws)) nWin=\(withR.count) nDeep=\(deepW.count)")
+        }
+
+        // Nightly APPROXIMATE respiratory rate (breaths/min) from the R-R stream via
+        // RSA. WHOOP5 v18 carries no raw resp ADC, so this is an on-device estimate,
+        // NOT a cloud/clinical respiration value. Per matched in-bed session, estimate
+        // over [start, end]; the night's value = median of finite per-session
+        // estimates; nil only when no session yields a finite estimate.
+        //
+        // A DEVICE-MEASURED rate wins over that estimate when the night has one. `vendorResp` carries a
+        // strap's own respiratory-rate rows — today the Oura ring's 0x6A `breath`, one value per sleep
+        // window, computed by the ring's firmware rather than derived here (see `vendorRespRateBpm`).
+        // Preferring it is not a close call: on a ring night the RSA estimate is built from BANKED R-R,
+        // where shuffling or reversing the night returns the same 13.3333 bpm — it carries no breathing
         // information at all. A WHOOP night passes no `vendorResp`, so it keeps the RSA path verbatim.
         let respRateDaily: Double? = {
             if let vendor = Self.vendorRespRateBpm(vendorResp,
