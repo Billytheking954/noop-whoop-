@@ -27,26 +27,26 @@ struct AuraTodayView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .center) {
                         VStack(alignment: .leading, spacing: 6) {
-                            NoopSpecCaption("Today")
-                            Text("Your day")
+                            NoopSpecCaption(String(localized: "Today", table: "AuraPreview"))
+                            Text(String(localized: "Your day", table: "AuraPreview"))
                                 .font(NoopSpecType.screenTitle)
                                 .foregroundStyle(NoopPalette.textPrimary)
                         }
                         Spacer(minLength: 12)
                         Button(action: onShowClassic) {
-                            Text("Full V2 dashboard")
+                            Text(String(localized: "Full V2 dashboard", table: "AuraPreview"))
                                 .font(NoopSpecType.buttonLabel)
                                 .foregroundStyle(NoopSpecTokens.auraPale)
                                 .padding(.horizontal, 12)
                                 .frame(minHeight: 44)
                                 .background(Capsule().fill(NoopPalette.controlFill))
                         }
-                        .accessibilityHint("Open all NOOP V2 tracking and settings controls")
+                        .accessibilityHint(Text(String(localized: "Open all NOOP V2 tracking and settings controls", table: "AuraPreview")))
                     }
 
                     NoopSpecCard(.hero) {
                         VStack(alignment: .leading, spacing: 12) {
-                            NoopSpecCaption("Morning Charge")
+                            NoopSpecCaption(String(localized: "Morning Charge", table: "AuraPreview"))
                             HStack(alignment: .firstTextBaseline, spacing: 5) {
                                 Text(number(today.charge, digits: 0))
                                     .font(NoopSpecType.heroNumeral)
@@ -58,7 +58,7 @@ struct AuraTodayView: View {
                                         .foregroundStyle(NoopPalette.textSecondary)
                                 }
                             }
-                            Text("NOOP Charge estimate from the recorded day, not a live energy level.")
+                            Text(String(localized: "NOOP Charge estimate from the recorded day, not a live energy level.", table: "AuraPreview"))
                                 .font(NoopSpecType.body)
                                 .foregroundStyle(NoopSpecTokens.textBody)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -74,12 +74,12 @@ struct AuraTodayView: View {
 
                     NoopSpecCard {
                         VStack(alignment: .leading, spacing: 14) {
-                            NoopSpecCaption("Rest")
+                            NoopSpecCaption(String(localized: "Rest", table: "AuraPreview"))
                             HStack {
                                 Text(number(rest.sleepMinutes, digits: 0))
                                     .font(NoopSpecType.headline)
                                     .foregroundStyle(NoopPalette.textPrimary)
-                                Text("min asleep")
+                                Text(String(localized: "min asleep", table: "AuraPreview"))
                                     .font(NoopSpecType.body)
                                     .foregroundStyle(NoopPalette.textSecondary)
                                 Spacer()
@@ -87,7 +87,7 @@ struct AuraTodayView: View {
                                     .font(NoopSpecType.rowFigure)
                                     .foregroundStyle(NoopPalette.rest)
                             }
-                            Text("Sleep stages are estimates. Original sleep records and editing stay in the V2 dashboard.")
+                            Text(String(localized: "Sleep stages are estimates. Original sleep records and editing stay in the V2 dashboard.", table: "AuraPreview"))
                                 .font(NoopSpecType.bodySmall)
                                 .foregroundStyle(NoopPalette.textSecondary)
                             sourceCaption(rest.sleepMinutes)
@@ -96,11 +96,11 @@ struct AuraTodayView: View {
 
                     NoopSpecCard {
                         VStack(alignment: .leading, spacing: 12) {
-                            NoopSpecCaption("NOOP Effort")
+                            NoopSpecCaption(String(localized: "NOOP Effort", table: "AuraPreview"))
                             Text(number(fitness.effort, digits: 0) + (fitness.effort.value == nil ? "" : " / 100"))
                                 .font(NoopSpecType.headline)
                                 .foregroundStyle(NoopPalette.effort)
-                            Text("Calculated by V2 from recorded activity. No missing samples are filled in.")
+                            Text(String(localized: "Calculated by V2 from recorded activity. No missing samples are filled in.", table: "AuraPreview"))
                                 .font(NoopSpecType.bodySmall)
                                 .foregroundStyle(NoopPalette.textSecondary)
                             sourceCaption(fitness.effort)
@@ -124,7 +124,7 @@ struct AuraTodayView: View {
     private func metricCard(title: String, reading: AuraDailyReading, tint: Color) -> some View {
         NoopSpecCard {
             VStack(alignment: .leading, spacing: 8) {
-                NoopSpecCaption(title)
+                NoopSpecCaption(String(localized: String.LocalizationValue(title), table: "AuraPreview"))
                 Text(number(reading, digits: reading.unit == "ms" ? 1 : 0))
                     .font(NoopSpecType.headline)
                     .foregroundStyle(tint)
@@ -140,8 +140,8 @@ struct AuraTodayView: View {
     }
 
     private func sourceCaption(_ reading: AuraDailyReading) -> some View {
-        Text(reading.day.map { "\($0) · \(reading.state == .stale ? "Older reading" : "Daily aggregate")" }
-             ?? "No measured data")
+        Text(reading.day.map { "\($0) · \(reading.state == .stale ? String(localized: "Older reading", table: "AuraPreview") : String(localized: "Daily aggregate", table: "AuraPreview"))" }
+             ?? String(localized: "No measured data", table: "AuraPreview"))
             .font(NoopSpecType.finePrint)
             .foregroundStyle(NoopPalette.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
