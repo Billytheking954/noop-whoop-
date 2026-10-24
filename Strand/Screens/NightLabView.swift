@@ -233,7 +233,7 @@ struct NightLabView: View {
         let rem = stageSeconds(.rem, in: baseline)
         return NoopCard(tint: StrandPalette.restColor) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader("Sleep stages", overline: String(localized: "Archived V2 estimates", table: "AuraPreview"))
+                SectionHeader("Sleep stages", overline: LocalizedStringKey(String(localized: "Archived V2 estimates", table: "AuraPreview")))
                 Text(String(format: String(localized: "Estimated asleep: %@", table: "AuraPreview"), durationText(light + deep + rem)))
                     .font(.headline)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
