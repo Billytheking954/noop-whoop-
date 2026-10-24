@@ -14,19 +14,9 @@ struct NightLabView: View {
     var body: some View {
         ScreenScaffold(title: "Night Lab", subtitle: "Archived evidence, saved replay results and portable bundles") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                HStack {
-                    Button("Refresh") { Task { await model.refresh() } }
-                    Button("Import bundle…") { presentImporter() }
-                    Button("Export selected…") {
-                        Task {
-                            guard let data = await model.exportSelectedNight(),
-                                  let nightID = model.selectedID else { return }
-                            exportName = nightID
-                            exportDocument = NightLabBundleDocument(data: data)
-                            showingExporter = true
-                        }
-                    }
-                    .disabled(model.selectedID == nil || model.transferring)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { archiveActions }
+                    VStack(alignment: .leading, spacing: 8) { archiveActions }
                 }
                 if model.loading { ProgressView() }
                 if model.transferring { ProgressView("Verifying bundle…") }
@@ -69,6 +59,21 @@ struct NightLabView: View {
         }
     }
 
+    @ViewBuilder private var archiveActions: some View {
+                    Button("Refresh") { Task { await model.refresh() } }
+                    Button("Import bundle…") { presentImporter() }
+                    Button("Export selected…") {
+                        Task {
+                            guard let data = await model.exportSelectedNight(),
+                                  let nightID = model.selectedID else { return }
+                            exportName = nightID
+                            exportDocument = NightLabBundleDocument(data: data)
+                            showingExporter = true
+                        }
+                    }
+                    .disabled(model.selectedID == nil || model.transferring)
+    }
+
     private func selectorTitle(_ entry: NightLabInspectionEntry) -> String {
         guard let m = entry.manifest else { return entry.id + " • Invalid archive" }
         return entry.id + " • " + NightLabInspectionFormatting.timestamp(m.windowStartUnix,
@@ -88,6 +93,21 @@ struct NightLabView: View {
 
     @ViewBuilder private func detail(_ value: NightLabInspection) -> some View {
         let m = value.manifest
+        NoopCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Night overview").font(.title2.weight(.semibold))
+                Text(NightLabInspectionFormatting.timestamp(m.windowStartUnix, offset: m.timezoneOffsetSeconds))
+                    .font(.headline)
+                Label(m.state == .sealed ? "Evidence sealed" : "Incomplete archive",
+                      systemImage: m.state == .sealed ? "checkmark.shield" : "exclamationmark.triangle")
+                    .font(.subheadline)
+                Text("\(m.rawAssets.count) captured data streams")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Text("Integrity and coverage describe saved sensor evidence, not sleep-stage accuracy.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
         NoopCard {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Captured evidence").font(.headline)
@@ -205,8 +225,8 @@ struct NightLabView: View {
     private func coverage(_ value: NightLabInspection) -> some View {
         NoopCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Signal coverage").font(.headline)
-                Text("Coverage describes data availability, not staging accuracy.")
+                Text("Signal-by-signal detail").font(.headline)
+                Text("Captured samples and gaps, not staging accuracy.")
                 ForEach(value.coverage, id: \.kind) { report in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(report.kind.rawValue).font(.headline)
@@ -264,7 +284,10 @@ private struct NightLabHypnogramView: View {
     let baseline: SleepStagerV2BaselineArtifact
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sleep-stage timeline").font(.headline)
+            Text("Saved staging epochs. Gaps are not reconstructed.")
+                .font(.footnote).foregroundStyle(.secondary)
             Chart {
                 if let leading = baseline.leadingBoundary {
                     RectangleMark(xStart: .value("Start", leading.startUnix), xEnd: .value("End", leading.endUnix),
