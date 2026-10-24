@@ -1224,6 +1224,10 @@ def scan_ios(read: Reader | None = None) -> tuple[list[tuple[str, int, str]], di
                     literals += list(swift_returned_copy_literals(text))
                 debug_spans = _swift_debug_spans(text)
                 for offset, literal in literals:
+                    # A String(localized: ..., table: "AuraPreview") table identifier is
+                    # resource metadata, not user-facing copy. Audit the first key instead.
+                    if text[max(0, offset - 24):offset].rstrip().endswith("table:"):
+                        continue
                     if not is_probably_ui_text(literal):
                         continue
                     # Preview fixtures are not copy; see `_swift_debug_spans`.
