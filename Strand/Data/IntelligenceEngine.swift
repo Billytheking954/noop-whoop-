@@ -995,7 +995,8 @@ final class IntelligenceEngine: ObservableObject {
         let (habitualMidsleepSec, nightlyHours) = await Self.computeHabitualSleep(
             store: store, importedId: deviceId, computedId: deviceId + "-noop",
             windowStart: oldestAnalysisStart - 86_400 - StreamReadCap.lookbackSeconds,
-            windowEnd: now, finishedBefore: nowLocalMidnight, offsetSec: tzOffset)
+            windowEnd: now, finishedBefore: nowLocalMidnight, offsetSec: tzOffset,
+            timeZone: scoringTimeZone)
         // Wave 0 (SL1/T1): personal sleep REGULARITY + population-anchored NEED, computed ONCE from the
         // trailing per-night durations and threaded to every analyzeDay below (mirrors the midsleep
         // learner just above — one personal trait per run, applied to the whole re-scored history so
@@ -1534,6 +1535,7 @@ final class IntelligenceEngine: ObservableObject {
                                                      sleepNeedHours: sleepNeedHours,
                                                      sleepConsistency: sleepConsistency,
                                                      habitualMidsleepSec: habitualMidsleepSec,
+                                                     localTimeZone: scoringTimeZone,
                                                      bandSleepState: bandSleepState,
                                                      // #690: thread the V2 toggle into the NORMAL staging path so
                                                      // it affects detected nights, not just the self-heal restage.
@@ -2162,6 +2164,7 @@ final class IntelligenceEngine: ObservableObject {
             profile: up,
             maxHROverride: maxHR,
             effortMethod: effortMethodGlobal,
+            timeZone: scoringTimeZone,
             trace: stepsTraceActive ? { self.diagnosticSink?($0, .steps) } : nil)
         // #299: `editsByStart` is now built PER DAY inside the scoring loop (scoped to the day each edit
         // belongs to), NOT window-wide here. sleepEditedDaily folds any edited row that isn't a twin of THIS
@@ -3425,7 +3428,8 @@ final class IntelligenceEngine: ObservableObject {
                                                                    manual: manualTuples,
                                                                    onsetByStart: onsetByStart,
                                                                    offsetSec: TimeZone.current.secondsFromGMT(),
-                                                                   habitualMidsleepSec: habitualMidsleepSec),
+                                                                   habitualMidsleepSec: habitualMidsleepSec,
+                                                                   timeZone: TimeZone.autoupdatingCurrent),
               r.editApplied else { return daily }
         let agg = r.sleep
         return daily.with(totalSleepMin: agg.totalSleepMin, efficiency: agg.efficiency,
@@ -3498,7 +3502,8 @@ final class IntelligenceEngine: ObservableObject {
     /// Internal rather than private only so a test can drive the `finishedBefore` cutoff directly.
     static func computeHabitualSleep(
         store: WhoopStore, importedId: String, computedId: String,
-        windowStart: Int, windowEnd: Int, finishedBefore: Int, offsetSec: Int
+        windowStart: Int, windowEnd: Int, finishedBefore: Int, offsetSec: Int,
+        timeZone: TimeZone? = nil
     ) async -> (midsleepSec: Int?, nightlyHours: [Double]) {
         let imported = (try? await store.sleepSessions(deviceId: importedId, from: windowStart,
                                                        to: windowEnd, limit: 4000)) ?? []
@@ -3523,7 +3528,8 @@ final class IntelligenceEngine: ObservableObject {
             let start = s.effectiveStartTs, end = s.endTs
             guard end > start else { return nil }
             let mid = start + (end - start) / 2
-            let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)
+            let dayKey = timeZone.map { AnalyticsEngine.dayString(mid, timeZone: $0) }
+                ?? AnalyticsEngine.dayString(mid, offsetSec: offsetSec)
             let span = end - start
             if span > (longestByDay[dayKey]?.span ?? 0) {
                 let eff = s.efficiency.flatMap { (0.0 < $0 && $0 <= 1.0) ? $0 : nil } ?? 0.9
@@ -3531,7 +3537,8 @@ final class IntelligenceEngine: ObservableObject {
             }
             return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey)
         }
-        let midsleep = SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: offsetSec)
+        let midsleep = SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: offsetSec,
+                                                            timeZone: timeZone)
         // Chronological (day-key string sort == date order) so a recent-window suffix is well-defined.
         let nightlyHours = longestByDay.keys.sorted().compactMap { longestByDay[$0]?.tstHours }
         return (midsleep, nightlyHours)

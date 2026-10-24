@@ -181,6 +181,12 @@ public enum AnalyticsEngine {
         dayString(ts + offsetSec)
     }
 
+    /// Format a unix-seconds timestamp using the zone rules at that historical instant.
+    public static func dayString(_ ts: Int, timeZone: TimeZone) -> String {
+        let instant = Date(timeIntervalSince1970: TimeInterval(ts))
+        return LocalDayWindows(timeZone: timeZone, referenceInstant: instant).dayKey(for: instant)
+    }
+
     /// UTC-midnight epoch seconds of an ISO `day` key (yyyy-MM-dd). `isoDay` is a FIXED-UTC formatter,
     /// so `dayString(ts, offsetSec:) == day` ⇔ `(ts + offsetSec) ∈ [dayStartUtcSeconds(day), +86400)` —
     /// an integer range check that replaces the per-sample DateFormatter the full-day stream filters in
@@ -419,6 +425,9 @@ public enum AnalyticsEngine {
                                   // it down; pure-function callers/tests leave it nil and stay on the
                                   // cold-start band. (#547)
                                   habitualMidsleepSec: Int? = nil,
+                                  // Rule-aware local wall time for historical main-night selection. Nil preserves
+                                  // the explicit fixed-offset contract used by pure-function callers.
+                                  localTimeZone: TimeZone? = nil,
                                   // The strap's OWN persisted v18 BAND sleep_state per timestamp (Interpreter's
                                   // `(sb>>4)&3`: 0 wake/1 still/2 asleep/3 up). Consumed ONLY to confirm a
                                   // borderline H7 morning re-onset — a daytime block the strap itself scored
@@ -578,7 +587,8 @@ public enum AnalyticsEngine {
         // this SAME group (the seam below passes the same `gapBridgeMaxMin`), so #525 does not regress.
         let mainGroupIdx = SleepStageTotals.mainNightGroupIndices(
             matched.map { SleepStageTotals.NightBlock(start: $0.start, end: $0.end) },
-            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) ?? []
+            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec,
+            timeZone: localTimeZone) ?? []
         let mainGroup: [SleepSession] = mainGroupIdx.map { matched[$0] }
 
         // ── Daily sleep aggregates (AASM) SUMMED over the main-night GROUP (#525 / #561) ──
