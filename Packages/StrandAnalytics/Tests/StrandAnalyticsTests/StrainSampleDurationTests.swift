@@ -84,14 +84,36 @@ final class StrainSampleDurationTests: XCTestCase {
         XCTAssertEqual(StrainScorer.sampleDurationsMinutes(uniform(3, stepS: 30)), [0.5, 0.5, 0.5])
     }
 
+    func testScorerRefusesDuplicateAndOutOfOrderTimestampsWithDiagnostic() {
+        let ordered = (0..<StrainScorer.minReadings).map { HRSample(ts: $0, bpm: hard) }
+        var invalidSeries: [[HRSample]] = []
+
+        var duplicate = ordered
+        duplicate[300] = HRSample(ts: 299, bpm: hard)
+        invalidSeries.append(duplicate)
+
+        var outOfOrder = ordered
+        outOfOrder[300] = HRSample(ts: 100, bpm: hard)
+        invalidSeries.append(outOfOrder)
+
+        for samples in invalidSeries {
+            var diagnostic: String?
+            let score = StrainScorer.strain(
+                samples, maxHR: maxHR, restingHR: rest,
+                diag: { diagnostic = $0 }, day: "test-day"
+            )
+            XCTAssertNil(score)
+            XCTAssertEqual(diagnostic, "effort score day=test-day refused=nonmonotonic-timestamps hr=600")
+        }
+    }
+
     // MARK: - edges
 
     func testEdgesMatchTheOldFallbacks() {
         XCTAssertEqual(StrainScorer.sampleDurationsMinutes([]), [])
         XCTAssertEqual(StrainScorer.sampleDurationsMinutes(series(5)), [StrainScorer.fallbackSampleMin])
-        // Coincident timestamps keep the 1 s fallback rather than a zero-duration sample.
-        for d in StrainScorer.sampleDurationsMinutes(series(7, 7)) {
-            XCTAssertEqual(d, StrainScorer.fallbackSampleMin, accuracy: 1e-9)
-        }
+        // Non-positive gaps must never be converted into positive credited duration.
+        XCTAssertEqual(StrainScorer.sampleDurationsMinutes(series(7, 7)), [0, 0])
+        XCTAssertEqual(StrainScorer.sampleDurationsMinutes(series(9, 8)), [0, 0])
     }
 }
