@@ -2,7 +2,7 @@ name: iPhone i18n Coverage
 
 on:
   pull_request:
-    branches: [main, integration/aura-v2-candidate-20261024]
+    branches: [main, integration/aura-v2-candidate-20261024, integration/aura-ui-phase2-20261024]
   push:
     branches: [main]
 
