@@ -53,12 +53,26 @@ final class OuraOAuthProvider: NSObject, AuthProvider, ASWebAuthenticationPresen
         }
 
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        let q = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        let q = try Self.callbackParameters(from: items)
         guard q["state"] == state else { throw OuraError.authFailed("state mismatch") }
         guard let code = q["code"], !code.isEmpty else { throw OuraError.authFailed(q["error"] ?? "no code") }
 
         let tokens = try await exchange(OuraOAuth.tokenExchangeRequest(credentials: credentials, code: code))
         guard OuraTokenStore.save(tokens) else { throw OuraError.tokenExchangeFailed("keychain write failed") }
+    }
+
+    /// Parse untrusted callback query items without assuming parameter names are unique.
+    /// Duplicate names are rejected before state or authorization code is read, avoiding the
+    /// Dictionary(uniqueKeysWithValues:) precondition trap on a malformed callback URL.
+    static func callbackParameters(from items: [URLQueryItem]) throws -> [String: String] {
+        var parameters: [String: String] = [:]
+        for item in items {
+            guard parameters[item.name] == nil else {
+                throw OuraError.authFailed("duplicate callback parameter")
+            }
+            parameters[item.name] = item.value ?? ""
+        }
+        return parameters
     }
 
     /// POST a token request and parse the response (shared by exchange + refresh).
