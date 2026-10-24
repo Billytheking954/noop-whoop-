@@ -2145,7 +2145,9 @@ struct TodayView: View {
     }
 
     @ViewBuilder private var editorialActivitySection: some View {
-        let dayWorkouts = Self.recentWorkoutsFeed(workouts).filter { row in
+        // Filter the full cached workout set by the SELECTED day. The separate
+        // 14-day feed helper would incorrectly make older selected days look empty.
+        let dayWorkouts = workouts.filter { row in
             Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(row.startTs))) == selectedDayKey
         }
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
