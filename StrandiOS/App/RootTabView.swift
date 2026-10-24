@@ -22,6 +22,8 @@ struct RootTabView: View {
     /// attached and would otherwise keep posting AI notifications for a feature the wearer switched off.
     @AppStorage("noop.coachEnabled") private var coachEnabled = true
     @AppStorage("noop.bottomBarAutoHide") private var bottomBarAutoHide = false
+    /// User-controlled preview gate. Default OFF until Phase 2 UI has passed full device validation.
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraTodayPreviewEnabled = false
 
     /// The live gym session, owned at the app root — see `LiftSessionController`.
     @EnvironmentObject private var liftSession: LiftSessionController
@@ -67,7 +69,25 @@ struct RootTabView: View {
 
     /// The reference dashboard is the shipping Today. Prototype views remain available in DEBUG capture routes.
     @ViewBuilder private var todayTabRoot: some View {
-        TodayView()
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Aura preview")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Toggle("Enable Aura preview", isOn: $auraTodayPreviewEnabled)
+                    .labelsHidden()
+                    .accessibilityLabel("Enable Aura preview")
+            }
+            .padding(.horizontal, 18)
+            .frame(minHeight: 44)
+            .background(auraTodayPreviewEnabled ? NoopPalette.canvas : StrandPalette.surfaceBase)
+            .foregroundStyle(auraTodayPreviewEnabled ? NoopPalette.textPrimary : StrandPalette.textPrimary)
+            if auraTodayPreviewEnabled {
+                AuraTodayView(onShowClassic: { auraTodayPreviewEnabled = false })
+            } else {
+                TodayView()
+            }
+        }
     }
 
     /// Native tab selection binding. SwiftUI sends taps on the already-selected item through the
