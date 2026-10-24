@@ -8,7 +8,7 @@ enum WhoopImporter {
 
     /// The WHOOP CSV mapping revision, stamped into the Import test-mode parser line. Bump when this
     /// importer's column->store mapping changes so a shared report's parser version is unambiguous.
-    static let importerVersion = 1
+    static let importerVersion = 2
 
     @discardableResult
     static func importExport(url: URL, into store: WhoopStore, deviceId: String,
@@ -20,6 +20,7 @@ enum WhoopImporter {
         for c in result.cycles {
             guard let day = cycleDay(wake: c.wakeOnset, end: c.cycleEnd, start: c.cycleStart,
                                      tzOffsetMin: c.tzOffsetMin) else { continue }
+            let temperature = temperatureFields(absoluteC: c.skinTempCelsius)
             metrics.append(DailyMetric(
                 day: day,
                 totalSleepMin: c.asleepDurationMin,
@@ -36,8 +37,9 @@ enum WhoopImporter {
                 strain: WhoopExportImporter.effortFromImportedDayStrain(c.dayStrain),
                 exerciseCount: nil,
                 spo2Pct: c.bloodOxygenPct,
-                skinTempDevC: c.skinTempCelsius,   // NOTE: Whoop export gives absolute °C, not a baseline deviation
-                respRateBpm: c.respiratoryRate))
+                skinTempDevC: temperature.deviationC,
+                respRateBpm: c.respiratoryRate,
+                skinTempC: temperature.absoluteC))
         }
 
         // sleeps → CachedSleepSession (stage durations encoded as JSON; export has no per-epoch timeline)
@@ -76,6 +78,8 @@ enum WhoopImporter {
             add(day, "recovery", c.recoveryScore);        add(day, "strain", WhoopExportImporter.effortFromImportedDayStrain(c.dayStrain))
             add(day, "rhr", c.restingHeartRate);          add(day, "hrv", c.hrvMs)
             add(day, "spo2", c.bloodOxygenPct);           add(day, "skin_temp", c.skinTempCelsius)
+            // Keep the historical explorer alias while introducing an explicitly unit-typed key.
+            add(day, "skin_temp_absolute_c", c.skinTempCelsius)
             add(day, "resp_rate", c.respiratoryRate);     add(day, "energy_kcal", c.energyKcal)
             add(day, "avg_hr", c.avgHeartRate);           add(day, "max_hr", c.maxHeartRate)
             add(day, "sleep_total_min", c.asleepDurationMin); add(day, "in_bed_min", c.inBedDurationMin)
@@ -222,6 +226,14 @@ enum WhoopImporter {
         }
 
         return result.summary
+    }
+
+    /// WHOOP's CSV supplies absolute wrist °C. The daily-metric deviation field is reserved
+    /// for differences from a measured personal baseline; there is no baseline in this export.
+    /// Do not infer one. Re-importing the same CSV will replace legacy mis-mapped rows because
+    /// the existing (deviceId, day) upsert writes both temperature columns.
+    static func temperatureFields(absoluteC: Double?) -> (absoluteC: Double?, deviationC: Double?) {
+        (absoluteC: absoluteC, deviationC: nil)
     }
 
     /// The NOOP day a WHOOP cycle belongs to: the local calendar day you WOKE. See

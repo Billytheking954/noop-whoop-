@@ -99,6 +99,23 @@ final class RecoveryScorerTests: XCTestCase {
         XCTAssertGreaterThan(lowered, neutral, "resp below baseline must raise recovery")
     }
 
+    func testLegacyAbsoluteWhoopTemperatureDoesNotPoisonCharge() {
+        func charge(_ deviation: Double?) -> Double {
+            RecoveryScorer.recovery(
+                hrv: 55, rhr: 52, resp: nil,
+                hrvBaseline: baseline(mean: 50, sigma: 6),
+                rhrBaseline: baseline(mean: 55, sigma: 3),
+                respBaseline: nil, sleepPerf: 0.9,
+                skinTempDev: deviation)!
+        }
+        let withoutTemperature = charge(nil)
+        // Old imports mistakenly stored absolute wrist °C in skinTempDevC.
+        XCTAssertEqual(charge(33.1), withoutTemperature, accuracy: 1e-9)
+        XCTAssertEqual(charge(25), withoutTemperature, accuracy: 1e-9)
+        XCTAssertEqual(charge(-33.1), withoutTemperature, accuracy: 1e-9)
+        XCTAssertNotEqual(charge(0.5), withoutTemperature)
+    }
+
     func testSkinTempNilLeavesScoreIdenticalToBefore() {
         // The no-skin-temp path must be byte-identical to the pre-redesign score:
         // when skinTempDev is nil the term drops and the weights renormalize.

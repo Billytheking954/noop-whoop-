@@ -34,7 +34,7 @@ public func importColumnCoverage(_ rows: [DailyMetric]) -> [(String, Int)] {
         ("recovery", rows.filter { $0.recovery != nil }.count),
         ("rhr", rows.filter { $0.restingHr != nil }.count),
         ("hrv", rows.filter { $0.avgHrv != nil }.count),
-        ("skin_temp", rows.filter { $0.skinTempDevC != nil }.count),
+        ("skin_temp", rows.filter { $0.skinTempC != nil || $0.skinTempDevC != nil }.count),
         ("spo2", rows.filter { $0.spo2Pct != nil }.count),
         ("strain", rows.filter { $0.strain != nil }.count),
         ("resp", rows.filter { $0.respRateBpm != nil }.count),

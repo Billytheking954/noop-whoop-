@@ -53,10 +53,17 @@ struct StrandiOSApp: App {
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
     init() {
+        // Register Aura's OFL faces from the StrandDesign resource bundle before building any screen.
+        NoopSpecType.registerFonts()
         // #1008: pin the pre-change Overnight-only default for existing installs before
         // anything reads it. Idempotent; a no-op on fresh installs and after the first launch.
         PuffinExperiment.migrateContinuousHrvOvernightDefault()
         #if DEBUG
+        // Explicit Aura shell capture for GitHub Actions. Release builds cannot enter this path.
+        // The CI simulator is ephemeral; no production preference or measured data is changed.
+        if CommandLine.arguments.contains("--demo-aura") {
+            UserDefaults.standard.set(true, forKey: "noop.auraTodayPreviewEnabled")
+        }
         // DEBUG-only promo-screenshot harness: when launched with `--demo-hour <Int>`, pin Today to that
         // hour's day-cycle scene + a per-hour stat frame. No-op (active stays nil) when the arg is absent.
         // MUST live here, not in StrandApp.swift — that is the macOS @main and is excluded from the iOS
@@ -476,6 +483,8 @@ private struct iOSRootView: View {
                 Group {
                     if CommandLine.arguments.contains("addwizard") {
                         demo
+                    } else if DemoScreens.isAuraRequest {
+                        AuraDemoTabHost(screen: demo)
                     } else {
                         ReferenceDemoTabHost(screen: demo)
                     }
@@ -574,11 +583,18 @@ private struct iOSRootView: View {
 /// DEBUG-only screenshot harness. Maps `--demo-screen <name>` to a single screen so a seeded
 /// simulator build can be captured deterministically (verification + marketing). Stripped from Release.
 enum DemoScreens {
-    /// The screen named by `--demo-screen <name>`, or nil if the arg is absent/unknown.
-    static var requested: AnyView? {
+    static var requestedName: String? {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--demo-screen"), i + 1 < args.count else { return nil }
-        switch args[i + 1].lowercased() {
+        return args[i + 1].lowercased()
+    }
+
+    static var isAuraRequest: Bool { requestedName?.hasPrefix("aura") == true }
+
+    /// The screen named by `--demo-screen <name>`, or nil if the arg is absent/unknown.
+    static var requested: AnyView? {
+        guard let requestedName else { return nil }
+        switch requestedName {
         case "today":    return AnyView(TodayView())
         // The DEFAULT iOS Today (`noop.liquidTodayEnabled` ships true), so it needs its own entry — plain
         // "today" renders the CLASSIC screen, which is exactly the screen whose behaviour Liquid was found
@@ -620,6 +636,32 @@ enum DemoScreens {
         // + self-service pairing guidance, screenshot-able WITHOUT reproducing the bond refusal on real
         // hardware.
         case "bondrefused": return AnyView(BondRefusedDemoScreen())
+        case "auratoday", "auramissing": return AnyView(AuraTodayView(onShowClassic: {}))
+        case "aurarest": return AnyView(AuraRestDetailView())
+        case "aurafitness": return AnyView(AuraFitnessDetailView())
+        case "auratrends": return AnyView(AuraTrendsDetailView())
+        case "aurahealth": return AnyView(AuraHealthSummary())
+        case "auradevices": return AnyView(DevicesView())
+        case "aurasettings": return AnyView(SettingsView())
+        case "aurasleepdetail":
+            let end = Int(Date().timeIntervalSince1970) - 3_600
+            let start = end - 8 * 3_600
+            let stages = """
+            [{"start":\(start),"end":\(start + 1_800),"stage":"wake"},
+             {"start":\(start + 1_800),"end":\(start + 10_800),"stage":"light"},
+             {"start":\(start + 10_800),"end":\(start + 16_200),"stage":"deep"},
+             {"start":\(start + 16_200),"end":\(start + 22_800),"stage":"rem"},
+             {"start":\(start + 22_800),"end":\(end),"stage":"light"}]
+            """
+            return AnyView(AuraSleepNightDetail(session: CachedSleepSession(
+                startTs: start, endTs: end, efficiency: 0.91, restingHr: 51,
+                avgHrv: 67.4, stagesJSON: stages, deviceId: "demo-whoop")))
+        case "auraworkoutdetail":
+            let end = Int(Date().timeIntervalSince1970) - 7_200
+            return AnyView(AuraWorkoutSessionDetail(row: WorkoutRow(
+                startTs: end - 3_600, endTs: end, sport: "Run", source: "demo-whoop",
+                durationS: 3_600, energyKcal: 486, avgHr: 147, maxHr: 181, strain: 62,
+                distanceM: 10_240, zonesJSON: nil, notes: nil, steps: 10_912)))
         default:         return nil
         }
     }
@@ -662,6 +704,50 @@ private struct ReferenceDemoTabHost: View {
             root(SettingsView(), tag: 3).tabItem { Label("More", systemImage: "ellipsis") }.tag(3)
         }
         .tint(ReferenceStyle.blue)
+        .onAppear { selection = screenTab }
+    }
+}
+
+/// DEBUG-only wrapper that keeps Aura detail captures inside the same five-tab visual shell.
+private struct AuraDemoTabHost: View {
+    let screen: AnyView
+    @State private var selection = 0
+
+    private var screenTab: Int {
+        switch DemoScreens.requestedName {
+        case "aurarest", "aurasleepdetail": return 1
+        case "aurafitness", "auraworkoutdetail": return 2
+        case "auratrends": return 3
+        case "auradevices", "aurasettings": return 4
+        default: return 0
+        }
+    }
+
+    private func root<V: View>(_ view: V, tag: Int) -> some View {
+        NavigationStack {
+            Group {
+                if tag == screenTab { screen } else { AnyView(view) }
+            }
+            .background(NoopPalette.canvas.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    var body: some View {
+        TabView(selection: $selection) {
+            root(AuraTodayView(onShowClassic: {}), tag: 0)
+                .tabItem { Label("Today", systemImage: "house") }.tag(0)
+            root(AuraRestDetailView(), tag: 1)
+                .tabItem { Label("Rest", systemImage: "moon.stars") }.tag(1)
+            root(AuraFitnessDetailView(), tag: 2)
+                .tabItem { Label("Fitness", systemImage: "figure.run") }.tag(2)
+            root(AuraTrendsDetailView(), tag: 3)
+                .tabItem { Label("Trends", systemImage: "chart.xyaxis.line") }.tag(3)
+            root(DevicesView(), tag: 4)
+                .tabItem { Label("You", systemImage: "person.crop.circle") }.tag(4)
+        }
+        .tint(NoopSpecTokens.auraPale)
+        .preferredColorScheme(.dark)
         .onAppear { selection = screenTab }
     }
 }

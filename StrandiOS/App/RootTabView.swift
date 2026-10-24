@@ -22,6 +22,8 @@ struct RootTabView: View {
     /// attached and would otherwise keep posting AI notifications for a feature the wearer switched off.
     @AppStorage("noop.coachEnabled") private var coachEnabled = true
     @AppStorage("noop.bottomBarAutoHide") private var bottomBarAutoHide = false
+    /// Aura is the primary iPhone presentation. The unchanged V2 dashboard remains a reversible fallback.
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraTodayPreviewEnabled = true
 
     /// The live gym session, owned at the app root — see `LiftSessionController`.
     @EnvironmentObject private var liftSession: LiftSessionController
@@ -29,6 +31,7 @@ struct RootTabView: View {
     /// that state; keeping it explicit here prevents this shell's window-level sheet from covering a gate.
     let homeScreenQuickActionsEnabled: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var repo: Repository
     /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab — it lives
     /// behind the More list — so a request presents it as a sheet, matching the quick-action screens.
@@ -65,9 +68,28 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// The reference dashboard is the shipping Today. Prototype views remain available in DEBUG capture routes.
+    /// Keep the classic-only interface control outside Aura's actual dashboard.
+    /// Aura retains an explicit Full V2 dashboard fallback inside its Today screen.
     @ViewBuilder private var todayTabRoot: some View {
-        TodayView()
+        if auraTodayPreviewEnabled {
+            AuraTodayView(onShowClassic: { auraTodayPreviewEnabled = false })
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Text(String(localized: "Aura interface", table: "AuraPreview"))
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Toggle(String(localized: "Use Aura interface", table: "AuraPreview"), isOn: $auraTodayPreviewEnabled)
+                        .labelsHidden()
+                        .accessibilityLabel(Text(String(localized: "Use Aura interface", table: "AuraPreview")))
+                }
+                .padding(.horizontal, 18)
+                .frame(minHeight: 44)
+                .background(StrandPalette.surfaceBase)
+                .foregroundStyle(StrandPalette.textPrimary)
+                TodayView()
+            }
+        }
     }
 
     /// Native tab selection binding. SwiftUI sends taps on the already-selected item through the
@@ -110,12 +132,10 @@ struct RootTabView: View {
                 guard selectedTab != 0 else { return }
                 let dx = v.translation.width, dy = v.translation.height
                 guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
-                let tabs = [0, 1, 2, 4]
-                guard let index = tabs.firstIndex(of: selectedTab) else { return }
-                let next = tabs[min(tabs.count - 1, max(0, index + (dx < 0 ? 1 : -1)))]
-                if next != selectedTab {
-                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
-                }
+                guard let next = AuraShellTabs.adjacent(
+                    to: selectedTab, towardsNext: dx < 0, auraEnabled: auraTodayPreviewEnabled
+                ) else { return }
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
             }
     }
 
@@ -125,16 +145,33 @@ struct RootTabView: View {
         // the corresponding system material and safe-area behaviour from the same TabView.
         TabView(selection: nativeTabSelection) {
             tab(todayTabRoot, "Today", "house", path: $tabPaths[0], scrollSignal: scrollTop[0]).tag(0)
-            tab(HealthView(), "Health", "heart", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
-            tab(WorkoutsView(), "Activity", "chart.bar", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
+            if auraTodayPreviewEnabled {
+                // Aura reuses the original five
+                // navigation paths, V2-owned Repository and all existing More/deep-link routes.
+                tab(AuraRestDetailView(), "Rest", "moon.stars", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
+                tab(AuraFitnessDetailView(), "Fitness", "figure.run", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
+                tab(AuraTrendsDetailView(), "Trends", "chart.xyaxis.line", path: $tabPaths[3], scrollSignal: scrollTop[3]).tag(3)
+            } else {
+                tab(HealthView(), "Health", "heart", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
+                tab(WorkoutsView(), "Activity", "chart.bar", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
+            }
             moreTab(path: $tabPaths[4], scrollSignal: scrollTop[4]).tag(4)
         }
-        .tint(StrandPalette.accent)
+        .tint(auraTodayPreviewEnabled ? NoopSpecTokens.auraPale : StrandPalette.accent)
+        // Aura's palette is a scheme-invariant dark composition. Avoid a light system bar
+        // over its dark text/surfaces without rewriting the app-wide appearance preference.
+        .preferredColorScheme(auraTodayPreviewEnabled ? .dark : nil)
+        // Switching between shells never carries a route from a differently typed tab root.
+        // The five NavigationStack identities stay stable; only the opted-in tab content changes.
+        .onChangeCompat(of: auraTodayPreviewEnabled) { _ in
+            selectedTab = 0
+            for index in 1...3 { tabPaths[index] = NavigationPath() }
+        }
         // Switching Coach off while STANDING on it leaves `selectedTab` pointing at a tag no tab claims
         // any more, which renders as an empty tab rather than as an error. Send that wearer to Today, and
         // only in that case, so a flip made from anywhere else does not move them.
         .onChangeCompat(of: coachEnabled) { enabled in
-            if !enabled && selectedTab == 3 { selectedTab = 0 }
+            if !enabled && !auraTodayPreviewEnabled && selectedTab == 3 { selectedTab = 0 }
         }
         // #1841: the same "Hide bar when scrolling" preference Android drives its own bar with. Here the
         // system owns the behaviour — iOS 26's tab bar MINIMISES to a pill on scroll down rather than
@@ -142,7 +179,8 @@ struct RootTabView: View {
         .noopTabBarAutoHide(bottomBarAutoHide)
             // Tab crossfade — README §Motion: ~240ms opacity swap between tab roots, global calm
             // easing cubic-bezier(0.22,1,0.36,1).
-            .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
+            .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.24),
+                       value: selectedTab)
             // Swipe left/right anywhere to move between tabs (2026-07-02), but ONLY while the current
             // tab is at its root. Attaching this ancestor drag gesture unconditionally defeated the
             // edge-restriction of a pushed NavigationStack screen's native interactive-pop gesture —
@@ -238,6 +276,16 @@ struct RootTabView: View {
         // A cold-launch selection is already pending when this shell appears; a warm selection arrives
         // through the change callback. Both route through the same screens as the centre FAB.
         .onAppear {
+            #if DEBUG
+            // Simulator-only screenshot selector; never changes the production tab selection.
+            let arguments = CommandLine.arguments
+            if arguments.contains("--demo-aura"),
+               let index = arguments.firstIndex(of: "--demo-aura-tab"),
+               arguments.indices.contains(index + 1),
+               let tab = Int(arguments[index + 1]), (0...4).contains(tab) {
+                selectedTab = tab
+            }
+            #endif
             presentPendingHomeScreenQuickActionIfPossible()
         }
         .onChange(of: homeScreenQuickActions.pendingAction) { _, _ in
@@ -437,67 +485,113 @@ struct RootTabView: View {
     // + SectionHeader's UPPERCASE overline + the 28pt section rhythm). Rebuilt on the shared page chrome:
     // ScreenScaffold for the title1 "More" + subtitle, a `SectionHeader` overline per group, and the group's
     // rows in a single grouped NoopCard with hairline dividers — the same row idiom Settings/Health use.
+    /// Single index shared by both shell skins: rows and destinations remain identical.
+    /// Navigation value links continue to resolve through the existing MoreDestination handler.
+    @ViewBuilder private var moreIndexContent: some View {
+        if auraTodayPreviewEnabled {
+            moreSection("Essentials") {
+                MoreRow("Devices", "applewatch.radiowaves.left.and.right", .devices)
+                MoreRow("Settings", "gearshape.fill", .settings)
+                MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
+                MoreRow("Data Sources", "externaldrive.fill", .dataSources)
+            }
+        }
+        moreSection("Insights") {
+            MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
+            MoreRow("Intelligence", "brain.head.profile", .intelligence)
+            MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
+            MoreRow("Sleep", "bed.double", .sleep)
+            if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
+            MoreRow("Insights", "lightbulb.fill", .insights)
+            MoreRow("Explore", "square.grid.2x2.fill", .explore)
+            MoreRow("Compare", "rectangle.split.2x1.fill", .compare)
+        }
+        moreSection("Body") {
+            if auraTodayPreviewEnabled {
+                MoreRow("Health & Stress", "heart.text.square", .auraHealth)
+            }
+            MoreRow("Live", "waveform.path.ecg", .live)
+            MoreRow("Workouts", "figure.run", .workouts)
+            MoreRow("Lift Log", "dumbbell.fill", .liftLog)
+            MoreRow("Health", "heart.text.square.fill", .health)
+            MoreRow("Lab Book", "books.vertical.fill", .labBook)
+            MoreRow("Stress", "bolt.heart.fill", .stress)
+            MoreRow("Breathe", "wind", .breathe)
+            MoreRow("Intervals", "timer", .intervals)
+            // Experimental beat-to-beat regularity visualization — self-gates on its own consent.
+            MoreRow("Rhythm", "waveform.path", .rhythm)
+        }
+        moreSection("Data") {
+            MoreRow("Your Data, Fused", "square.stack.3d.up.fill", .fusedRecord)
+            MoreRow("Apple Health", "heart.fill", .appleHealth)
+            MoreRow("Mi Band", "figure.walk.motion", .miBand)
+            if !auraTodayPreviewEnabled {
+                MoreRow("Data Sources", "externaldrive.fill", .dataSources)
+                MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
+            }
+            // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
+            // reads the opt-in Documents/noop_sync.txt drop file).
+            MoreRow("Shortcuts Export", "square.and.arrow.up.fill", .shortcutsExport)
+            // The plain 4.0 vs 5.0/MG capability grid — what NOOP reads live off each strap.
+            MoreRow("NOOP Limitations", "list.bullet.rectangle", .noopLimitations)
+        }
+        moreSection("App") {
+            // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
+            // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
+            // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
+            // (route to SmartAlarmView, the cross-platform iOS/macOS surface).
+            //
+            // Notifications (RootView .notifications) is deliberately NOT added: that screen is
+            // macOS-only (it picks which Mac apps tap your wrist via NSWorkspace, imports AppKit,
+            // and project.yml excludes Screens/NotificationSettingsView.swift from the iOS target),
+            // so it can't compile or apply on iPhone. iPhone's wrist-alert controls live on the
+            // Automations screen instead. Its absence from the iPhone More list is correct.
+            MoreRow("Alarms", "alarm.fill", .alarms)
+            MoreRow("Automations", "wand.and.stars", .automations)
+            MoreRow("Notifications", "bell.badge", .dailyInsightNotifications)
+            // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
+            // just buried in Settings, so the feedback loop is one tap from the More tab.
+            MoreRow("Test Centre", "stethoscope", .testCentre)
+            MoreRow("Siri & Shortcuts", "mic.fill", .siriShortcuts)
+            // #477 lives here rather than inside Settings: the strap-battery levers are the
+            // ones people reach for when a strap is running down, so they get their own row.
+            MoreRow("Power saving", "battery.25", .powerSaving)
+            if !auraTodayPreviewEnabled {
+                MoreRow("Settings", "gearshape.fill", .settings)
+            }
+        }
+
+    }
+
     private func moreTab(path: Binding<NavigationPath>, scrollSignal: Int) -> some View {
         NavigationStack(path: path) {
-            ScreenScaffold(title: "More", subtitle: "Everything else, one tap away",
-                           onRefresh: { await repo.refresh() },
-                           topBackground: liquidScaffoldSky()) {
-                moreSection("Insights") {
-                    MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
-                    MoreRow("Intelligence", "brain.head.profile", .intelligence)
-                    MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
-                    MoreRow("Sleep", "bed.double", .sleep)
-                    if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
-                    MoreRow("Insights", "lightbulb.fill", .insights)
-                    MoreRow("Explore", "square.grid.2x2.fill", .explore)
-                    MoreRow("Compare", "rectangle.split.2x1.fill", .compare)
-                }
-                moreSection("Body") {
-                    MoreRow("Live", "waveform.path.ecg", .live)
-                    MoreRow("Workouts", "figure.run", .workouts)
-                    MoreRow("Lift Log", "dumbbell.fill", .liftLog)
-                    MoreRow("Health", "heart.text.square.fill", .health)
-                    MoreRow("Lab Book", "books.vertical.fill", .labBook)
-                    MoreRow("Stress", "bolt.heart.fill", .stress)
-                    MoreRow("Breathe", "wind", .breathe)
-                    MoreRow("Intervals", "timer", .intervals)
-                    // Experimental beat-to-beat regularity visualization — self-gates on its own consent.
-                    MoreRow("Rhythm", "waveform.path", .rhythm)
-                }
-                moreSection("Data") {
-                    MoreRow("Your Data, Fused", "square.stack.3d.up.fill", .fusedRecord)
-                    MoreRow("Apple Health", "heart.fill", .appleHealth)
-                    MoreRow("Mi Band", "figure.walk.motion", .miBand)
-                    MoreRow("Data Sources", "externaldrive.fill", .dataSources)
-                    MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
-                    // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
-                    // reads the opt-in Documents/noop_sync.txt drop file).
-                    MoreRow("Shortcuts Export", "square.and.arrow.up.fill", .shortcutsExport)
-                    // The plain 4.0 vs 5.0/MG capability grid — what NOOP reads live off each strap.
-                    MoreRow("NOOP Limitations", "list.bullet.rectangle", .noopLimitations)
-                }
-                moreSection("App") {
-                    // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
-                    // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
-                    // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
-                    // (route to SmartAlarmView, the cross-platform iOS/macOS surface).
-                    //
-                    // Notifications (RootView .notifications) is deliberately NOT added: that screen is
-                    // macOS-only (it picks which Mac apps tap your wrist via NSWorkspace, imports AppKit,
-                    // and project.yml excludes Screens/NotificationSettingsView.swift from the iOS target),
-                    // so it can't compile or apply on iPhone. iPhone's wrist-alert controls live on the
-                    // Automations screen instead. Its absence from the iPhone More list is correct.
-                    MoreRow("Alarms", "alarm.fill", .alarms)
-                    MoreRow("Automations", "wand.and.stars", .automations)
-                    MoreRow("Notifications", "bell.badge", .dailyInsightNotifications)
-                    // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
-                    // just buried in Settings, so the feedback loop is one tap from the More tab.
-                    MoreRow("Test Centre", "stethoscope", .testCentre)
-                    MoreRow("Siri & Shortcuts", "mic.fill", .siriShortcuts)
-                    // #477 lives here rather than inside Settings: the strap-battery levers are the
-                    // ones people reach for when a strap is running down, so they get their own row.
-                    MoreRow("Power saving", "battery.25", .powerSaving)
-                    MoreRow("Settings", "gearshape.fill", .settings)
+            Group {
+                if auraTodayPreviewEnabled {
+                    ZStack {
+                        NoopPalette.canvas.ignoresSafeArea()
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 22) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    NoopSpecCaption(String(localized: "Your space", table: "AuraPreview"))
+                                    Text(String(localized: "You", table: "AuraPreview"))
+                                        .font(NoopSpecType.screenTitle)
+                                        .foregroundStyle(NoopPalette.textPrimary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                moreIndexContent
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 20)
+                        }
+                        .refreshable { await repo.refresh() }
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                } else {
+                    ScreenScaffold(title: "More", subtitle: "Everything else, one tap away",
+                                   onRefresh: { await repo.refresh() },
+                                   topBackground: liquidScaffoldSky()) {
+                        moreIndexContent
+                    }
                 }
             }
             // The rows push MoreDestination VALUES so a re-tap of the More tab can pop them off the
@@ -516,7 +610,13 @@ struct RootTabView: View {
         }
         // Scroll the More index to the top on an at-root re-tap (#198 follow-up); read by its ScreenScaffold.
         .environment(\.scrollToTopSignal, scrollSignal)
-        .tabItem { Label("More", systemImage: "ellipsis") }
+        .tabItem {
+            if auraTodayPreviewEnabled {
+                Label("You", systemImage: "person.crop.circle")
+            } else {
+                Label("More", systemImage: "ellipsis")
+            }
+        }
     }
 
     /// One titled, COLLAPSIBLE group in the More index (S2): the app's overline (UPPERCASE) becomes a
@@ -544,6 +644,7 @@ struct RootTabView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text(title).strandOverline()
+                        .foregroundStyle(auraTodayPreviewEnabled ? NoopPalette.textSecondary : StrandPalette.textSecondary)
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
@@ -562,12 +663,18 @@ struct RootTabView: View {
                 // Zero internal padding so each MoreRow owns its own comfortable insets + height; the rows
                 // supply their own hairline separators (drawn at the bottom of every row but the last via the
                 // divider overlay) so the group reads as one continuous grouped list, matching Settings/Health.
-                NoopCard(padding: 0) {
-                    VStack(spacing: 0) { rows() }
-                        // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
-                        // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
-                        // clip content itself, so without this the final divider would run past the rounded edge).
-                        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+                if auraTodayPreviewEnabled {
+                    NoopSpecCard(.list) {
+                        VStack(spacing: 0) { rows() }
+                    }
+                } else {
+                    NoopCard(padding: 0) {
+                        VStack(spacing: 0) { rows() }
+                            // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
+                            // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
+                            // clip content itself, so without this the final divider would run past the rounded edge).
+                            .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+                    }
                 }
             }
         }
@@ -579,13 +686,15 @@ struct RootTabView: View {
 /// per-screen chrome the old inline links applied lives at the single `navigationDestination(for:)`
 /// registration in `moreTab`.
 private enum MoreDestination: Hashable {
+    case auraHealth
     case insightsHub, intelligence, coach, insights, explore, compare, trends, sleep
     case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
-    case fusedRecord, appleHealth, miBand, dataSources, backupSync, shortcutsExport, noopLimitations
+    case fusedRecord, appleHealth, miBand, devices, dataSources, backupSync, shortcutsExport, noopLimitations
     case alarms, automations, dailyInsightNotifications, testCentre, siriShortcuts, powerSaving, settings
 
     @ViewBuilder var destination: some View {
         switch self {
+        case .auraHealth:     AuraHealthSummary()
         case .insightsHub:     InsightsHubView()
         case .intelligence:    IntelligenceView()
         case .coach:           CoachView()
@@ -606,6 +715,7 @@ private enum MoreDestination: Hashable {
         case .fusedRecord:     FusedRecordHost()
         case .appleHealth:     AppleHealthView()
         case .miBand:          XiaomiBandView()
+        case .devices:         DevicesView()
         case .dataSources:     DataSourcesView()
         case .noopLimitations: NoopLimitationsView()
         case .backupSync:      BackupSyncView()
@@ -627,6 +737,7 @@ private enum MoreDestination: Hashable {
 /// trailing `chevron.right` in `textTertiary`. ~44pt min height + the card's row insets keep the whole row a
 /// comfortable tap target.
 private struct MoreRow: View {
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraEnabled = true
     let title: LocalizedStringKey
     let icon: String
     let route: MoreDestination
@@ -643,15 +754,15 @@ private struct MoreRow: View {
                 // explicit foregroundStyle on the image overrides that; the title keeps the primary colour.
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(StrandPalette.accent)
+                    .foregroundStyle(auraEnabled ? NoopPalette.accent : StrandPalette.accent)
                     .frame(width: 26, alignment: .center)
                 Text(title)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .font(auraEnabled ? NoopSpecType.rowLabel : StrandFont.body)
+                    .foregroundStyle(auraEnabled ? NoopPalette.textPrimary : StrandPalette.textPrimary)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
+                    .foregroundStyle(auraEnabled ? NoopPalette.textSecondary : StrandPalette.textTertiary)
             }
             .padding(.horizontal, 16)
             .frame(minHeight: 44)
@@ -661,7 +772,7 @@ private struct MoreRow: View {
             // edge stays clean (the divider sits inside the card's rounded corners).
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(StrandPalette.hairline)
+                    .fill(auraEnabled ? NoopPalette.cardBorder : StrandPalette.hairline)
                     .frame(height: 1)
                     .padding(.leading, 16)
             }

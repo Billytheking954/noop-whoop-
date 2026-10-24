@@ -41,7 +41,11 @@ def main() -> int:
         print(f"  OK no new un-extracted literals ({len(ios_found)} pre-existing baseline entries)")
 
     print("\n--- iPhone: focus locales complete and format-safe ---")
-    for _dirs, catalog_path in audit.CATALOGS:
+    aura_path = audit.ROOT / "Strand/Resources/AuraPreview.xcstrings"
+    catalogs_to_verify = list(audit.CATALOGS)
+    if aura_path.is_file():
+        catalogs_to_verify.append(([audit.ROOT / "Strand/Screens"], aura_path))
+    for _dirs, catalog_path in catalogs_to_verify:
         cat = audit.load_catalog(catalog_path)
         for lang in audit.LANGS:
             missing = sum(

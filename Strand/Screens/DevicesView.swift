@@ -13,6 +13,7 @@ import WhoopProtocol   // Whoop5Ecg.WristSelection — the MG ECG wrist-selectio
 // goes through a registry op, and the `SourceCoordinator` (already wired in AppModel) reacts to the
 // active-device change — so this view never touches BLEManager or the WHOOP path directly.
 struct DevicesView: View {
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraEnabled = true
     @EnvironmentObject var model: AppModel
     // PERF: this OUTER view does NOT observe `LiveState`. It only branches on `model.deviceRegistry`
     // becoming non-nil and hands off to `DevicesContent`, which owns its own `@EnvironmentObject live`
@@ -23,7 +24,11 @@ struct DevicesView: View {
     var body: some View {
         #if os(iOS)
         if let registry = model.deviceRegistry {
-            ConceptDeviceView(registry: registry)
+            if auraEnabled {
+                AuraDevicesOverview(registry: registry)
+            } else {
+                ConceptDeviceView(registry: registry)
+            }
         } else {
             DataPendingNote(
                 title: "Getting your devices ready",
@@ -427,7 +432,7 @@ private struct ConceptDeviceView: View {
 /// The screen body once `DeviceRegistry` exists. Split out so it can observe the registry's
 /// `@Published devices` / `activeDeviceId` directly — the parent only observes `model.deviceRegistry`
 /// becoming non-nil.
-private struct DevicesContent: View {
+struct DevicesContent: View {
     @ObservedObject var registry: DeviceRegistry
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState

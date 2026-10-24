@@ -9,7 +9,7 @@ name: Swift Packages CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, integration/aura-v2-candidate-20261024]
     paths:
       - 'Packages/**'
       - 'Tools/SleepBench/**'

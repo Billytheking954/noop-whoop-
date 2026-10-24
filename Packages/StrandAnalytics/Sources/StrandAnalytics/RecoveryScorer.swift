@@ -358,7 +358,11 @@ public enum RecoveryScorer {
         }
         // Skin-temp term: SYMMETRIC penalty on |deviation| (illness/overreach). Any
         // drift from the personal baseline lowers Charge; added only when supplied.
-        if let dev = skinTempDev {
+        // Legacy WHOOP CSVs incorrectly wrote absolute wrist °C (~30–35) into the
+        // signed-deviation column. Ignore impossible deviations until they are re-imported
+        // into skinTempC. Never use an absolute temperature to penalise NOOP Charge.
+        // The ±8 °C outer bound matches VitalBands.skinTempDeviationCfg.
+        if let dev = skinTempDev, dev.isFinite, (-8.0...8.0).contains(dev) {
             terms.append((-abs(dev) / skinTempScaleC, wSkinTemp))
         }
         // Recovery-Index term: overnight HR-DECLINE slope (bpm/hour). No baseline needed (a

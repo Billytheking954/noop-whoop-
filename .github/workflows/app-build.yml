@@ -2,7 +2,7 @@ name: App build (iPhone)
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, integration/aura-v2-candidate-20261024]
     paths:
       - 'Strand/**'
       - 'StrandTests/**'
@@ -165,6 +165,37 @@ jobs:
             xcrun simctl io "$UDID" screenshot "$EXTRA_DIR/$SCREEN-dark.png"
           done
 
+          # Capture the real five-tab Aura shell, not a classic `--demo-screen` route.
+          # Only DEBUG runs can force a particular tab; production starts in Aura but keeps V2 fallback.
+          AURA_DIR="$RUNNER_TEMP/noop-ui-review-aura"
+          mkdir -p "$AURA_DIR"
+          xcrun simctl ui "$UDID" appearance dark
+          for TAB in 0 1 2 3 4; do
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-aura --demo-aura-tab "$TAB"
+            sleep 18
+            xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-tab-$TAB-dark.png"
+          done
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-aura --demo-aura-tab 0 \
+            -UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityM
+          sleep 18
+          xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-today-accessibility-medium-dark.png"
+          for SCREEN in aurarest aurasleepdetail aurafitness auraworkoutdetail aurahealth auratrends auradevices aurasettings; do
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
+            sleep 18
+            xcrun simctl io "$UDID" screenshot "$AURA_DIR/$SCREEN-dark.png"
+          done
+          # Remove the seeded app container first: omitting --demo-seed alone would retain the
+          # prior launches' synthetic database and would not actually exercise the empty state.
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl uninstall "$UDID" "$BUNDLE_ID"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-screen auramissing
+          sleep 18
+          xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-missing-data-dark.png"
+
       - name: Upload seeded design review screenshots
         if: always() && steps.capture.outcome == 'success'
         uses: actions/upload-artifact@v4
@@ -180,5 +211,14 @@ jobs:
         with:
           name: noop-iphone-ui-review-extra
           path: ${{ runner.temp }}/noop-ui-review-extra/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Aura shell visual acceptance captures
+        if: always() && steps.capture.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-iphone-aura-shell-review
+          path: ${{ runner.temp }}/noop-ui-review-aura/*.png
           if-no-files-found: error
           retention-days: 14
