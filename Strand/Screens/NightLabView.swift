@@ -100,7 +100,7 @@ struct NightLabView: View {
                 Text(String(localized: "Night overview", table: "AuraPreview")).font(.title2.weight(.semibold))
                 Text(NightLabInspectionFormatting.timestamp(m.windowStartUnix, offset: m.timezoneOffsetSeconds))
                     .font(.headline)
-                Text("Recording ends: \(NightLabInspectionFormatting.timestamp(m.windowEndUnix, offset: m.timezoneOffsetSeconds))")
+                Text(String(format: String(localized: "Recording ends: %@", table: "AuraPreview"), NightLabInspectionFormatting.timestamp(m.windowEndUnix, offset: m.timezoneOffsetSeconds)))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Label(m.state == .sealed ? String(localized: "Evidence sealed", table: "AuraPreview") : "Incomplete archive",
@@ -123,12 +123,12 @@ struct NightLabView: View {
             } else {
                 NoopCard {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("No validated sleep-stage timeline")
+                        Text(String(localized: "No validated sleep-stage timeline", table: "AuraPreview"))
                             .font(.headline)
-                        Text("This archived night has no validated staging baseline. Sleep stages and estimated time asleep cannot be shown without one.")
+                        Text(String(localized: "This archived night has no validated staging baseline. Sleep stages and estimated time asleep cannot be shown without one.", table: "AuraPreview"))
                             .font(.subheadline).foregroundStyle(.secondary)
                         if value.baselineError != nil {
-                            Text("Saved staging evidence failed validation; see archive details.")
+                            Text(String(localized: "Saved staging evidence failed validation; see archive details.", table: "AuraPreview"))
                                 .font(.footnote).foregroundStyle(.orange)
                         }
                     }
@@ -274,15 +274,15 @@ struct NightLabView: View {
                         stageTile("Deep", seconds: deep, classifiedSeconds: classifiedSeconds, tint: StrandPalette.metricPurple)
                         stageTile("REM", seconds: rem, classifiedSeconds: classifiedSeconds, tint: StrandPalette.restColor)
                     }
-                    Text("Percentages are of saved classified stage time, excluding gaps.")
+                    Text(String(localized: "Percentages are of saved classified stage time, excluding gaps.", table: "AuraPreview"))
                         .font(.footnote).foregroundStyle(.secondary)
                     if unclassifiedSeconds > 0 {
-                        Text("Time without saved stage estimates: \(durationText(unclassifiedSeconds))")
+                        Text(String(format: String(localized: "Time without saved stage estimates: %@", table: "AuraPreview"), durationText(unclassifiedSeconds)))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     NightLabHypnogramView(baseline: baseline)
                 } else {
-                    Text("No saved classified sleep-stage intervals")
+                    Text(String(localized: "No saved classified sleep-stage intervals", table: "AuraPreview"))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Text(String(localized: "Stages are model estimates, not clinically verified sleep stages.", table: "AuraPreview"))
