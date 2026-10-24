@@ -34,9 +34,9 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(mapped.restingHeartRate.value, 52)
     }
 
-    func testSleepEfficiencyStoredFractionConvertsToPercentOnce() {
+    func testSleepEfficiencyStoredFractionConvertsToPercentOnce() throws {
         let rest = AuraRestAdapter.map(day(), todayKey: "2026-10-24")
-        XCTAssertEqual(rest.sleepEfficiency.value, 92, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(rest.sleepEfficiency.value), 92, accuracy: 0.001)
         XCTAssertEqual(rest.deepMinutes.kind, .estimated)
         let imported = AuraRestAdapter.map(day(), todayKey: "2026-10-24",
                                            stagesAreVendorDerived: true)
