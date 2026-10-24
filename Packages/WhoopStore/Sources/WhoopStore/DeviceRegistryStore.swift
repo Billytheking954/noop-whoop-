@@ -169,8 +169,9 @@ public struct DeviceRegistryStore: Sendable {
         // so forgetting that source must clear them — otherwise an imported phone's hour-by-hour step
         // history survives the delete (the same privacy defect this list exists to close).
         "appleStepHour",
-        // v48-apple-health-workout-identity: source workout UUIDs are personal HealthKit metadata.
-        "appleHealthWorkoutIdentity",
+        // v48/v49 Apple Health identities are personal HealthKit metadata and must be removed with
+        // the source device just like the imported rows they identify.
+        "appleHealthWorkoutIdentity", "appleHealthSampleIdentity",
         // v46-lift-log: every table in the strength log is deviceId-keyed, including the child rows
         // (liftProgramItem, liftSet). They are joined to their parents by id, not by a foreign key, so
         // if the children were left off this list a "delete all of this device's data" would strip the
