@@ -190,13 +190,15 @@ extension WhoopStore {
             for offset in stride(from: 0, to: keys.count, by: 400) {
                 let chunk = Array(keys[offset..<min(offset + 400, keys.count)])
                 let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                var arguments: [DatabaseValueConvertible?] = [deviceId, typeIdentifier]
+                arguments.append(contentsOf: chunk)
                 let rows = try Row.fetchAll(
                     db,
                     sql: """
                         SELECT uuid, day, startTs, value FROM appleHealthSampleIdentity
                         WHERE deviceId = ? AND typeIdentifier = ? AND uuid IN (\(placeholders))
                         """,
-                    arguments: [deviceId, typeIdentifier] + chunk
+                    arguments: StatementArguments(arguments)
                 )
                 for row in rows {
                     let uuid: String = row["uuid"]
