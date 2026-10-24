@@ -24,6 +24,9 @@ final class SleepTimezoneClassificationTests: XCTestCase {
                                        file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertFalse(SleepStageTotals.isOvernightOnset(onset, offsetSec: staleOffset), file: file, line: line)
         XCTAssertTrue(SleepStageTotals.isOvernightOnset(onset, timeZone: timeZone), file: file, line: line)
+        XCTAssertFalse(SleepStager.isOvernightOnset(onset, tzOffsetSeconds: staleOffset), file: file, line: line)
+        XCTAssertTrue(SleepStager.isOvernightOnset(onset, tzOffsetSeconds: staleOffset,
+                                                    timeZone: timeZone), file: file, line: line)
 
         let block = PhysiologicalSteps.SleepBlock(onset: onset, end: onset + 4 * 3_600, id: "night")
         let legacy = PhysiologicalSteps.classifyForCycle([block], offsetSec: staleOffset,
