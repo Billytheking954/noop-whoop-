@@ -181,6 +181,12 @@ public enum AnalyticsEngine {
         dayString(ts + offsetSec)
     }
 
+    /// Format a unix-seconds timestamp using the zone rules at that historical instant.
+    public static func dayString(_ ts: Int, timeZone: TimeZone) -> String {
+        let instant = Date(timeIntervalSince1970: TimeInterval(ts))
+        return LocalDayWindows(timeZone: timeZone, referenceInstant: instant).dayKey(for: instant)
+    }
+
     /// UTC-midnight epoch seconds of an ISO `day` key (yyyy-MM-dd). `isoDay` is a FIXED-UTC formatter,
     /// so `dayString(ts, offsetSec:) == day` ⇔ `(ts + offsetSec) ∈ [dayStartUtcSeconds(day), +86400)` —
     /// an integer range check that replaces the per-sample DateFormatter the full-day stream filters in
@@ -336,7 +342,7 @@ public enum AnalyticsEngine {
                                   // falls back to the same night window the rest of the analysis uses
                                   // (preserving the pure-function contract). The caller
                                   // (IntelligenceEngine) supplies a full
-                                  // [localMidnight(day), localMidnight(day)+86400) read here so a
+                                  // [localMidnight(day), nextLocalMidnight(day)) read here so a
                                   // day's late hours — which fall outside the ~42h night-detection
                                   // window (it ends at dayStart+12h ≈ noon) — are still seen.
                                   //
@@ -419,6 +425,9 @@ public enum AnalyticsEngine {
                                   // it down; pure-function callers/tests leave it nil and stay on the
                                   // cold-start band. (#547)
                                   habitualMidsleepSec: Int? = nil,
+                                  // Rule-aware local wall time for historical main-night selection. Nil preserves
+                                  // the explicit fixed-offset contract used by pure-function callers.
+                                  localTimeZone: TimeZone? = nil,
                                   // The strap's OWN persisted v18 BAND sleep_state per timestamp (Interpreter's
                                   // `(sb>>4)&3`: 0 wake/1 still/2 asleep/3 up). Consumed ONLY to confirm a
                                   // borderline H7 morning re-onset — a daytime block the strap itself scored
@@ -491,23 +500,28 @@ public enum AnalyticsEngine {
                                   // %HRR with no floor. Threaded rather than read from a global so this
                                   // stays a pure function, and defaulted so every existing caller and
                                   // test is byte-identical.
-                                  effortMethod: StrainScorer.Method = .edwards) -> DayResult {
+                                  effortMethod: StrainScorer.Method = .edwards,
+                                  // Exact UTC bounds of the local calendar day when the caller owns a
+                                  // rule-aware TimeZone. nil preserves the fixed-offset pure-function contract.
+                                  calendarDayBounds: Range<Int>? = nil) -> DayResult {
 
-        // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
-        // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
-        // [dayStartUtc, +86400). That turns the day-bucketing filters below — otherwise a per-sample
-        // DateFormatter over the full-day dayHr/daySteps streams (~86k 1 Hz samples each) once per
-        // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
-        // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
+        // Precompute the legacy fixed-offset bounds once (#996). Production scoring supplies
+        // calendarDayBounds, resolved from the time zone's own rules, so a 23/25-hour DST day is
+        // bounded by its two real local midnights. The fixed-offset fallback remains byte-identical
+        // for pure-function callers that do not own a TimeZone.
         let dayStartUtc = dayStartUtcSeconds(day)
         let dayEndUtc = dayStartUtc + 86_400
-        func tsInDay(_ ts: Int) -> Bool { (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc }
+        func tsInDay(_ ts: Int) -> Bool {
+            if let calendarDayBounds { return calendarDayBounds.contains(ts) }
+            return (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc
+        }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
         let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                                   tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                                   bandSleepState: bandSleepState,
                                                   useSleepStagerV2: useSleepStagerV2,
+                                                  timeZone: localTimeZone,
                                                   traceSink: traceSink)
         // Motion-aware wake refinement (#364 follow-up) runs AFTER V1/V2 staging, over every detected
         // session (naps included — the same eligibility gates apply). `steps` is the SAME calendar-day/
@@ -574,7 +588,8 @@ public enum AnalyticsEngine {
         // this SAME group (the seam below passes the same `gapBridgeMaxMin`), so #525 does not regress.
         let mainGroupIdx = SleepStageTotals.mainNightGroupIndices(
             matched.map { SleepStageTotals.NightBlock(start: $0.start, end: $0.end) },
-            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) ?? []
+            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec,
+            timeZone: localTimeZone) ?? []
         let mainGroup: [SleepSession] = mainGroupIdx.map { matched[$0] }
 
         // ── Daily sleep aggregates (AASM) SUMMED over the main-night GROUP (#525 / #561) ──

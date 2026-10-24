@@ -421,9 +421,10 @@ struct AppleHealthView: View {
                             await health.requestAuthorization()
                             await HealthSyncRefreshCoordinator.run(
                                 sync: { await health.sync() },
-                                refresh: {
+                                refresh: { syncSucceeded in
                                     await model.refreshAfterAppleHealthSync(
-                                        authorized: health.auth == .authorized)
+                                        authorized: health.auth == .authorized,
+                                        syncSucceeded: syncSucceeded)
                                 }
                             )
                             await load()
@@ -454,9 +455,10 @@ struct AppleHealthView: View {
                         Task {
                             await HealthSyncRefreshCoordinator.run(
                                 sync: { await health.sync() },
-                                refresh: {
+                                refresh: { syncSucceeded in
                                     await model.refreshAfterAppleHealthSync(
-                                        authorized: health.auth == .authorized)
+                                        authorized: health.auth == .authorized,
+                                        syncSucceeded: syncSucceeded)
                                 }
                             )
                             await load()

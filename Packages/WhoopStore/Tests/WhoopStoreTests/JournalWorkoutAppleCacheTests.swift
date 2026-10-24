@@ -189,6 +189,55 @@ final class JournalWorkoutAppleCacheTests: XCTestCase {
         XCTAssertNil(rows[0].notes)
     }
 
+    func testAppleHealthWorkoutMergePreservesLastGoodOptionalMeasurements() async throws {
+        let store = try await WhoopStore.inMemory()
+        let existing = WorkoutRow(
+            startTs: 2_000, endTs: 5_600, sport: "run", source: "apple-health",
+            durationS: 3_600, energyKcal: 510, avgHr: 147, maxHr: 181,
+            strain: 12.2, distanceM: 8_500, zonesJSON: "{\"z2\":45}", notes: "recorded",
+            steps: 6_200
+        )
+        try await store.upsertWorkouts([existing], deviceId: "apple-health")
+
+        // A successful but empty HealthKit detail read may reflect opaque read denial. It must
+        // update reliable non-null fields without wiping the last known metrics.
+        let partial = WorkoutRow(
+            startTs: 2_000, endTs: 5_700, sport: "run", source: "apple-health",
+            durationS: nil, energyKcal: nil, avgHr: nil, maxHr: nil,
+            strain: nil, distanceM: nil, zonesJSON: nil, notes: nil, steps: nil
+        )
+        try await store.mergeAppleHealthWorkoutRows([partial], deviceId: "apple-health")
+
+        let rows = try await store.workouts(deviceId: "apple-health", from: 0, to: 100_000, limit: 100)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].endTs, 5_700)
+        XCTAssertEqual(rows[0].source, "apple-health")
+        XCTAssertEqual(rows[0].durationS, 3_600)
+        XCTAssertEqual(rows[0].energyKcal, 510)
+        XCTAssertEqual(rows[0].avgHr, 147)
+        XCTAssertEqual(rows[0].maxHr, 181)
+        XCTAssertEqual(rows[0].strain, 12.2)
+        XCTAssertEqual(rows[0].distanceM, 8_500)
+        XCTAssertEqual(rows[0].zonesJSON, "{\"z2\":45}")
+        XCTAssertEqual(rows[0].notes, "recorded")
+        XCTAssertEqual(rows[0].steps, 6_200)
+    }
+
+    func testAppleHealthWorkoutMergeInsertsNewSparseRowsWithoutInventingValues() async throws {
+        let store = try await WhoopStore.inMemory()
+        let sparse = WorkoutRow(
+            startTs: 3_000, endTs: 3_900, sport: "hiking", source: "apple-health",
+            durationS: nil, energyKcal: nil, avgHr: nil, maxHr: nil,
+            strain: nil, distanceM: nil, zonesJSON: nil, notes: nil, steps: nil
+        )
+        let changed = try await store.mergeAppleHealthWorkoutRows([sparse], deviceId: "apple-health")
+        XCTAssertEqual(changed, 1)
+        let rows = try await store.workouts(deviceId: "apple-health", from: 0, to: 100_000, limit: 100)
+        XCTAssertEqual(rows, [sparse])
+        XCTAssertNil(rows[0].avgHr)
+        XCTAssertNil(rows[0].steps)
+    }
+
     func testWorkoutDistinctSportSameStartCoexist() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertWorkouts([

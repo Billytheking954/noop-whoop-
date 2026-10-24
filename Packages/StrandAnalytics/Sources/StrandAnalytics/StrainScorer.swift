@@ -239,8 +239,19 @@ public enum StrainScorer {
     /// rather than a reimplementation of it. Delete it if that test ever goes.
     static func sampleDurationMinutes(_ hr: [HRSample]) -> Double {
         guard hr.count >= 2 else { return fallbackSampleMin }
-        let deltaS = abs(Double(hr[1].ts - hr[0].ts))
-        return deltaS > 0 ? deltaS / 60.0 : fallbackSampleMin
+        let deltaS = Double(hr[1].ts) - Double(hr[0].ts)
+        return deltaS > 0 ? deltaS / 60.0 : 0
+    }
+
+    /// Scoring requires strictly increasing timestamps. Duplicate or out-of-order samples have no
+    /// defensible elapsed-time interpretation, so the public scorer refuses them rather than guessing.
+    /// Capture paths may deduplicate before this boundary; an unclean imported/raw stream remains invalid.
+    static func hasStrictlyIncreasingTimestamps(_ hr: [HRSample]) -> Bool {
+        guard hr.count > 1 else { return true }
+        for index in 1..<hr.count where hr[index - 1].ts >= hr[index].ts {
+            return false
+        }
+        return true
     }
 
     /// Per-sample durations (minutes): each reading covers the gap to the NEXT one, clamped to
@@ -262,8 +273,8 @@ public enum StrainScorer {
         var out: [Double] = []
         out.reserveCapacity(hr.count)
         for i in 0..<(hr.count - 1) {
-            let deltaS = abs(Double(hr[i + 1].ts - hr[i].ts))
-            let minutes = deltaS > 0 ? deltaS / 60.0 : fallbackSampleMin
+            let deltaS = Double(hr[i + 1].ts) - Double(hr[i].ts)
+            let minutes = deltaS > 0 ? deltaS / 60.0 : 0
             out.append(min(minutes, maxSampleGapMin))
         }
         out.append(out[out.count - 1])   // the final reading has no successor; reuse the gap before it
@@ -404,6 +415,10 @@ public enum StrainScorer {
                               // the day at live-HR tick rate before the scoring pass asks.
                               diag: ((String) -> Void)? = nil,
                               day: String = "") -> Double? {
+        guard hasStrictlyIncreasingTimestamps(hr) else {
+            diag?("effort score day=\(day) refused=nonmonotonic-timestamps hr=\(hr.count)")
+            return nil
+        }
         // Resolve BEFORE the memo key is built, or a Banister request would be cached under Edwards'
         // denominator and a later Edwards request could collide with it.
         let resolvedDenominator = denominator ?? logMapDenominator(method: method, sex: sex)
