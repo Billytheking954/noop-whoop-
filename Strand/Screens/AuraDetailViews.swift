@@ -66,7 +66,7 @@ struct AuraRestDetailView: View {
     @EnvironmentObject private var repo: Repository
 
     private var current: AuraRestState {
-        AuraRestAdapter.map(repo.today, todayKey: repo.today?.day ?? Repository.logicalDayKey(Date()))
+        AuraRestAdapter.map(repo.today, todayKey: Repository.logicalDayKey(Date()))
     }
 
     var body: some View {
@@ -118,7 +118,7 @@ struct AuraFitnessDetailView: View {
     @EnvironmentObject private var repo: Repository
 
     private var current: AuraFitnessState {
-        AuraFitnessAdapter.map(repo.today, todayKey: repo.today?.day ?? Repository.logicalDayKey(Date()))
+        AuraFitnessAdapter.map(repo.today, todayKey: Repository.logicalDayKey(Date()))
     }
 
     var body: some View {

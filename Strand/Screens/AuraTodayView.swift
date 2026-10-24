@@ -9,7 +9,7 @@ struct AuraTodayView: View {
 
     /// The repository resolves an active logical day across the pre-04:00 boundary.
     /// Classifying that row against the calendar day would falsely mark current rest as stale.
-    private var todayKey: String { repo.today?.day ?? Repository.logicalDayKey(Date()) }
+    private var todayKey: String { Repository.logicalDayKey(Date()) }
     private var today: AuraTodayState {
         // Repository.days is a cross-source merged read model. A per-value source cannot safely be
         // recovered from it: leave sourceID absent instead of claiming the connected strap produced it.

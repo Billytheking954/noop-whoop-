@@ -68,24 +68,25 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// The reference dashboard is the shipping Today. Prototype views remain available in DEBUG capture routes.
+    /// Keep the classic-only preview control outside Aura's actual dashboard.
+    /// Aura retains an explicit Full V2 dashboard fallback inside its Today screen.
     @ViewBuilder private var todayTabRoot: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Text(String(localized: "Aura preview", table: "AuraPreview"))
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Toggle(String(localized: "Enable Aura preview", table: "AuraPreview"), isOn: $auraTodayPreviewEnabled)
-                    .labelsHidden()
-                    .accessibilityLabel(Text(String(localized: "Enable Aura preview", table: "AuraPreview")))
-            }
-            .padding(.horizontal, 18)
-            .frame(minHeight: 44)
-            .background(auraTodayPreviewEnabled ? NoopPalette.canvas : StrandPalette.surfaceBase)
-            .foregroundStyle(auraTodayPreviewEnabled ? NoopPalette.textPrimary : StrandPalette.textPrimary)
-            if auraTodayPreviewEnabled {
-                AuraTodayView(onShowClassic: { auraTodayPreviewEnabled = false })
-            } else {
+        if auraTodayPreviewEnabled {
+            AuraTodayView(onShowClassic: { auraTodayPreviewEnabled = false })
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Text(String(localized: "Aura preview", table: "AuraPreview"))
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Toggle(String(localized: "Enable Aura preview", table: "AuraPreview"), isOn: $auraTodayPreviewEnabled)
+                        .labelsHidden()
+                        .accessibilityLabel(Text(String(localized: "Enable Aura preview", table: "AuraPreview")))
+                }
+                .padding(.horizontal, 18)
+                .frame(minHeight: 44)
+                .background(StrandPalette.surfaceBase)
+                .foregroundStyle(StrandPalette.textPrimary)
                 TodayView()
             }
         }
@@ -275,6 +276,16 @@ struct RootTabView: View {
         // A cold-launch selection is already pending when this shell appears; a warm selection arrives
         // through the change callback. Both route through the same screens as the centre FAB.
         .onAppear {
+            #if DEBUG
+            // Simulator-only screenshot selector; never changes the production tab selection.
+            let arguments = CommandLine.arguments
+            if arguments.contains("--demo-aura"),
+               let index = arguments.firstIndex(of: "--demo-aura-tab"),
+               arguments.indices.contains(index + 1),
+               let tab = Int(arguments[index + 1]), (0...4).contains(tab) {
+                selectedTab = tab
+            }
+            #endif
             presentPendingHomeScreenQuickActionIfPossible()
         }
         .onChange(of: homeScreenQuickActions.pendingAction) { _, _ in

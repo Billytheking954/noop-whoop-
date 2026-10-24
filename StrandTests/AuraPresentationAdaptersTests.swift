@@ -48,6 +48,14 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(mapped.restingHeartRate.value, 52)
     }
 
+    func testHistoricalRowRemainsStaleAcrossAuraTodayRestAndFitness() {
+        let historical = day("2026-10-20")
+        let logicalToday = "2026-10-24"
+        XCTAssertEqual(AuraTodayAdapter.map(historical, todayKey: logicalToday).hrv.state, .stale)
+        XCTAssertEqual(AuraRestAdapter.map(historical, todayKey: logicalToday).sleepMinutes.state, .stale)
+        XCTAssertEqual(AuraFitnessAdapter.map(historical, todayKey: logicalToday).effort.state, .stale)
+    }
+
     func testSleepEfficiencyStoredFractionConvertsToPercentOnce() throws {
         let rest = AuraRestAdapter.map(day(), todayKey: "2026-10-24")
         XCTAssertEqual(try XCTUnwrap(rest.sleepEfficiency.value), 92, accuracy: 0.001)

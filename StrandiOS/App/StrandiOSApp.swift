@@ -59,6 +59,11 @@ struct StrandiOSApp: App {
         // anything reads it. Idempotent; a no-op on fresh installs and after the first launch.
         PuffinExperiment.migrateContinuousHrvOvernightDefault()
         #if DEBUG
+        // Explicit Aura shell capture for GitHub Actions. Release builds cannot enter this path.
+        // The CI simulator is ephemeral; no production preference or measured data is changed.
+        if CommandLine.arguments.contains("--demo-aura") {
+            UserDefaults.standard.set(true, forKey: "noop.auraTodayPreviewEnabled")
+        }
         // DEBUG-only promo-screenshot harness: when launched with `--demo-hour <Int>`, pin Today to that
         // hour's day-cycle scene + a per-hour stat frame. No-op (active stays nil) when the arg is absent.
         // MUST live here, not in StrandApp.swift — that is the macOS @main and is excluded from the iOS
