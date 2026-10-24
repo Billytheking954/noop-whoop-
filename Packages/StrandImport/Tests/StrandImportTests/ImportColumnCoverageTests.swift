@@ -50,6 +50,24 @@ final class ImportColumnCoverageTests: XCTestCase {
         XCTAssertEqual(importColumnCoverage([]).map(\.0), importColumnLabels)
     }
 
+    func testAbsoluteTemperatureCountsWithoutDeviation() {
+        // WHOOP CSV has absolute wrist °C, not a deviation from the NOOP baseline.
+        let metric = DailyMetric(day: "2026-10-20", totalSleepMin: nil, efficiency: nil,
+                                 deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil,
+                                 restingHr: nil, avgHrv: nil, recovery: nil, strain: nil,
+                                 exerciseCount: nil, skinTempDevC: nil, skinTempC: 33.1)
+        let coverage = importColumnCoverage([metric])
+        XCTAssertEqual(coverage.first(where: { $0.0 == "skin_temp" })?.1, 1)
+    }
+
+    func testAbsentAbsoluteAndDeviationTemperatureCountsAsMissing() {
+        let metric = DailyMetric(day: "2026-10-20", totalSleepMin: nil, efficiency: nil,
+                                 deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil,
+                                 restingHr: nil, avgHrv: nil, recovery: nil, strain: nil,
+                                 exerciseCount: nil)
+        XCTAssertEqual(importColumnCoverage([metric]).first(where: { $0.0 == "skin_temp" })?.1, 0)
+    }
+
     func testAnEmptyCountsListDoesNotTrailASpace() {
         // Unreachable through the app today, but the formatter is public and a trailing space would
         // survive into anything that later parses these logs.
