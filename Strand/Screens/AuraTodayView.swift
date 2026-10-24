@@ -121,10 +121,10 @@ struct AuraTodayView: View {
         .preferredColorScheme(.dark)
     }
 
-    private func metricCard(title: String, reading: AuraDailyReading, tint: Color) -> some View {
+    private func metricCard(title: String.LocalizationValue, reading: AuraDailyReading, tint: Color) -> some View {
         NoopSpecCard {
             VStack(alignment: .leading, spacing: 8) {
-                NoopSpecCaption(String(localized: String.LocalizationValue(title), table: "AuraPreview"))
+                NoopSpecCaption(String(localized: title, table: "AuraPreview"))
                 Text(number(reading, digits: reading.unit == "ms" ? 1 : 0))
                     .font(NoopSpecType.headline)
                     .foregroundStyle(tint)
