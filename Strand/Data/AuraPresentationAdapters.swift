@@ -168,3 +168,19 @@ enum AuraDeviceAdapter {
                                  now: now, sourceID: sourceID, maxAge: maxAge)
     }
 }
+
+
+/// Pure tab ordering for the opt-in Aura shell. Indices are the existing V2 NavigationPath
+/// slots, not new deep-link destinations. Moving off an edge does not wrap.
+enum AuraShellTabs {
+    static func visibleIDs(auraEnabled: Bool) -> [Int] {
+        auraEnabled ? [0, 1, 2, 3, 4] : [0, 1, 2, 4]
+    }
+
+    static func adjacent(to current: Int, towardsNext: Bool, auraEnabled: Bool) -> Int? {
+        let ids = visibleIDs(auraEnabled: auraEnabled)
+        guard let index = ids.firstIndex(of: current) else { return nil }
+        let target = min(ids.count - 1, max(0, index + (towardsNext ? 1 : -1)))
+        return ids[target] == current ? nil : ids[target]
+    }
+}
