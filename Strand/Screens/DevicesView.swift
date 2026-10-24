@@ -120,29 +120,15 @@ private struct ConceptDeviceView: View {
                 if let device = active {
                     deviceOverview(device)
 
+                    if let guide = live.reconnectGuide {
+                        pairingNotice(title: "Reconnect your device", message: guide)
+                    }
                     if let hint = live.pairingHint, live.connected {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(StrandPalette.statusWarning)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Pairing needs attention")
-                                    .font(StrandFont.headline)
-                                    .foregroundStyle(NoopVisualStyle.primaryText)
-                                Text(hint)
-                                    .font(StrandFont.footnote)
-                                    .foregroundStyle(NoopVisualStyle.secondaryText)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .noopPanel(tint: StrandPalette.statusWarning)
+                        pairingNotice(title: "Pairing needs attention", message: hint)
                     }
 
-                    syncControls
-
                     if SourceCoordinator.isWhoop(device) {
+                        syncControls
                         broadcastControls
                     }
 
@@ -216,12 +202,33 @@ private struct ConceptDeviceView: View {
         } message: {
             Text("Choose a name for this device.")
         }
+        .onChange(of: registry.activeDeviceId) { _, _ in
+            syncFeedback = nil
+        }
         .onChange(of: live.lastSyncedAt) { _, date in
             if let date {
                 syncFeedback = "Synced " + Date(timeIntervalSince1970: date)
                     .formatted(date: .abbreviated, time: .shortened)
             }
         }
+    }
+
+    private func pairingNotice(title: String, message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(StrandPalette.statusWarning)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(StrandFont.headline)
+                    .foregroundStyle(NoopVisualStyle.primaryText)
+                Text(message).font(StrandFont.footnote)
+                    .foregroundStyle(NoopVisualStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .noopPanel(tint: StrandPalette.statusWarning)
     }
 
     private func deviceOverview(_ device: PairedDevice) -> some View {
