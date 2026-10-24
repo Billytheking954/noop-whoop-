@@ -1026,10 +1026,13 @@ public enum SleepStager {
     /// is used so a window straddling a band edge is classified once, by where it mostly is.
     /// `((x % d) + d) % d` is a floored modulo so a negative local-shifted time still maps
     /// into [0, secondsPerDay).
-    static func isDaytimeCenter(_ p: Period, tzOffsetSeconds: Int) -> Bool {
+    static func isDaytimeCenter(_ p: Period, tzOffsetSeconds: Int,
+                                timeZone: TimeZone? = nil) -> Bool {
         // Int overflow-safe: starts/ends are unix seconds; midpoint via average of the two.
         let center = p.start + (p.end - p.start) / 2
-        let local = center + tzOffsetSeconds
+        let offset = timeZone?.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(center)))
+            ?? tzOffsetSeconds
+        let local = center + offset
         let secOfDay = ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
         let hour = secOfDay / 3_600
         return hour >= daytimeBandStartHour && hour < daytimeBandEndHour
@@ -1038,8 +1041,11 @@ public enum SleepStager {
     /// True when a run's ONSET (start), in LOCAL time, falls OUTSIDE the daytime band — i.e.
     /// the sleep began at night, not during the day. Anchors a continuous-sleep chain: only a
     /// chain that began overnight may carry its tail past the daytime-band start (a late wake).
-    static func isOvernightOnset(_ start: Int, tzOffsetSeconds: Int) -> Bool {
-        let local = start + tzOffsetSeconds
+    static func isOvernightOnset(_ start: Int, tzOffsetSeconds: Int,
+                                 timeZone: TimeZone? = nil) -> Bool {
+        let offset = timeZone?.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(start)))
+            ?? tzOffsetSeconds
+        let local = start + offset
         let secOfDay = ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
         let hour = secOfDay / 3_600
         return !(hour >= daytimeBandStartHour && hour < daytimeBandEndHour)
@@ -1324,6 +1330,7 @@ public enum SleepStager {
                                    bandSleepState: [(ts: Int, state: Int)] = [],
                                    useSleepStagerV2: Bool = false,
                                    sleepHRBaseline: Double? = nil,
+                                   timeZone: TimeZone? = nil,
                                    traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
         // Sleep & Rest test mode only: when a trace is requested we MUST run the live ladder, not a
         // memoized result, so each gate verdict is emitted for THIS night. The trace is side-effect-
@@ -1334,7 +1341,8 @@ public enum SleepStager {
             return detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                        tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                        bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2,
-                                       sleepHRBaseline: sleepHRBaseline, traceSink: traceSink)
+                                       sleepHRBaseline: sleepHRBaseline, timeZone: timeZone,
+                                       traceSink: traceSink)
         }
         // v7.0.2 perf (#707): the single heaviest analytics call — it sorts the dense full-day gravity
         // stream (~tens of thousands of samples for a worn day), builds the gravity-delta/still spine, and
@@ -1356,12 +1364,14 @@ public enum SleepStager {
             wristOff: StreamFingerprint.of(wristOff, ts: { $0.start }, quant: { $0.end }),
             band: StreamFingerprint.of(bandSleepState, ts: { $0.ts }, quant: { $0.state }),
             v2: useSleepStagerV2,
-            sleepHRBaseline: sleepHRBaseline)
+            sleepHRBaseline: sleepHRBaseline,
+            timeZoneIdentifier: timeZone?.identifier)
         return detectSleepCache.value(key) {
             detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                 tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                 bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2,
-                                sleepHRBaseline: sleepHRBaseline, traceSink: nil)
+                                sleepHRBaseline: sleepHRBaseline, timeZone: timeZone,
+                                traceSink: nil)
         }
     }
 
@@ -1372,6 +1382,7 @@ public enum SleepStager {
         let wristOff: StreamFingerprint; let band: StreamFingerprint
         let v2: Bool
         let sleepHRBaseline: Double?
+        let timeZoneIdentifier: String?
     }
     /// ≈ the number of distinct days in a scoring window; FIFO-evicted, holds only small session arrays.
     private static let detectSleepCache = AnalyticsMemoCache<DetectKey, [SleepSession]>(capacity: 40)
@@ -1386,6 +1397,7 @@ public enum SleepStager {
                                             bandSleepState: [(ts: Int, state: Int)],
                                             useSleepStagerV2: Bool,
                                             sleepHRBaseline: Double? = nil,
+                                            timeZone: TimeZone? = nil,
                                             traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
         let grav = gravity.sorted { $0.ts < $1.ts }
         if grav.count < 2 { return [] }
@@ -1560,7 +1572,8 @@ public enum SleepStager {
             // clear the STRONGER re-onset bar — killing the 9 am phantom nap of residual post-wake stillness
             // while keeping a genuine second sleep. Outside the window the guard is the ordinary daytime bar.
             let morningWakeEnd = chainFromOvernight ? chainPrevEnd : nil
-            let isDaytime = isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds)
+            let isDaytime = isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds,
+                                            timeZone: timeZone)
             // Evaluate the morning-stillness guard ONLY when the run is daytime-centered, preserving the
             // original short-circuit (overnight runs never call it). The boolean used to `continue` below
             // is identical to the original combined condition.
@@ -1614,7 +1627,10 @@ public enum SleepStager {
                 }
             }
             // A run that does NOT continue the chain re-anchors it on this run's onset.
-            if !continuesChain { chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds) }
+            if !continuesChain {
+                chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds,
+                                                      timeZone: timeZone)
+            }
             chainPrevEnd = p.end
         }
         sessions.sort { $0.start < $1.start }

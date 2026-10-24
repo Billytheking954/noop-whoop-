@@ -68,5 +68,31 @@ final class OuraOAuthTests: XCTestCase {
         XCTAssertTrue(body.contains("code=x%2By"))                            // + escaped, not left literal
         XCTAssertFalse(body.contains("aB+cd"))                                // no raw '+'
     }
+    func testCallbackParametersRejectDuplicateNames() {
+        let duplicateState = [
+            URLQueryItem(name: "state", value: "expected"),
+            URLQueryItem(name: "state", value: "attacker"),
+            URLQueryItem(name: "code", value: "code"),
+        ]
+        let duplicateCode = [
+            URLQueryItem(name: "state", value: "expected"),
+            URLQueryItem(name: "code", value: "first"),
+            URLQueryItem(name: "code", value: "second"),
+        ]
+
+        XCTAssertThrowsError(try OuraOAuthProvider.callbackParameters(from: duplicateState))
+        XCTAssertThrowsError(try OuraOAuthProvider.callbackParameters(from: duplicateCode))
+    }
+
+    func testCallbackParametersPreserveUniqueValues() throws {
+        let parameters = try OuraOAuthProvider.callbackParameters(from: [
+            URLQueryItem(name: "state", value: "expected"),
+            URLQueryItem(name: "code", value: "auth-code"),
+        ])
+
+        XCTAssertEqual(parameters["state"], "expected")
+        XCTAssertEqual(parameters["code"], "auth-code")
+    }
+
 }
 #endif // OURA_CLOUD_IMPORT
