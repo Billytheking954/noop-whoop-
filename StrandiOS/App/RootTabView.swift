@@ -200,8 +200,12 @@ struct RootTabView: View {
             // hierarchy's gestures, disable the added one" — exactly this requirement. `.none` disables
             // the subview hierarchy TOO, which on a pushed screen would take out scrolling, taps and the
             // interactive-pop itself: far worse than the bug being fixed.
+            // Aura uses native bottom-tab navigation only. The legacy anywhere-swipe gesture
+            // can recognise diagonal movements during vertical scrolling and move tabs unexpectedly.
+            // Keep classic V2 behaviour unchanged while excluding the recogniser in Aura mode.
             .simultaneousGesture(tabSwipeGesture,
-                                 including: tabPaths[selectedTab].isEmpty ? .all : .subviews)
+                                 including: auraTodayPreviewEnabled ? .subviews
+                                     : (tabPaths[selectedTab].isEmpty ? .all : .subviews))
         .task {
             await repo.refresh()
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
