@@ -97,18 +97,19 @@ struct NightLabView: View {
         let m = value.manifest
         NoopCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Night overview").font(.title2.weight(.semibold))
+                Text(String(localized: "Night overview", table: "AuraPreview")).font(.title2.weight(.semibold))
                 Text(NightLabInspectionFormatting.timestamp(m.windowStartUnix, offset: m.timezoneOffsetSeconds))
                     .font(.headline)
-                Label(m.state == .sealed ? "Evidence sealed" : "Incomplete archive",
+                Label(m.state == .sealed ? String(localized: "Evidence sealed", table: "AuraPreview") : "Incomplete archive",
                       systemImage: m.state == .sealed ? "checkmark.shield" : "exclamationmark.triangle")
                     .font(.subheadline)
-                Text("\(m.rawAssets.count) captured data streams")
-                Text("Recording window: \(durationText(max(0, m.windowEndUnix - m.windowStartUnix)))")
+                Text(String(format: String(localized: "%lld captured data streams", table: "AuraPreview"), m.rawAssets.count))
+                Text(String(format: String(localized: "Recording window: %@", table: "AuraPreview"),
+                                   durationText(max(0, m.windowEndUnix - m.windowStartUnix))))
                     .font(.subheadline)
-                Text("The recording window is not measured time asleep.")
+                Text(String(localized: "The recording window is not measured time asleep.", table: "AuraPreview"))
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("Integrity and coverage describe saved sensor evidence, not sleep-stage accuracy.")
+                Text(String(localized: "Integrity and coverage describe saved sensor evidence, not sleep-stage accuracy.", table: "AuraPreview"))
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -116,7 +117,7 @@ struct NightLabView: View {
         if m.state == .sealed, let baseline = value.baseline {
             sleepStageOverview(baseline)
         }
-        DisclosureGroup("Archive details & source information") {
+        DisclosureGroup(String(localized: "Archive details & source information", table: "AuraPreview")) {
             NoopCard {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Captured evidence").font(.headline)
@@ -145,7 +146,7 @@ struct NightLabView: View {
         }
         }
         if m.state == .sealed {
-            DisclosureGroup("Sensor evidence and diagnostics") {
+            DisclosureGroup(String(localized: "Sensor evidence and diagnostics", table: "AuraPreview")) {
                 VStack(alignment: .leading, spacing: 12) {
                     dataQuality(value)
                     coverage(value)
@@ -164,7 +165,7 @@ struct NightLabView: View {
                         field("Repository commit", baseline.implementation.noopCommitSHA)
                         field("Stager source blob", baseline.implementation.stagerSourceBlobSHA)
                         Text("Saved baseline validated without replay")
-                        Text("Sleep-stage chart and durations are shown above.")
+                        Text(String(localized: "Sleep-stage chart and durations are shown above.", table: "AuraPreview"))
                             .font(.footnote).foregroundStyle(.secondary)
                     } else {
                         Text("Baseline not generated")
@@ -232,8 +233,8 @@ struct NightLabView: View {
         let rem = stageSeconds(.rem, in: baseline)
         return NoopCard(tint: StrandPalette.restColor) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader("Sleep stages", overline: "Archived V2 estimates")
-                Text("Estimated asleep: " + durationText(light + deep + rem))
+                SectionHeader("Sleep stages", overline: String(localized: "Archived V2 estimates", table: "AuraPreview"))
+                Text(String(format: String(localized: "Estimated asleep: %@", table: "AuraPreview"), durationText(light + deep + rem)))
                     .font(.headline)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
                           spacing: 10) {
@@ -243,7 +244,7 @@ struct NightLabView: View {
                     stageTile("REM", seconds: rem, tint: StrandPalette.restColor)
                 }
                 NightLabHypnogramView(baseline: baseline)
-                Text("Stages are model estimates, not clinically verified sleep stages.")
+                Text(String(localized: "Stages are model estimates, not clinically verified sleep stages.", table: "AuraPreview"))
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -298,8 +299,8 @@ struct NightLabView: View {
     private func coverage(_ value: NightLabInspection) -> some View {
         NoopCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Signal-by-signal detail").font(.headline)
-                Text("Captured samples and gaps, not staging accuracy.")
+                Text(String(localized: "Signal-by-signal detail", table: "AuraPreview")).font(.headline)
+                Text(String(localized: "Captured samples and gaps, not staging accuracy.", table: "AuraPreview"))
                 ForEach(value.coverage, id: \.kind) { report in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(report.kind.rawValue).font(.headline)
@@ -358,8 +359,8 @@ private struct NightLabHypnogramView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sleep-stage timeline").font(.headline)
-            Text("Saved staging epochs. Gaps are not reconstructed.")
+            Text(String(localized: "Sleep-stage timeline", table: "AuraPreview")).font(.headline)
+            Text(String(localized: "Saved staging epochs. Gaps are not reconstructed.", table: "AuraPreview"))
                 .font(.footnote).foregroundStyle(.secondary)
             Chart {
                 if let leading = baseline.leadingBoundary {
