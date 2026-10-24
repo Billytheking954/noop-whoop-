@@ -1196,6 +1196,11 @@ def catalog_lookup(cat: dict, key: str) -> dict | None:
 
 def scan_ios(read: Reader | None = None) -> tuple[list[tuple[str, int, str]], dict[str, list[str]]]:
     read = read or _disk_read
+    # Aurora preview uses a second, fully translated String Catalog. The main app catalog is
+    # several MB and remains untouched; looking up both tables is legitimate, not a suppression.
+    aura_path = ROOT / "Strand/Resources/AuraPreview.xcstrings"
+    aura_text = read(aura_path)
+    aura_catalog = json.loads(aura_text) if aura_text else {"strings": {}}
     hardcoded: list[tuple[str, int, str]] = []  # not in any catalog at all
     lang_gaps: dict[str, list[str]] = {lang: [] for lang in LANGS}
     # Discovered with THIS reader, so a base-ref scan uses the names as they were at that ref.
@@ -1225,6 +1230,8 @@ def scan_ios(read: Reader | None = None) -> tuple[list[tuple[str, int, str]], di
                     if any(lo <= offset < hi for lo, hi in debug_spans):
                         continue
                     entry = swift_catalog_lookup(cat, literal)
+                    if entry is None and catalog_path == ROOT / "Strand/Resources/Localizable.xcstrings":
+                        entry = swift_catalog_lookup(aura_catalog, literal)
                     line_no = text.count("\n", 0, offset) + 1
                     rel = path.relative_to(ROOT).as_posix()
                     if entry is None:
