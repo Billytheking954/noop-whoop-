@@ -46,7 +46,7 @@ struct AuraTodayView: View {
 
                     NoopSpecCard(.hero) {
                         VStack(alignment: .leading, spacing: 12) {
-                            NoopSpecCaption(String(localized: "Morning Charge", table: "AuraPreview"))
+                            NoopSpecCaption(String(localized: "Charge / Recovery", table: "AuraPreview"))
                             HStack(alignment: .firstTextBaseline, spacing: 5) {
                                 Text(number(today.charge, digits: 0))
                                     .font(NoopSpecType.heroNumeral)
@@ -58,7 +58,7 @@ struct AuraTodayView: View {
                                         .foregroundStyle(NoopPalette.textSecondary)
                                 }
                             }
-                            Text(String(localized: "NOOP Charge estimate from the recorded day, not a live energy level.", table: "AuraPreview"))
+                            Text(String(localized: "Stored daily score. V2 may contain either a NOOP estimate or an imported score; its merged summary does not identify which.", table: "AuraPreview"))
                                 .font(NoopSpecType.body)
                                 .foregroundStyle(NoopSpecTokens.textBody)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -100,7 +100,7 @@ struct AuraTodayView: View {
                             Text(number(fitness.effort, digits: 0) + (fitness.effort.value == nil ? "" : " / 100"))
                                 .font(NoopSpecType.headline)
                                 .foregroundStyle(NoopPalette.effort)
-                            Text(String(localized: "Calculated by V2 from recorded activity. No missing samples are filled in.", table: "AuraPreview"))
+                            Text(String(localized: "Stored activity score from V2. Imported and computed values may differ; missing samples are not fabricated.", table: "AuraPreview"))
                                 .font(NoopSpecType.bodySmall)
                                 .foregroundStyle(NoopPalette.textSecondary)
                             sourceCaption(fitness.effort)
