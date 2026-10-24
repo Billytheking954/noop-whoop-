@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 @testable import StrandAnalytics
 
 final class DayCycleTests: XCTestCase {
@@ -61,6 +62,40 @@ final class DayCycleTests: XCTestCase {
         XCTAssertEqual(DayCycleResolver.activeWindow(mode: .sleepOnset, latestSleep: sleep,
                                                      now: 40 * 3_600, offsetSec: 0).source,
                        .syntheticMidnight)
+    }
+
+    private func utc(_ value: String) -> Int {
+        Int(ISO8601DateFormatter().date(from: value)!.timeIntervalSince1970)
+    }
+
+    func testFallbackMidnightUsesSpringForwardTimezoneRules() {
+        let london = TimeZone(identifier: "Europe/London")!
+        // 06:00 GMT on 29 March + 18 hours lands exactly on midnight before the spring clock change.
+        // A fixed +01:00 offset captured later incorrectly rolls this to the following midnight.
+        let onset = utc("2025-03-29T06:00:00Z")
+        XCTAssertEqual(
+            DayCycleResolver.fallbackMidnight(after: onset, timeZone: london),
+            utc("2025-03-30T00:00:00Z")
+        )
+    }
+
+    func testFallbackMidnightUsesFallBackTimezoneRules() {
+        let london = TimeZone(identifier: "Europe/London")!
+        // Local midnight at the start of 26 October is 23:00Z on the previous civil date.
+        // A fixed +00:00 offset captured after fall-back incorrectly returns 00:00Z.
+        let onset = utc("2025-10-25T05:00:00Z")
+        XCTAssertEqual(
+            DayCycleResolver.fallbackMidnight(after: onset, timeZone: london),
+            utc("2025-10-25T23:00:00Z")
+        )
+    }
+
+    func testCalendarWindowUsesRealLocalMidnightAfterSpringForward() {
+        let london = TimeZone(identifier: "Europe/London")!
+        let now = utc("2025-03-30T12:00:00Z")
+        let window = DayCycleResolver.calendarWindow(now: now, timeZone: london)
+        XCTAssertEqual(window.displayDay, "2025-03-30")
+        XCTAssertEqual(window.startInclusive, utc("2025-03-30T00:00:00Z"))
     }
 
     func testCoverageSegmentsPreferPriorityWithoutCrossingDeviceCounters() {

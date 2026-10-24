@@ -15,6 +15,31 @@ import WhoopStore
 /// existing Live UI shows the strap's HR) and the `persist` closure (wired by the app to
 /// `StreamStore.insert`). The pure HR→Streams mapping lives in `WhoopStore.StandardHRMapping` so it
 /// can be unit-tested away from CoreBluetooth.
+/// Pure retry delay policy for reconnecting a selected generic HR strap after an unexpected failure.
+/// Retries continue at a capped interval until the user explicitly stops or selects another strap.
+struct StandardHRReconnectPolicy {
+    private let initialDelay: TimeInterval
+    private let maximumDelay: TimeInterval
+    private(set) var nextDelayValue: TimeInterval
+
+    init(initialDelay: TimeInterval = 2, maximumDelay: TimeInterval = 30) {
+        let first = max(0.1, initialDelay)
+        self.initialDelay = first
+        self.maximumDelay = max(first, maximumDelay)
+        self.nextDelayValue = first
+    }
+
+    mutating func nextDelay() -> TimeInterval {
+        let delay = nextDelayValue
+        nextDelayValue = min(maximumDelay, nextDelayValue * 2)
+        return delay
+    }
+
+    mutating func reset() {
+        nextDelayValue = initialDelay
+    }
+}
+
 @MainActor
 public final class StandardHRSource: NSObject, ObservableObject {
 
@@ -121,6 +146,11 @@ public final class StandardHRSource: NSObject, ObservableObject {
     private var peripheral: CBPeripheral?
     /// A peripheral asked to connect before `centralManagerDidUpdateState` reported `.poweredOn`.
     private var pendingConnectID: UUID?
+    /// Selected strap for automatic recovery; cleared by explicit stop or replaced by a new selection.
+    private var reconnectTargetID: UUID?
+    private var reconnectEnabled = false
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectPolicy = StandardHRReconnectPolicy()
     /// Peripherals retained by identifier so a chosen one survives until connection.
     private var seenPeripherals: [UUID: CBPeripheral] = [:]
 
@@ -186,6 +216,15 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     /// Connect to the chosen discovered strap and start streaming its HR.
     public func connect(_ id: UUID) {
+        cancelReconnect(resetPolicy: true)
+        pendingConnectID = nil
+        reconnectTargetID = id
+        reconnectEnabled = true
+        beginConnect(id)
+    }
+
+    /// Begin or retry a connection without changing the user's reconnect intent or retry backoff.
+    private func beginConnect(_ id: UUID) {
         stopScan()
         // Before the radio is up a retrieve answers nothing even for a strap this device has been bonded
         // to for weeks, and the branch below would read that as "never seen" and arm a scan (#2433).
@@ -218,6 +257,9 @@ public final class StandardHRSource: NSObject, ObservableObject {
     /// Tear down: cancel the peripheral connection and stop scanning. Idempotent.
     public func stop() {
         stopScan()
+        reconnectEnabled = false
+        reconnectTargetID = nil
+        cancelReconnect(resetPolicy: true)
         pendingConnectID = nil
         if let p = peripheral {
             central.cancelPeripheralConnection(p)
@@ -230,6 +272,40 @@ public final class StandardHRSource: NSObject, ObservableObject {
         live.clearSensorMetrics()     // a stale speed/cadence/power panel must not outlive the link
         rateComputer.reset()          // next CSC/CPS packet is a first packet again (no carry-over)
         live.connected = false
+    }
+
+    /// Cancel a scheduled retry. Explicit user actions also reset the capped backoff.
+    private func cancelReconnect(resetPolicy: Bool) {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        if resetPolicy { reconnectPolicy.reset() }
+    }
+
+    /// Schedule one bounded-rate retry for the currently selected strap. The delay doubles from 2s to
+    /// 30s, then stays capped at 30s so a long radio outage cannot create a hot loop. If Bluetooth is
+    /// unavailable, park the selected id and let the powered-on callback resume it.
+    private func scheduleReconnect(for id: UUID, reason: String) {
+        guard reconnectEnabled, reconnectTargetID == id, reconnectTask == nil else { return }
+        guard central.state == .poweredOn else {
+            pendingConnectID = id
+            log("HR-strap: reconnect parked for \(id) — Bluetooth unavailable")
+            return
+        }
+        let delay = reconnectPolicy.nextDelay()
+        log("HR-strap: reconnect retry in \(Int(delay))s after \(reason)")
+        reconnectTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.reconnectEnabled,
+                  self.reconnectTargetID == id else { return }
+            self.reconnectTask = nil
+            self.beginConnect(id)
+        }
     }
 
     // MARK: - Buffer / persistence
@@ -323,8 +399,13 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
                 break
             }
         default:
-            // Radio off / unauthorized / resetting → the link is not live.
+            // Radio off / unauthorized / resetting → the link is not live. Keep the selected strap
+            // parked so the powered-on callback can resume it without a timer or scan loop.
             live.connected = false
+            if reconnectEnabled, let reconnectTargetID {
+                cancelReconnect(resetPolicy: false)
+                pendingConnectID = reconnectTargetID
+            }
         }
     }
 
@@ -344,7 +425,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
         // that it's been seen — the switchToStrap path (#421).
         if pendingConnectID == id {
             pendingConnectID = nil
-            connect(id)
+            beginConnect(id)
         }
     }
 
@@ -360,6 +441,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        cancelReconnect(resetPolicy: true)
         log("HR-strap: connected — discovering services")
         logPolarIdentityOnce(peripheral)
         peripheral.delegate = self
@@ -375,6 +457,10 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
         log("HR-strap: WARNING failed to connect — \(error?.localizedDescription ?? "unknown error")")
         live.connected = false
+        if self.peripheral?.identifier == peripheral.identifier {
+            self.peripheral = nil
+        }
+        scheduleReconnect(for: peripheral.identifier, reason: "connect failure")
     }
 
     public func centralManager(_ central: CBCentralManager,
@@ -394,6 +480,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
         live.connected = false
         if self.peripheral?.identifier == peripheral.identifier {
             self.peripheral = nil
+            scheduleReconnect(for: peripheral.identifier, reason: "disconnect")
         }
     }
 }

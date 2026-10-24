@@ -33,8 +33,9 @@ final class WorkoutSampleOncePerSecondTests: XCTestCase {
 
     /// Twenty minutes climbing from 100 to 160 bpm, each second arriving twice (the R-R packet, then the rate
     /// moving) as it does during exercise. Recorded through `recordSample`, the workout's Effort is the Effort of
-    /// the plain once-a-second stream; the repeats, kept, scored higher.
-    func testRepeatedSecondsNoLongerAddEffort() {
+    /// the plain once-a-second stream. A raw repeated stream is now refused by the scorer instead of fabricating
+    /// positive duration from invalid timestamps.
+    func testRepeatedSecondsCannotAddEffort() {
         let seconds = 20 * 60
         let clean = (0..<seconds).map { HRSample(ts: 5_000 + $0, bpm: 100 + $0 * 60 / seconds) }
         var workout = AppModel.ActiveWorkout(start: Date(timeIntervalSince1970: 5_000))
@@ -50,6 +51,17 @@ final class WorkoutSampleOncePerSecondTests: XCTestCase {
         }
         XCTAssertEqual(workout.samples.map(\.ts), clean.map(\.ts))
         XCTAssertEqual(effort(workout.samples), effort(clean))
-        XCTAssertGreaterThan(effort(everyArrival), effort(clean))
+        var diagnostic: String?
+        XCTAssertNil(StrainScorer.strain(
+            everyArrival,
+            maxHR: 190,
+            restingHR: 60,
+            diag: { diagnostic = $0 },
+            day: "workout"
+        ))
+        XCTAssertEqual(
+            diagnostic,
+            "effort score day=workout refused=nonmonotonic-timestamps hr=2400"
+        )
     }
 }

@@ -145,6 +145,35 @@ final class CaffeineImportTests: XCTestCase {
     }
 
     /// An empty Health window clears the imported set but must not touch what the user typed in.
+    /// An opaque successful-empty read must not erase imported history. The explicit tombstone path
+    /// below is the only operation allowed to remove the named sample.
+    @MainActor
+    func testEmptyMergePreservesImportedAndManualIntakes() {
+        let now = Date()
+        let s = store(now)
+        s.log(at: now.addingTimeInterval(-1800), mg: 60)
+        s.replaceImported([imported(now.addingTimeInterval(-3600), mg: 95, id: "visible-1")])
+        let before = s.intakes
+        s.mergeImported([])
+        XCTAssertEqual(s.intakes, before)
+        XCTAssertEqual(s.intakes.filter { $0.isImported }.map(\.externalId), ["visible-1"])
+        XCTAssertEqual(s.intakes.filter { !$0.isImported }.count, 1)
+    }
+
+    @MainActor
+    func testExactDeletionRemovesOnlyNamedImportedIntake() {
+        let now = Date()
+        let s = store(now)
+        s.log(at: now.addingTimeInterval(-1800), mg: 60)
+        s.mergeImported([
+            imported(now.addingTimeInterval(-3600), mg: 95, id: "deleted"),
+            imported(now.addingTimeInterval(-7200), mg: 80, id: "kept")
+        ])
+        s.removeImported(externalIds: ["deleted"])
+        XCTAssertEqual(Set(s.intakes.compactMap(\.externalId)), ["kept"])
+        XCTAssertEqual(s.intakes.filter { !$0.isImported }.count, 1)
+    }
+
     @MainActor
     func testAnEmptyImportClearsOnlyTheImportedOnes() {
         let now = Date()

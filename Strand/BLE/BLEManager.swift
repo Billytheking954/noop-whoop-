@@ -971,7 +971,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// of auto-connecting — an explicit, separate "present the nearby straps" mode the wizard turns on
     /// (`scanForWhoops()`) then off (`stopWhoopScan()`). Default false leaves the auto-connect path
     /// untouched. Must never overlap the normal connect flow (the wizard owns the central while true).
-    private var isPresentingScan = false
+    @Published public private(set) var isPresentingScan = false
     /// The CBPeripheral.identifier.uuidString of the WHOOP we most recently CONNECTED to (`didConnect`).
     /// Published so the app/AppModel can persist it onto the active registry device
     /// (`registry.setPeripheralId`) — letting "my-whoop" adopt its strap's id on first connect and a
@@ -2143,6 +2143,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// central while active. No-op-to-the-connect-path: it never touches `peripheral`/bond state.
     public func scanForWhoops() {
         guard central.state == .poweredOn else {
+            isPresentingScan = false
+            discoveredWhoops = []
             log("Add-a-WHOOP scan: Bluetooth not powered on (state=\(central.state.rawValue))")
             return
         }
@@ -5742,6 +5744,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         unauthorizedSettleWork?.cancel()
         unauthorizedSettleWork = nil
         guard central.state == .poweredOn else {
+            // The pairing wizard must stop claiming it is scanning when the radio drops.
+            // CoreBluetooth stops discovery here; leave a retry to the user's explicit Rescan.
+            isPresentingScan = false
+            discoveredWhoops = []
             // #280: a non-poweredOn radio state used to be a SILENT return — the strap log showed only
             // "Central state: 3" and the UI just read "not connected", so a user whose Mac had denied NOOP
             // Bluetooth (.unauthorized == raw 3) had nothing explaining why no strap was ever found. This is

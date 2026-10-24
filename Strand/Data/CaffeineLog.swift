@@ -243,6 +243,34 @@ public final class CaffeineLogStore: ObservableObject {
         if next != intakes { intakes = next }
     }
 
+    /// Merge the visible HealthKit window by stable sample UUID. A successful query can still return
+    /// no samples when HealthKit hides read access, so absence from a query is NOT authority to delete an
+    /// earlier imported intake. Only an explicit anchored-query tombstone may remove it.
+    public func mergeImported(_ imported: [CaffeineIntake]) {
+        let cutoff = now().addingTimeInterval(-Self.retentionHours * 3600)
+        let manual = intakes.filter { !$0.isImported }
+        var byExternalId: [String: CaffeineIntake] = [:]
+        for intake in intakes where intake.isImported && intake.at >= cutoff {
+            if let id = intake.externalId { byExternalId[id] = intake }
+        }
+        for intake in imported where intake.isImported && intake.at >= cutoff {
+            if let id = intake.externalId { byExternalId[id] = intake }
+        }
+        let next = (manual + Array(byExternalId.values)).sorted { $0.at > $1.at }
+        if next != intakes { intakes = next }
+    }
+
+    /// Remove only imported caffeine samples named by confirmed HealthKit deletion tombstones.
+    /// Manual entries and unrelated imported UUIDs are never affected.
+    public func removeImported(externalIds: Set<String>) {
+        guard !externalIds.isEmpty else { return }
+        let next = intakes.filter { intake in
+            guard intake.isImported, let id = intake.externalId else { return true }
+            return !externalIds.contains(id)
+        }
+        if next != intakes { intakes = next }
+    }
+
     /// Remove a logged intake (the user mis-logged / wants to clear it).
     ///
     /// Imported intakes are deliberately NOT removable: the next sync re-reads the same window from
