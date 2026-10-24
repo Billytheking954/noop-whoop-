@@ -71,12 +71,12 @@ struct RootTabView: View {
     @ViewBuilder private var todayTabRoot: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("Aura preview")
+                Text(String(localized: "Aura preview", table: "AuraPreview"))
                     .font(.caption.weight(.semibold))
                 Spacer()
-                Toggle("Enable Aura preview", isOn: $auraTodayPreviewEnabled)
+                Toggle(String(localized: "Enable Aura preview", table: "AuraPreview"), isOn: $auraTodayPreviewEnabled)
                     .labelsHidden()
-                    .accessibilityLabel("Enable Aura preview")
+                    .accessibilityLabel(Text(String(localized: "Enable Aura preview", table: "AuraPreview")))
             }
             .padding(.horizontal, 18)
             .frame(minHeight: 44)
