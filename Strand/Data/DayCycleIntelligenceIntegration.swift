@@ -48,10 +48,15 @@ import WhoopStore
 
     static func recover(candidates: [(owner: String, priority: Int)], reader: BoundaryRecoveryReader,
                                 claimedDays: Set<String>, windowStart: Int, now: Int,
-                                offsetSec: Int, habitualMidsleepSec: Int?) async throws -> [PersistedBoundary] {
+                                offsetSec: Int, habitualMidsleepSec: Int?,
+                                timeZone: TimeZone? = nil) async throws -> [PersistedBoundary] {
         var claimed = claimedDays, output: [PersistedBoundary] = []
-        let fromDay = AnalyticsEngine.dayString(windowStart, offsetSec: offsetSec)
-        let toDay = AnalyticsEngine.dayString(now, offsetSec: offsetSec)
+        func dayKey(_ ts: Int) -> String {
+            timeZone.map { AnalyticsEngine.dayString(ts, timeZone: $0) }
+                ?? AnalyticsEngine.dayString(ts, offsetSec: offsetSec)
+        }
+        let fromDay = dayKey(windowStart)
+        let toDay = dayKey(now)
         for candidate in candidates.sorted(by: {
             $0.priority == $1.priority ? $0.owner < $1.owner : $0.priority < $1.priority
         }) {
@@ -62,9 +67,7 @@ import WhoopStore
                 let value = Int(point.value)
                 return point.value == Double(value) ? (point.day, value) : nil
             }, uniquingKeysWith: { first, _ in first })
-            let grouped = Dictionary(grouping: sessions) {
-                AnalyticsEngine.dayString($0.endTs, offsetSec: offsetSec)
-            }
+            let grouped = Dictionary(grouping: sessions) { dayKey($0.endTs) }
             for day in grouped.keys.sorted() where !claimed.contains(day) {
                 guard let marker = markers[day] else { continue }
                 let rows = grouped[day] ?? []
@@ -72,7 +75,8 @@ import WhoopStore
                     onset: $0.startTs, end: $0.endTs, id: String($0.startTs),
                     editedOnset: $0.startTsAdjusted) }
                 guard let winner = PhysiologicalSteps.classifyForCycle(
-                    blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec)
+                    blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec,
+                    timeZone: timeZone)
                     .first(where: { $0.kind == .mainSleep && $0.effectiveOnset == marker }),
                       let row = rows.first(where: {
                           String($0.startTs) == winner.id && $0.effectiveStartTs == marker
@@ -96,7 +100,7 @@ import WhoopStore
                         mode: DayCycleMode, cache: Cache,
                         profile: UserProfile, maxHROverride: Double?, effortMethod: StrainScorer.Method,
                         recoveryReader: BoundaryRecoveryReader? = nil,
-                        timeZone: TimeZone = .autoupdatingCurrent,
+                        timeZone: TimeZone? = nil,
                         trace: ((String) -> Void)? = nil) async -> Result {
         guard mode == .sleepOnset else {
             return Result(stepsByWakeDay: [:], strainByWakeDay: [:], caloriesByWakeDay: [:],
@@ -104,9 +108,11 @@ import WhoopStore
                           markerUpdate: .replace(points: [], sourceIds: Array(Set(
                             candidates.map { computedId($0.owner) })).sorted()))
         }
-        let editsByDay = Dictionary(grouping: editedRows) {
-            AnalyticsEngine.dayString($0.endTs, offsetSec: offsetSec)
+        func dayKey(_ ts: Int) -> String {
+            timeZone.map { AnalyticsEngine.dayString(ts, timeZone: $0) }
+                ?? AnalyticsEngine.dayString(ts, offsetSec: offsetSec)
         }
+        let editsByDay = Dictionary(grouping: editedRows) { dayKey($0.endTs) }
         var boundaries: [PhysiologicalSteps.CycleBoundary] = []
         var wakeDayById: [String: String] = [:], ownerById: [String: String] = [:]
         var sleepContexts: [SleepSession] = []
@@ -131,7 +137,8 @@ import WhoopStore
                     efficiency: 0, stages: [], restingHR: nil, avgHRV: nil))
             }
             let classified = PhysiologicalSteps.classifyForCycle(
-                blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec)
+                blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec,
+                timeZone: timeZone)
             guard let winner = classified.filter({ $0.kind == .mainSleep })
                 .min(by: { $0.effectiveOnset < $1.effectiveOnset }), winner.effectiveOnset <= now else { continue }
             boundaries.append(.init(sleepId: winner.id, onset: winner.effectiveOnset))
@@ -151,7 +158,8 @@ import WhoopStore
             recovered = try await recover(candidates: candidates,
                 reader: recoveryReader ?? productionReader,
                 claimedDays: Set(wakeDayById.values), windowStart: windowStart, now: now,
-                offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec)
+                offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec,
+                timeZone: timeZone)
         } catch {
             // Fail closed: an unread namespace is unknown, not empty. Returning no replacement source IDs
             // prevents the persistence transaction from deleting valid markers after a transient read error.
@@ -169,7 +177,7 @@ import WhoopStore
             let active = DayCycleResolver.activeWindow(mode: mode,
                 latestSleep: DayCycleWindow(id: latest.sleepId, startInclusive: latest.onset,
                     endExclusive: now, displayDay: day, source: .detectedSleep), now: now,
-                timeZone: timeZone)
+                timeZone: timeZone ?? .autoupdatingCurrent)
             if active.source == .syntheticMidnight {
                 boundaries.append(.init(sleepId: active.id, onset: active.startInclusive))
                 wakeDayById[active.id] = active.displayDay; ownerById[active.id] = owner
