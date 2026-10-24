@@ -150,4 +150,24 @@ final class AppleHealthWorkoutIdentityStoreTests: XCTestCase {
         XCTAssertEqual(counts.0, 0)
         XCTAssertEqual(counts.1, 0)
     }
+
+    func testSampleIdentityLookupChunksMoreThanSQLiteParameterLimit() async throws {
+        let store = try await WhoopStore.inMemory()
+        let identities = (0..<805).map { index in
+            AppleHealthSampleIdentity(typeIdentifier: "HKQuantityTypeIdentifierStepCount",
+                                      uuid: "sample-\(index)", day: "2026-10-24",
+                                      startTs: index, value: Double(index))
+        }
+        _ = try await store.reconcileAppleHealthSampleIdentityDelta(
+            added: identities, deletedUUIDs: [], deviceId: "apple-health",
+            typeIdentifier: "HKQuantityTypeIdentifierStepCount")
+
+        let fetched = try await store.appleHealthSampleIdentities(
+            deviceId: "apple-health", typeIdentifier: "HKQuantityTypeIdentifierStepCount",
+            uuids: identities.map(\.uuid))
+
+        XCTAssertEqual(fetched.count, identities.count)
+        XCTAssertEqual(fetched["sample-0"]?.value, 0)
+        XCTAssertEqual(fetched["sample-804"]?.value, 804)
+    }
 }
