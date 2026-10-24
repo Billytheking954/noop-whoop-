@@ -141,6 +141,7 @@ struct NightLabView: View {
                 }
             }
         }
+        }
         if m.state == .sealed {
             dataQuality(value)
             NightLabSpO2DiagnosticsCard(inspection: value)
