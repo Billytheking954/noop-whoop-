@@ -71,6 +71,20 @@ Check the **exact head SHA of PR #53** in GitHub Actions for the authoritative l
 - Physical WHOOP 4/5/MG Bluetooth, HealthKit permissions after SideStore resigning, sleep overnight, actual battery timestamps, restore and 24–72-hour reliability tests are **not tested**. No new IPA is produced by this document. Keep original pre-Aura `f701c2e` IPA as the known structural fallback.
 - **Phase 2 is not yet complete or Phase-3 ready.** Confirm final simulator compile + hosted tests, inspect screenshots, then complete the incomplete UI surfaces and data provenance work before promotion. No `main` merge.
 
+
+## Final-completion continuation: real history surfaces and source-scoped workout HR
+
+This section describes the single coherent implementation slice staged against the existing PR #53 head; verify the final GitHub commit and its **exact-head** Actions before calling it validated.
+
+- `Strand/Screens/AuraHistoryViews.swift` adds **real** 90-day sleep-block and workout reads using `Repository.allSleepSessions(days:)` and `Repository.workoutRows(days:)`. The Aura Rest and Fitness tab screens embed short recent-history lists rather than only links to the classic V2 views.
+- Sleep-night details show the persisted **effective** start and end instants, manual-edit flag, optional actual `deviceId`, and sparse-motion warning. The stage timeline parses only real timestamped `stagesJSON` segments, trims to the displayed sleep window, and leaves gaps blank. WHOOP imported stage-total dictionaries are deliberately **not** converted into an invented time-resolved hypnogram. The original V2 Sleep view remains reachable for edits, full stage analysis and detailed source decisions.
+- Workout details display stored source strings and timestamps. Chart data comes exclusively from `Repository.workoutHrBuckets(from:to:source:)` using the individual workout's source-scoped resolver, **not** daily merged heart rate from an unrelated strap. No absent samples are interpolated. Recording, editing, import records and full session tools stay available in `WorkoutsView`.
+- A new Aura Health & Stress overview routes to the existing fully functional Health/Stress views and displays V2 daily HRV and resting HR without claiming sample timestamp or origin. It is a **partial** styling layer, not full Aura-native Health/Stress replacement.
+- Regression cases cover edited sleep boundaries, stage-data format distinction, invalid intervals, optional sleep source ID and the newest-first workout list.
+- For legacy WHOOP skin temperature: **no automatic migration** is safe without verifiable origin. User recovery must first create and test a restorable backup, then preserve the original WHOOP export privately and re-import with the corrected importer; verify source/day matches and any separately derived recovery scores before choosing an explicit recalculation. Do not commit the personal export, treat absolute °C as deviations, or silently rewrite ambiguous stored rows.
+
+**Not a Phase 2 completion declaration.** Precise device/source owner, HRV method and freshness are not available for every *merged daily aggregate*; these should remain unresolved rather than guessed. Full Aura parity for editing, stress/health, in-depth Settings and on-device accessibility remains limited; simulator compile/unit tests, screenshot review and real WHOOP/SideStore trials are required gates. No IPA is built in this slice.
+
 ## Handoff
 
 1. Confirm PR #53 final exact SHA and inspect complete build/test jobs. Fix all failing compilation/tests before treating this branch as green.

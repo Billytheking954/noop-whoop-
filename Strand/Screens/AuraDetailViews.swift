@@ -95,6 +95,8 @@ struct AuraRestDetailView: View {
                         .font(NoopSpecType.body)
                         .foregroundStyle(NoopPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    AuraSleepHistorySection()
+
                     NavigationLink {
                         SleepView()
                     } label: {
@@ -137,6 +139,8 @@ struct AuraFitnessDetailView: View {
                         .font(NoopSpecType.body)
                         .foregroundStyle(NoopPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    AuraWorkoutHistorySection()
+
                     NavigationLink {
                         WorkoutsView()
                     } label: {

@@ -136,4 +136,49 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(unknown.batteryLabel, "—")
         XCTAssertEqual(unknown.state, .unavailable)
     }
+
+    func testAuraHistoryRejectsInvalidSleepWindowsAndKeepsNewest() {
+        let older = CachedSleepSession(startTs: 100, endTs: 220,
+            efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        let newest = CachedSleepSession(startTs: 300, endTs: 720,
+            efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        let invalid = CachedSleepSession(startTs: 900, endTs: 800,
+            efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        XCTAssertEqual(AuraSessionHistory.sleep([older, invalid, newest]).map(\.startTs), [300, 100])
+        XCTAssertEqual(AuraSessionHistory.sleep([older, newest], limit: 1).map(\.startTs), [300])
+    }
+
+    func testAuraTimedStagesPreserveRealTimestampsAndTrimToEditedWindow() {
+        let segments = #"[{"start":80,"end":160,"stage":"deep"},{"start":160,"end":260,"stage":"rem"},{"start":260,"end":310,"stage":"unknown"}]"#
+        let session = CachedSleepSession(startTs: 80, endTs: 250,
+            efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: segments,
+            startTsAdjusted: 100, deviceId: "whoop-source")
+        let mapped = AuraSessionHistory.timedStages(session)
+        XCTAssertEqual(mapped.map(\.start), [100, 160])
+        XCTAssertEqual(mapped.map(\.end), [160, 250])
+        XCTAssertEqual(mapped.map(\.stage), ["deep", "rem"])
+        XCTAssertEqual(session.deviceId, "whoop-source")
+    }
+
+    func testAuraImportedStageTotalsCannotBecomeFabricatedTimeline() {
+        let imported = CachedSleepSession(startTs: 100, endTs: 460,
+            efficiency: nil, restingHr: nil, avgHrv: nil,
+            stagesJSON: #"{"deep":42,"rem":70,"light":185,"awake":15}"#)
+        XCTAssertTrue(AuraSessionHistory.timedStages(imported).isEmpty)
+        XCTAssertTrue(AuraSessionHistory.timedStages(
+            CachedSleepSession(startTs: 100, endTs: 460,
+                efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)).isEmpty)
+    }
+
+    func testAuraWorkoutHistoryRejectsInvalidRows() {
+        func workout(_ start: Int, _ end: Int) -> WorkoutRow {
+            WorkoutRow(startTs: start, endTs: end, sport: "Run", source: "manual",
+                durationS: nil, energyKcal: nil, avgHr: nil, maxHr: nil,
+                strain: nil, distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        }
+        XCTAssertEqual(AuraSessionHistory.workouts(
+            [workout(100, 150), workout(200, 250), workout(300, 290)], limit: 1)
+            .map(\.startTs), [200])
+    }
+
 }

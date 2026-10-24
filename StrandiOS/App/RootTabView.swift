@@ -488,6 +488,9 @@ struct RootTabView: View {
             MoreRow("Compare", "rectangle.split.2x1.fill", .compare)
         }
         moreSection("Body") {
+            if auraTodayPreviewEnabled {
+                MoreRow("Health & Stress", "heart.text.square", .auraHealth)
+            }
             MoreRow("Live", "waveform.path.ecg", .live)
             MoreRow("Workouts", "figure.run", .workouts)
             MoreRow("Lift Log", "dumbbell.fill", .liftLog)
@@ -660,6 +663,7 @@ struct RootTabView: View {
 /// per-screen chrome the old inline links applied lives at the single `navigationDestination(for:)`
 /// registration in `moreTab`.
 private enum MoreDestination: Hashable {
+    case auraHealth
     case insightsHub, intelligence, coach, insights, explore, compare, trends, sleep
     case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
     case fusedRecord, appleHealth, miBand, dataSources, backupSync, shortcutsExport, noopLimitations
@@ -667,6 +671,7 @@ private enum MoreDestination: Hashable {
 
     @ViewBuilder var destination: some View {
         switch self {
+        case .auraHealth:     AuraHealthSummary()
         case .insightsHub:     InsightsHubView()
         case .intelligence:    IntelligenceView()
         case .coach:           CoachView()
