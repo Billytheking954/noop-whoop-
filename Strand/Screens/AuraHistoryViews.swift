@@ -95,7 +95,7 @@ struct AuraSleepHistorySection: View {
                             title: Date(timeIntervalSince1970: TimeInterval(session.endTs))
                                 .formatted(date: .abbreviated, time: .omitted),
                             description: String(
-                                format: "%.0f min in bed",
+                                format: String(localized: "%.0f min in bed", table: "AuraPreview"),
                                 Double(session.endTs - session.effectiveStartTs) / 60),
                             symbol: "moon.stars")
                     }
@@ -283,12 +283,12 @@ private struct AuraWorkoutSessionDetail: View {
                                 .formatted(date: .abbreviated, time: .shortened))
                                 .font(NoopSpecType.cardTitle)
                                 .foregroundStyle(NoopPalette.textPrimary)
-                            Text(String(format: "%.0f min",
+                            Text(String(format: String(localized: "%.0f min", table: "AuraPreview"),
                                         (row.durationS ?? Double(row.endTs - row.startTs)) / 60))
                                 .font(NoopSpecType.headline)
                                 .foregroundStyle(NoopPalette.accent)
                             if let hr = row.avgHr {
-                                Text(String(format: "Avg HR: %d bpm", hr))
+                                Text(String(format: String(localized: "Avg HR: %d bpm", table: "AuraPreview"), hr))
                                     .font(NoopSpecType.body)
                                     .foregroundStyle(NoopPalette.textPrimary)
                             }
