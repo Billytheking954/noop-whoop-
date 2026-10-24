@@ -39,6 +39,17 @@ Check the **exact head SHA of PR #53** in GitHub Actions for the authoritative l
 - Shadow rolling 28-valid-night baseline and 7-day lnRMSSD experiment are deferred; V2 recovery coefficients and headline algorithm are unchanged except the absolute-temperature input exclusion.
 - Full multilingual UI copy, light/dark review, VoiceOver/Reduce Motion check on real devices and screenshot comparisons await Phase 2 visual validation.
 
+## Normal-chat continuation — 24 October 2026
+
+- Continued from PR #53's original `0441f6c3` head without changing `main` or the PR #52 branch.
+- Added `Strand/Screens/AuraDetailViews.swift`: Aura-styled Rest (sleep time, efficiency and explicitly estimated stages), Fitness (stored Effort and steps) and 30-day Trends. These use the existing `Repository` and pure adapters, with source uncertainty preserved. Historical chart marks are discrete rather than connecting across missing days.
+- Linked the opt-in Aura Today preview into these detail screens; preserved links to V2 `SleepView`, `WorkoutsView` and `TrendsView` for complete editing and reporting.
+- Added new English Aura string catalogue keys for the detail navigation and labels.
+- **Commit checkpoint before this documentation update:** `afe9dfe4c7a02b95e22b05662af47cdc9b46dfa8`.
+- **Validation:** the original head's Swift packages, Python, i18n and hygiene workflows succeeded; its iPhone simulator build and hosted unit-test steps succeeded, with screenshot capture still in progress when checked. The new changes triggered fresh workflows. **No passing exact-new-head claim is made**; inspect GitHub Actions before promoting this checkpoint.
+- **Still missing:** Aura root-shell transformation, full device/pairing redesign, workout detail, sleep editing integrated into Aura, source-specific provenance, complete accessibility visual review, additional localisation, real-hardware BLE/HealthKit tests, final IPA.
+- No personal export, raw measurements or fabricated data were added. No changes to BLE, HealthKit, database schema, backup or scoring in this slice.
+
 ## Handoff
 
 1. Confirm PR #53 final exact SHA and inspect complete build/test jobs. Fix all failing compilation/tests before treating this branch as green.
