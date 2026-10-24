@@ -106,7 +106,6 @@ struct NightLabView: View {
                     .font(.subheadline)
                 Text("The recording window is not measured time asleep.")
                     .font(.footnote).foregroundStyle(.secondary)
-                    .font(.subheadline).foregroundStyle(.secondary)
                 Text("Integrity and coverage describe saved sensor evidence, not sleep-stage accuracy.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -141,7 +140,6 @@ struct NightLabView: View {
                     field(asset.id + " • " + asset.kind.rawValue, "\(asset.sampleCount) rows • SHA: \(asset.digest ?? "Not recorded")")
                 }
             }
-        }
         }
         if m.state == .sealed {
             dataQuality(value)
