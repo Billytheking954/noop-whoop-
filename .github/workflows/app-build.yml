@@ -187,8 +187,11 @@ jobs:
             sleep 18
             xcrun simctl io "$UDID" screenshot "$AURA_DIR/$SCREEN-dark.png"
           done
-          # No seeding: this capture proves the Aura dashboard stays truthful when the record is empty.
+          # Remove the seeded app container first: omitting --demo-seed alone would retain the
+          # prior launches' synthetic database and would not actually exercise the empty state.
           xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl uninstall "$UDID" "$BUNDLE_ID"
+          xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-screen auramissing
           sleep 18
           xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-missing-data-dark.png"
