@@ -100,6 +100,9 @@ struct NightLabView: View {
                 Text(String(localized: "Night overview", table: "AuraPreview")).font(.title2.weight(.semibold))
                 Text(NightLabInspectionFormatting.timestamp(m.windowStartUnix, offset: m.timezoneOffsetSeconds))
                     .font(.headline)
+                Text("Recording ends: \(NightLabInspectionFormatting.timestamp(m.windowEndUnix, offset: m.timezoneOffsetSeconds))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 Label(m.state == .sealed ? String(localized: "Evidence sealed", table: "AuraPreview") : "Incomplete archive",
                       systemImage: m.state == .sealed ? "checkmark.shield" : "exclamationmark.triangle")
                     .font(.subheadline)
@@ -114,8 +117,24 @@ struct NightLabView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        if m.state == .sealed, let baseline = value.baseline {
-            sleepStageOverview(baseline)
+        if m.state == .sealed {
+            if let baseline = value.baseline {
+                sleepStageOverview(baseline)
+            } else {
+                NoopCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No validated sleep-stage timeline")
+                            .font(.headline)
+                        Text("This archived night has no validated staging baseline. Sleep stages and estimated time asleep cannot be shown without one.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        if value.baselineError != nil {
+                            Text("Saved staging evidence failed validation; see archive details.")
+                                .font(.footnote).foregroundStyle(.orange)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
         DisclosureGroup(String(localized: "Archive details & source information", table: "AuraPreview")) {
             NoopCard {
@@ -211,13 +230,21 @@ struct NightLabView: View {
         return epochs + leading
     }
 
-    private func stageTile(_ title: String, seconds: Int, tint: Color) -> some View {
+    private func stageTile(_ title: String, seconds: Int, classifiedSeconds: Int, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(durationText(seconds))
-                .font(.headline)
-                .foregroundStyle(tint)
-                .lineLimit(1).minimumScaleFactor(0.8)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(durationText(seconds))
+                    .font(.headline)
+                    .foregroundStyle(tint)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 2)
+                if classifiedSeconds > 0 {
+                    Text("\(Int((Double(seconds) / Double(classifiedSeconds) * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -231,19 +258,33 @@ struct NightLabView: View {
         let light = stageSeconds(.light, in: baseline)
         let deep = stageSeconds(.deep, in: baseline)
         let rem = stageSeconds(.rem, in: baseline)
+        let classifiedSeconds = wake + light + deep + rem
+        let windowSeconds = max(0, baseline.windowEndUnix - baseline.windowStartUnix)
+        let unclassifiedSeconds = max(0, windowSeconds - classifiedSeconds)
         return NoopCard(tint: StrandPalette.restColor) {
             VStack(alignment: .leading, spacing: 12) {
                 SectionHeader("Sleep stages", overline: LocalizedStringKey(String(localized: "Archived V2 estimates", table: "AuraPreview")))
-                Text(String(format: String(localized: "Estimated asleep: %@", table: "AuraPreview"), durationText(light + deep + rem)))
-                    .font(.headline)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
-                          spacing: 10) {
-                    stageTile("Awake", seconds: wake, tint: StrandPalette.metricRose)
-                    stageTile("Light", seconds: light, tint: StrandPalette.metricCyan)
-                    stageTile("Deep", seconds: deep, tint: StrandPalette.metricPurple)
-                    stageTile("REM", seconds: rem, tint: StrandPalette.restColor)
+                if classifiedSeconds > 0 {
+                    Text(String(format: String(localized: "Estimated asleep: %@", table: "AuraPreview"), durationText(light + deep + rem)))
+                        .font(.headline)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 106), spacing: 8)],
+                              spacing: 8) {
+                        stageTile("Awake", seconds: wake, classifiedSeconds: classifiedSeconds, tint: StrandPalette.metricRose)
+                        stageTile("Light", seconds: light, classifiedSeconds: classifiedSeconds, tint: StrandPalette.metricCyan)
+                        stageTile("Deep", seconds: deep, classifiedSeconds: classifiedSeconds, tint: StrandPalette.metricPurple)
+                        stageTile("REM", seconds: rem, classifiedSeconds: classifiedSeconds, tint: StrandPalette.restColor)
+                    }
+                    Text("Percentages are of saved classified stage time, excluding gaps.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if unclassifiedSeconds > 0 {
+                        Text("Time without saved stage estimates: \(durationText(unclassifiedSeconds))")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    NightLabHypnogramView(baseline: baseline)
+                } else {
+                    Text("No saved classified sleep-stage intervals")
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
-                NightLabHypnogramView(baseline: baseline)
                 Text(String(localized: "Stages are model estimates, not clinically verified sleep stages.", table: "AuraPreview"))
                     .font(.footnote).foregroundStyle(.secondary)
             }
