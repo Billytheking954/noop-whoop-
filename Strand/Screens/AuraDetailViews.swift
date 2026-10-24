@@ -3,7 +3,7 @@ import SwiftUI
 import Charts
 import StrandDesign
 
-// Phase 2: presentation-only detail screens. The original V2 screens remain the
+// Aura presentation detail screens. The original V2 screens remain the
 // authority for editing sleep, managing workouts and inspecting the full record.
 // These screens must never infer per-sample provenance from Repository.days.
 
@@ -184,6 +184,7 @@ private struct AuraDetailDestinationLabel: View {
 struct AuraTrendsDetailView: View {
     @EnvironmentObject private var repo: Repository
     @State private var selection = 0
+    @State private var rangeDays = 30
 
     private struct ChartReading: Identifiable {
         let day: String
@@ -207,6 +208,7 @@ struct AuraTrendsDetailView: View {
         case 1: return .restingHeartRate
         case 2: return .sleepMinutes
         case 3: return .effort
+        case 4: return .charge
         default: return .hrv
         }
     }
@@ -218,7 +220,7 @@ struct AuraTrendsDetailView: View {
         let anchor = Repository.logicalDayKey(Date())
         let threshold: String = {
             guard let date = Self.parser.date(from: anchor),
-                  let start = Calendar(identifier: .gregorian).date(byAdding: .day, value: -29, to: date)
+                  let start = Calendar(identifier: .gregorian).date(byAdding: .day, value: -(rangeDays - 1), to: date)
             else { return anchor }
             return Self.parser.string(from: start)
         }()
@@ -239,12 +241,20 @@ struct AuraTrendsDetailView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     AuraDetailHeading(
                         title: String(localized: "Trends", table: "AuraPreview"),
-                        subtitle: String(localized: "Past 30 days", table: "AuraPreview"))
+                        subtitle: String(format: String(localized: "Past %d days", table: "AuraPreview"), rangeDays))
+                    Picker(String(localized: "Period", table: "AuraPreview"), selection: $rangeDays) {
+                        Text(verbatim: "7D").tag(7)
+                        Text(verbatim: "30D").tag(30)
+                        Text(verbatim: "90D").tag(90)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityLabel(Text(String(localized: "Period", table: "AuraPreview")))
                     Picker(String(localized: "Metric", table: "AuraPreview"), selection: $selection) {
                         Text(String(localized: "Overnight HRV", table: "AuraPreview")).tag(0)
                         Text(String(localized: "Resting HR", table: "AuraPreview")).tag(1)
                         Text(String(localized: "Rest", table: "AuraPreview")).tag(2)
                         Text(String(localized: "NOOP Effort", table: "AuraPreview")).tag(3)
+                        Text(String(localized: "Charge / Recovery", table: "AuraPreview")).tag(4)
                     }
                     .pickerStyle(.menu)
                     .tint(NoopSpecTokens.auraPale)

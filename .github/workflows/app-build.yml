@@ -166,7 +166,7 @@ jobs:
           done
 
           # Capture the real five-tab Aura shell, not a classic `--demo-screen` route.
-          # Only DEBUG runs can force Aura on; production retains the opt-in gate.
+          # Only DEBUG runs can force a particular tab; production starts in Aura but keeps V2 fallback.
           AURA_DIR="$RUNNER_TEMP/noop-ui-review-aura"
           mkdir -p "$AURA_DIR"
           xcrun simctl ui "$UDID" appearance dark
@@ -181,6 +181,17 @@ jobs:
             -UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityM
           sleep 18
           xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-today-accessibility-medium-dark.png"
+          for SCREEN in aurarest aurasleepdetail aurafitness auraworkoutdetail aurahealth auratrends auradevices aurasettings; do
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
+            sleep 18
+            xcrun simctl io "$UDID" screenshot "$AURA_DIR/$SCREEN-dark.png"
+          done
+          # No seeding: this capture proves the Aura dashboard stays truthful when the record is empty.
+          xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-screen auramissing
+          sleep 18
+          xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-missing-data-dark.png"
 
       - name: Upload seeded design review screenshots
         if: always() && steps.capture.outcome == 'success'

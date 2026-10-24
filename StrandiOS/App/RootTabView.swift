@@ -22,8 +22,8 @@ struct RootTabView: View {
     /// attached and would otherwise keep posting AI notifications for a feature the wearer switched off.
     @AppStorage("noop.coachEnabled") private var coachEnabled = true
     @AppStorage("noop.bottomBarAutoHide") private var bottomBarAutoHide = false
-    /// User-controlled preview gate. Default OFF until Phase 2 UI has passed full device validation.
-    @AppStorage("noop.auraTodayPreviewEnabled") private var auraTodayPreviewEnabled = false
+    /// Aura is the primary iPhone presentation. The unchanged V2 dashboard remains a reversible fallback.
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraTodayPreviewEnabled = true
 
     /// The live gym session, owned at the app root — see `LiftSessionController`.
     @EnvironmentObject private var liftSession: LiftSessionController
@@ -68,7 +68,7 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// Keep the classic-only preview control outside Aura's actual dashboard.
+    /// Keep the classic-only interface control outside Aura's actual dashboard.
     /// Aura retains an explicit Full V2 dashboard fallback inside its Today screen.
     @ViewBuilder private var todayTabRoot: some View {
         if auraTodayPreviewEnabled {
@@ -76,12 +76,12 @@ struct RootTabView: View {
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Text(String(localized: "Aura preview", table: "AuraPreview"))
+                    Text(String(localized: "Aura interface", table: "AuraPreview"))
                         .font(.caption.weight(.semibold))
                     Spacer()
-                    Toggle(String(localized: "Enable Aura preview", table: "AuraPreview"), isOn: $auraTodayPreviewEnabled)
+                    Toggle(String(localized: "Use Aura interface", table: "AuraPreview"), isOn: $auraTodayPreviewEnabled)
                         .labelsHidden()
-                        .accessibilityLabel(Text(String(localized: "Enable Aura preview", table: "AuraPreview")))
+                        .accessibilityLabel(Text(String(localized: "Use Aura interface", table: "AuraPreview")))
                 }
                 .padding(.horizontal, 18)
                 .frame(minHeight: 44)
@@ -146,7 +146,7 @@ struct RootTabView: View {
         TabView(selection: nativeTabSelection) {
             tab(todayTabRoot, "Today", "house", path: $tabPaths[0], scrollSignal: scrollTop[0]).tag(0)
             if auraTodayPreviewEnabled {
-                // This is a presentation-only alternate shell. It reuses the original five
+                // Aura reuses the original five
                 // navigation paths, V2-owned Repository and all existing More/deep-link routes.
                 tab(AuraRestDetailView(), "Rest", "moon.stars", path: $tabPaths[1], scrollSignal: scrollTop[1]).tag(1)
                 tab(AuraFitnessDetailView(), "Fitness", "figure.run", path: $tabPaths[2], scrollSignal: scrollTop[2]).tag(2)
@@ -488,6 +488,14 @@ struct RootTabView: View {
     /// Single index shared by both shell skins: rows and destinations remain identical.
     /// Navigation value links continue to resolve through the existing MoreDestination handler.
     @ViewBuilder private var moreIndexContent: some View {
+        if auraTodayPreviewEnabled {
+            moreSection("Essentials") {
+                MoreRow("Devices", "applewatch.radiowaves.left.and.right", .devices)
+                MoreRow("Settings", "gearshape.fill", .settings)
+                MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
+                MoreRow("Data Sources", "externaldrive.fill", .dataSources)
+            }
+        }
         moreSection("Insights") {
             MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
             MoreRow("Intelligence", "brain.head.profile", .intelligence)
@@ -517,8 +525,10 @@ struct RootTabView: View {
             MoreRow("Your Data, Fused", "square.stack.3d.up.fill", .fusedRecord)
             MoreRow("Apple Health", "heart.fill", .appleHealth)
             MoreRow("Mi Band", "figure.walk.motion", .miBand)
-            MoreRow("Data Sources", "externaldrive.fill", .dataSources)
-            MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
+            if !auraTodayPreviewEnabled {
+                MoreRow("Data Sources", "externaldrive.fill", .dataSources)
+                MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud", .backupSync)
+            }
             // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
             // reads the opt-in Documents/noop_sync.txt drop file).
             MoreRow("Shortcuts Export", "square.and.arrow.up.fill", .shortcutsExport)
@@ -546,7 +556,9 @@ struct RootTabView: View {
             // #477 lives here rather than inside Settings: the strap-battery levers are the
             // ones people reach for when a strap is running down, so they get their own row.
             MoreRow("Power saving", "battery.25", .powerSaving)
-            MoreRow("Settings", "gearshape.fill", .settings)
+            if !auraTodayPreviewEnabled {
+                MoreRow("Settings", "gearshape.fill", .settings)
+            }
         }
 
     }
@@ -677,7 +689,7 @@ private enum MoreDestination: Hashable {
     case auraHealth
     case insightsHub, intelligence, coach, insights, explore, compare, trends, sleep
     case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
-    case fusedRecord, appleHealth, miBand, dataSources, backupSync, shortcutsExport, noopLimitations
+    case fusedRecord, appleHealth, miBand, devices, dataSources, backupSync, shortcutsExport, noopLimitations
     case alarms, automations, dailyInsightNotifications, testCentre, siriShortcuts, powerSaving, settings
 
     @ViewBuilder var destination: some View {
@@ -703,6 +715,7 @@ private enum MoreDestination: Hashable {
         case .fusedRecord:     FusedRecordHost()
         case .appleHealth:     AppleHealthView()
         case .miBand:          XiaomiBandView()
+        case .devices:         DevicesView()
         case .dataSources:     DataSourcesView()
         case .noopLimitations: NoopLimitationsView()
         case .backupSync:      BackupSyncView()
@@ -724,7 +737,7 @@ private enum MoreDestination: Hashable {
 /// trailing `chevron.right` in `textTertiary`. ~44pt min height + the card's row insets keep the whole row a
 /// comfortable tap target.
 private struct MoreRow: View {
-    @AppStorage("noop.auraTodayPreviewEnabled") private var auraEnabled = false
+    @AppStorage("noop.auraTodayPreviewEnabled") private var auraEnabled = true
     let title: LocalizedStringKey
     let icon: String
     let route: MoreDestination

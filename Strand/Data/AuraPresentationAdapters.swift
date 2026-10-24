@@ -1,7 +1,7 @@
 import Foundation
 import WhoopStore
 
-// MARK: - Phase 2 Aura presentation boundary
+// MARK: - Aura presentation boundary
 //
 // These pure mappings accept V2's existing records and explicitly supplied provenance.
 // They cannot query Bluetooth, HealthKit or the database. A daily aggregate has a day key,
@@ -93,6 +93,7 @@ enum AuraRestAdapter {
 struct AuraFitnessState: Equatable {
     let effort: AuraDailyReading
     let steps: AuraDailyReading
+    let activeEnergy: AuraDailyReading
 }
 
 enum AuraFitnessAdapter {
@@ -102,7 +103,9 @@ enum AuraFitnessAdapter {
             effort: .mapped(day?.strain, unit: "/100", day: day?.day, todayKey: todayKey,
                             sourceID: sourceID, kind: effortKind),
             steps: .mapped(day?.steps.map(Double.init), unit: "steps", day: day?.day,
-                           todayKey: todayKey, sourceID: sourceID)
+                           todayKey: todayKey, sourceID: sourceID),
+            activeEnergy: .mapped(day?.activeKcalEst, unit: "kcal", day: day?.day,
+                                  todayKey: todayKey, sourceID: sourceID, kind: .estimated)
         )
     }
 }

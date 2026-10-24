@@ -1,10 +1,11 @@
 import SwiftUI
 import StrandDesign
 
-/// Phase 2 Aura Today presentation. The existing repository remains authoritative.
+/// Aura Today presentation. The existing repository remains authoritative.
 /// No Bluetooth commands, scoring, history queries or new persistence live in this view.
 struct AuraTodayView: View {
     @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var live: LiveState
     let onShowClassic: () -> Void
 
     /// The repository resolves an active logical day across the pre-04:00 boundary.
@@ -74,6 +75,38 @@ struct AuraTodayView: View {
                         metricCard(title: "Overnight HRV", reading: today.hrv, tint: NoopPalette.rest)
                     }
 
+                    NoopSpecCard {
+                        HStack(spacing: 14) {
+                            Image(systemName: "waveform.path.ecg")
+                                .font(.title2.weight(.semibold))
+                                .foregroundStyle(live.connected ? NoopPalette.accent : NoopPalette.textSecondary)
+                                .frame(width: 42, height: 42)
+                                .background(Circle().fill(NoopPalette.controlFill))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("Live heart rate")
+                                    .font(NoopSpecType.cardTitle)
+                                    .foregroundStyle(NoopPalette.textPrimary)
+                                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                    Text(live.heartRate.map { String($0) } ?? "—")
+                                        .font(NoopSpecType.headline)
+                                        .foregroundStyle(live.heartRate == nil ? NoopPalette.textSecondary : NoopPalette.accent)
+                                    if live.heartRate != nil {
+                                        Text("bpm")
+                                            .font(NoopSpecType.subline)
+                                            .foregroundStyle(NoopPalette.textSecondary)
+                                    }
+                                }
+                                Text(live.connectionStatusLabel)
+                                    .font(NoopSpecType.finePrint)
+                                    .foregroundStyle(NoopPalette.textSecondary)
+                            }
+                            Spacer(minLength: 8)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .accessibilityElement(children: .combine)
+
                     NavigationLink {
                         AuraRestDetailView()
                     } label: {
@@ -121,6 +154,41 @@ struct AuraTodayView: View {
                     .buttonStyle(.plain)
                     .accessibilityHint(Text(String(localized: "Open workouts", table: "AuraPreview")))
 
+                    HStack(alignment: .top, spacing: 12) {
+                        metricCard(title: "Steps", reading: fitness.steps, tint: NoopSpecTokens.auraPale)
+                        metricCard(title: "Active energy", reading: fitness.activeEnergy, tint: NoopPalette.effort)
+                    }
+
+                    NavigationLink {
+                        DevicesView()
+                    } label: {
+                        NoopSpecCard(.row) {
+                            HStack(spacing: 12) {
+                                Image(systemName: live.connected ? "checkmark.circle.fill" : "circle.dotted")
+                                    .foregroundStyle(live.connected ? NoopPalette.accent : NoopPalette.textSecondary)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    NoopSpecCaption(String(localized: "Devices", table: "AuraPreview"))
+                                    Text(live.backfilling
+                                         ? String(localized: "Sync in progress", table: "AuraPreview")
+                                         : live.connectionStatusLabel)
+                                        .font(NoopSpecType.body)
+                                        .foregroundStyle(NoopPalette.textPrimary)
+                                    if let lastSyncedAt = live.lastSyncedAt {
+                                        Text(Date(timeIntervalSince1970: lastSyncedAt)
+                                            .formatted(date: .abbreviated, time: .shortened))
+                                            .font(NoopSpecType.finePrint)
+                                            .foregroundStyle(NoopPalette.textSecondary)
+                                    }
+                                }
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(NoopPalette.textSecondary)
+                            }
+                            .frame(minHeight: 48)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
                     NavigationLink {
                         AuraTrendsDetailView()
                     } label: {
@@ -138,7 +206,7 @@ struct AuraTodayView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text(String(localized: "This Aura preview uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.", table: "AuraPreview"))
+                    Text(String(localized: "Aura uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.", table: "AuraPreview"))
                         .font(NoopSpecType.finePrint)
                         .foregroundStyle(NoopPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

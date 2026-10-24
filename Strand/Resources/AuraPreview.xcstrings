@@ -205,36 +205,36 @@
         }
       }
     },
-    "This Aura preview uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.": {
+    "Aura uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Aura preview uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here."
+            "value": "Aura uses V2's day-level summary. Sensor sample times and per-field provenance are not exposed by this summary, so neither is invented here."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Aura-Vorschau nutzt die Tagesübersicht von V2. Messzeitpunkte und einzelne Datenquellen sind darin nicht enthalten und werden hier nicht erfunden."
+            "value": "Aura nutzt die Tagesübersicht von V2. Messzeitpunkte und einzelne Datenquellen sind darin nicht enthalten und werden hier nicht erfunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta vista previa de Aura utiliza el resumen diario de V2. No incluye horas de muestras ni procedencias por campo, así que no se inventan."
+            "value": "Aura utiliza el resumen diario de V2. No incluye horas de muestras ni procedencias por campo, así que no se inventan."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cet aperçu Aura utilise le résumé quotidien de V2. Il ne contient ni les heures des mesures ni leur provenance par champ, qui ne sont donc pas inventées."
+            "value": "Aura utilise le résumé quotidien de V2. Il ne contient ni les heures des mesures ni leur provenance par champ, qui ne sont donc pas inventées."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta pré-visualização Aura usa o resumo diário do V2. Não contém horas das amostras nem origens por campo, pelo que não são inventadas."
+            "value": "A Aura usa o resumo diário do V2. Não contém horas das amostras nem origens por campo, pelo que não são inventadas."
           }
         }
       }
@@ -273,70 +273,70 @@
         }
       }
     },
-    "Aura preview": {
+    "Aura interface": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aura preview"
+            "value": "Aura interface"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aura-Vorschau"
+            "value": "Aura-Oberfläche"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vista previa de Aura"
+            "value": "Interfaz de Aura"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aperçu Aura"
+            "value": "Interface Aura"
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pré-visualização Aura"
+            "value": "Interface Aura"
           }
         }
       }
     },
-    "Enable Aura preview": {
+    "Use Aura interface": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enable Aura preview"
+            "value": "Use Aura interface"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aura-Vorschau aktivieren"
+            "value": "Aura-Oberfläche verwenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar vista previa de Aura"
+            "value": "Usar la interfaz de Aura"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer l'aperçu Aura"
+            "value": "Utiliser l'interface Aura"
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar pré-visualização Aura"
+            "value": "Usar a interface Aura"
           }
         }
       }
@@ -2921,6 +2921,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "FC média: %d bpm"
+          }
+        }
+      }
+    },
+    "Active energy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active energy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktive Energie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energía activa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Énergie active"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Energia ativa"
+          }
+        }
+      }
+    },
+    "Sleep-stage breakdown": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep-stage breakdown"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufschlüsselung der Schlafphasen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desglose de fases del sueño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répartition des phases de sommeil"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuição das fases do sono"
+          }
+        }
+      }
+    },
+    "Breakdown calculated from stored timed intervals.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breakdown calculated from stored timed intervals."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufschlüsselung aus gespeicherten Zeitintervallen berechnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desglose calculado a partir de intervalos temporales guardados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répartition calculée à partir des intervalles horodatés enregistrés."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuição calculada a partir dos intervalos temporizados guardados."
+          }
+        }
+      }
+    },
+    "Aggregate stage durations; no timing order is available.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggregate stage durations; no timing order is available."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggregierte Phasendauern; keine zeitliche Reihenfolge verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraciones agregadas de las fases; no hay un orden temporal disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durées agrégées des phases ; aucun ordre temporel disponible."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durações agregadas das fases; não existe uma ordem temporal disponível."
+          }
+        }
+      }
+    },
+    "Past %d days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past %d days"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzte %d Tage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Últimos %d días"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d derniers jours"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Últimos %d dias"
+          }
+        }
+      }
+    },
+    "Period": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Period"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitraum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Periodo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Période"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Período"
           }
         }
       }

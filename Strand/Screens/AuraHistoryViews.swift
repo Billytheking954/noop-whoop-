@@ -24,6 +24,17 @@ enum AuraSessionHistory {
         let stage: String
     }
 
+    struct StageSummary: Equatable {
+        let awakeMinutes: Double
+        let lightMinutes: Double
+        let deepMinutes: Double
+        let remMinutes: Double
+        let hasTimedIntervals: Bool
+
+        var asleepMinutes: Double { lightMinutes + deepMinutes + remMinutes }
+        var inBedMinutes: Double { asleepMinutes + awakeMinutes }
+    }
+
     /// Imported stage totals have NO timestamps: never fabricate positions on a graph.
     static func timedStages(_ session: CachedSleepSession) -> [TimedStage] {
         guard let json = session.stagesJSON,
@@ -37,6 +48,39 @@ enum AuraSessionHistory {
             guard end > start, accepted.contains(segment.stage) else { return nil }
             return TimedStage(start: start, end: end, stage: segment.stage)
         }.sorted { $0.start < $1.start }
+    }
+
+    /// Decode both V2 sleep-stage shapes without converting timestamp-free totals into a timeline.
+    /// Timed segments are clipped to the user's effective sleep window before their totals are shown.
+    static func stageSummary(_ session: CachedSleepSession) -> StageSummary? {
+        let timed = timedStages(session)
+        if !timed.isEmpty {
+            func minutes(_ names: Set<String>) -> Double {
+                timed.filter { names.contains($0.stage) }
+                    .reduce(0) { $0 + Double($1.end - $1.start) / 60 }
+            }
+            return StageSummary(
+                awakeMinutes: minutes(Set(["wake", "awake"])),
+                lightMinutes: minutes(Set(["light"])),
+                deepMinutes: minutes(Set(["deep"])),
+                remMinutes: minutes(Set(["rem"])),
+                hasTimedIntervals: true)
+        }
+
+        guard let json = session.stagesJSON,
+              let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let totals = object as? [String: Any] else { return nil }
+        func value(_ key: String) -> Double {
+            (totals[key] as? NSNumber)?.doubleValue ?? 0
+        }
+        let summary = StageSummary(
+            awakeMinutes: max(0, value("awake")),
+            lightMinutes: max(0, value("light")),
+            deepMinutes: max(0, value("deep")),
+            remMinutes: max(0, value("rem")),
+            hasTimedIntervals: false)
+        return summary.inBedMinutes > 0 ? summary : nil
     }
 }
 
@@ -109,11 +153,42 @@ struct AuraSleepHistorySection: View {
     }
 }
 
-private struct AuraSleepNightDetail: View {
+struct AuraSleepNightDetail: View {
+    @EnvironmentObject private var repo: Repository
     let session: CachedSleepSession
 
     private var stages: [AuraSessionHistory.TimedStage] {
         AuraSessionHistory.timedStages(session)
+    }
+
+    private var stageSummary: AuraSessionHistory.StageSummary? {
+        AuraSessionHistory.stageSummary(session)
+    }
+
+    private var daily: DailyMetric? {
+        let day = Repository.localDayKey(
+            Date(timeIntervalSince1970: TimeInterval(session.endTs)))
+        return repo.days.first { $0.day == day }
+    }
+
+    private var inBedMinutes: Double {
+        Double(max(0, session.endTs - session.effectiveStartTs)) / 60
+    }
+
+    private var asleepMinutes: Double? {
+        if let value = stageSummary?.asleepMinutes, value > 0 { return value }
+        guard let efficiency = session.efficiency, efficiency.isFinite,
+              (0...1).contains(efficiency) else { return nil }
+        return inBedMinutes * efficiency
+    }
+
+    private var efficiencyPercent: Double? {
+        if let summary = stageSummary, summary.inBedMinutes > 0 {
+            return summary.asleepMinutes / summary.inBedMinutes * 100
+        }
+        guard let efficiency = session.efficiency, efficiency.isFinite,
+              (0...1).contains(efficiency) else { return nil }
+        return efficiency * 100
     }
 
     private func color(_ stage: String) -> Color {
@@ -162,6 +237,27 @@ private struct AuraSleepNightDetail: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    HStack(alignment: .top, spacing: 12) {
+                        sleepMetric(title: "Time in bed", value: inBedMinutes, unit: "min",
+                                    tint: NoopSpecTokens.auraPale)
+                        sleepMetric(title: "Time asleep", value: asleepMinutes, unit: "min",
+                                    tint: NoopPalette.rest)
+                    }
+
+                    HStack(alignment: .top, spacing: 12) {
+                        sleepMetric(title: "Efficiency", value: efficiencyPercent, unit: "%",
+                                    tint: NoopPalette.rest)
+                        sleepMetric(title: "Charge / Recovery", value: daily?.recovery, unit: "%",
+                                    tint: NoopSpecTokens.auraPale)
+                    }
+
+                    HStack(alignment: .top, spacing: 12) {
+                        sleepMetric(title: "Overnight HRV", value: session.avgHrv, unit: "ms",
+                                    tint: NoopPalette.rest, digits: 1)
+                        sleepMetric(title: "Resting HR", value: session.restingHr.map(Double.init), unit: "bpm",
+                                    tint: NoopPalette.accent)
+                    }
+
                     NoopSpecCard {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(String(localized: "Stage timeline", table: "AuraPreview"))
@@ -204,6 +300,25 @@ private struct AuraSleepNightDetail: View {
                             }
                         }
                     }
+
+                    if let summary = stageSummary {
+                        NoopSpecCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(String(localized: "Sleep-stage breakdown", table: "AuraPreview"))
+                                    .font(NoopSpecType.cardTitle)
+                                    .foregroundStyle(NoopPalette.textPrimary)
+                                stageRow("Awake", minutes: summary.awakeMinutes, tint: NoopPalette.effort)
+                                stageRow("REM", minutes: summary.remMinutes, tint: NoopPalette.rest)
+                                stageRow("Light", minutes: summary.lightMinutes, tint: NoopSpecTokens.auraPale)
+                                stageRow("Deep", minutes: summary.deepMinutes, tint: NoopPalette.accent)
+                                Text(summary.hasTimedIntervals
+                                     ? String(localized: "Breakdown calculated from stored timed intervals.", table: "AuraPreview")
+                                     : String(localized: "Aggregate stage durations; no timing order is available.", table: "AuraPreview"))
+                                    .font(NoopSpecType.finePrint)
+                                    .foregroundStyle(NoopPalette.textSecondary)
+                            }
+                        }
+                    }
                     NavigationLink {
                         SleepView()
                     } label: {
@@ -218,6 +333,45 @@ private struct AuraSleepNightDetail: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func sleepMetric(title: LocalizedStringKey, value: Double?, unit: String,
+                             tint: Color, digits: Int = 0) -> some View {
+        NoopSpecCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(NoopSpecType.cardTitle)
+                    .foregroundStyle(NoopPalette.textPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(value.map { String(format: "%.*f", digits, $0) } ?? "—")
+                        .font(NoopSpecType.headline)
+                        .foregroundStyle(tint)
+                        .minimumScaleFactor(0.7)
+                    if value != nil {
+                        Text(unit)
+                            .font(NoopSpecType.subline)
+                            .foregroundStyle(NoopPalette.textSecondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func stageRow(_ title: LocalizedStringKey, minutes: Double, tint: Color) -> some View {
+        HStack(spacing: 10) {
+            Circle().fill(tint).frame(width: 9, height: 9)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(NoopSpecType.body)
+                .foregroundStyle(NoopPalette.textPrimary)
+            Spacer()
+            Text(String(format: String(localized: "%.0f min", table: "AuraPreview"), minutes))
+                .font(NoopSpecType.rowFigure)
+                .foregroundStyle(NoopPalette.textSecondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -258,7 +412,7 @@ struct AuraWorkoutHistorySection: View {
     }
 }
 
-private struct AuraWorkoutSessionDetail: View {
+struct AuraWorkoutSessionDetail: View {
     @EnvironmentObject private var repo: Repository
     let row: WorkoutRow
     @State private var buckets: [HRBucket] = []
@@ -300,6 +454,18 @@ private struct AuraWorkoutSessionDetail: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     NoopSpecCard {
+                        VStack(spacing: 11) {
+                            workoutMetric("Effort", value: row.strain.map { String(format: "%.0f / 100", $0) })
+                            workoutMetric("Max HR", value: row.maxHr.map { "\($0) bpm" })
+                            workoutMetric("Active energy", value: row.energyKcal.map { String(format: "%.0f kcal", $0) })
+                            workoutMetric("Distance", value: distanceText(row.distanceM))
+                            workoutMetric("Steps", value: row.steps.map { String($0) })
+                            if let notes = row.notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                workoutMetric("Notes", value: notes)
+                            }
+                        }
+                    }
+                    NoopSpecCard {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(String(localized: "Heart-rate history", table: "AuraPreview"))
                                 .font(NoopSpecType.cardTitle)
@@ -327,7 +493,7 @@ private struct AuraWorkoutSessionDetail: View {
                         }
                     }
                     NavigationLink {
-                        WorkoutsView()
+                        WorkoutDetailView(row: row)
                     } label: {
                         AuraHistoryRow(
                             title: String(localized: "Open workout management", table: "AuraPreview"),
@@ -347,6 +513,26 @@ private struct AuraWorkoutSessionDetail: View {
             loaded = true
         }
     }
+
+    private func workoutMetric(_ title: LocalizedStringKey, value: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .font(NoopSpecType.body)
+                .foregroundStyle(NoopPalette.textSecondary)
+            Spacer(minLength: 8)
+            Text(value ?? "—")
+                .font(NoopSpecType.rowFigure)
+                .foregroundStyle(NoopPalette.textPrimary)
+                .multilineTextAlignment(.trailing)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func distanceText(_ metres: Double?) -> String? {
+        guard let metres, metres.isFinite, metres >= 0 else { return nil }
+        if metres < 1_000 { return String(format: "%.0f m", metres) }
+        return String(format: "%.2f km", metres / 1_000)
+    }
 }
 
 struct AuraHealthSummary: View {
@@ -354,7 +540,7 @@ struct AuraHealthSummary: View {
 
     private var readings: AuraTodayState {
         AuraTodayAdapter.map(repo.today,
-            todayKey: repo.today?.day ?? Repository.logicalDayKey(Date()))
+            todayKey: Repository.logicalDayKey(Date()))
     }
 
     var body: some View {

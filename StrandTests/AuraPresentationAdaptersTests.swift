@@ -70,6 +70,7 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(mapped.effort.value, 23)
         XCTAssertEqual(mapped.effort.kind, .unresolved)
         XCTAssertEqual(mapped.effort.unit, "/100")
+        XCTAssertNil(mapped.activeEnergy.value)
     }
 
     func testTrendsNeverFillMissingDays() {
@@ -120,6 +121,7 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(rest.sleepMinutes.state, .unavailable)
         XCTAssertNil(activity.effort.value)
         XCTAssertNil(activity.steps.value)
+        XCTAssertNil(activity.activeEnergy.value)
         XCTAssertNil(activity.effort.sourceID)
     }
 
@@ -166,6 +168,10 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(mapped.map(\.end), [160, 250])
         XCTAssertEqual(mapped.map(\.stage), ["deep", "rem"])
         XCTAssertEqual(session.deviceId, "whoop-source")
+        let summary = AuraSessionHistory.stageSummary(session)
+        XCTAssertEqual(summary?.deepMinutes, 1)
+        XCTAssertEqual(summary?.remMinutes, 1.5)
+        XCTAssertEqual(summary?.hasTimedIntervals, true)
     }
 
     func testAuraImportedStageTotalsCannotBecomeFabricatedTimeline() {
@@ -173,6 +179,12 @@ final class AuraPresentationAdaptersTests: XCTestCase {
             efficiency: nil, restingHr: nil, avgHrv: nil,
             stagesJSON: #"{"deep":42,"rem":70,"light":185,"awake":15}"#)
         XCTAssertTrue(AuraSessionHistory.timedStages(imported).isEmpty)
+        let summary = AuraSessionHistory.stageSummary(imported)
+        XCTAssertEqual(summary?.deepMinutes, 42)
+        XCTAssertEqual(summary?.remMinutes, 70)
+        XCTAssertEqual(summary?.lightMinutes, 185)
+        XCTAssertEqual(summary?.awakeMinutes, 15)
+        XCTAssertEqual(summary?.hasTimedIntervals, false)
         XCTAssertTrue(AuraSessionHistory.timedStages(
             CachedSleepSession(startTs: 100, endTs: 460,
                 efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)).isEmpty)
