@@ -102,15 +102,23 @@ struct NightLabView: View {
                       systemImage: m.state == .sealed ? "checkmark.shield" : "exclamationmark.triangle")
                     .font(.subheadline)
                 Text("\(m.rawAssets.count) captured data streams")
+                Text("Recording window: \(durationText(max(0, m.windowEndUnix - m.windowStartUnix)))")
+                    .font(.subheadline)
+                Text("The recording window is not measured time asleep.")
+                    .font(.footnote).foregroundStyle(.secondary)
                     .font(.subheadline).foregroundStyle(.secondary)
                 Text("Integrity and coverage describe saved sensor evidence, not sleep-stage accuracy.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        NoopCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Captured evidence").font(.headline)
+        if m.state == .sealed, let baseline = value.baseline {
+            sleepStageOverview(baseline)
+        }
+        DisclosureGroup("Archive details & source information") {
+            NoopCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Captured evidence").font(.headline)
                 field("Night", m.nightID)
                 field("State", m.state.rawValue)
                 field("Unix interval", NightLabInspectionFormatting.interval(start: m.windowStartUnix, end: m.windowEndUnix))
@@ -134,10 +142,13 @@ struct NightLabView: View {
                 }
             }
         }
+        }
         if m.state == .sealed {
             dataQuality(value)
-            coverage(value)
             NightLabSpO2DiagnosticsCard(inspection: value)
+            DisclosureGroup("Detailed signal coverage") {
+                coverage(value)
+            }
             NoopCard {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Derived baseline").font(.headline)
@@ -149,7 +160,8 @@ struct NightLabView: View {
                         field("Repository commit", baseline.implementation.noopCommitSHA)
                         field("Stager source blob", baseline.implementation.stagerSourceBlobSHA)
                         Text("Saved baseline validated without replay")
-                        NightLabHypnogramView(baseline: baseline)
+                        Text("Sleep-stage chart and durations are shown above.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     } else {
                         Text("Baseline not generated")
                     }
@@ -172,6 +184,63 @@ struct NightLabView: View {
                         Divider()
                     }
                 }
+            }
+        }
+    }
+
+
+    // A quick, user-facing summary of the existing validated archived baseline.
+    // No reprocessing of raw sensor data or invented sleep-stage intervals.
+    private func durationText(_ seconds: Int) -> String {
+        let mins = max(0, seconds) / 60
+        return "\(mins / 60)h \(mins % 60)m"
+    }
+
+    private func stageSeconds(_ stage: SleepStagerV2BaselineStage,
+                              in baseline: SleepStagerV2BaselineArtifact) -> Int {
+        let epochs = baseline.epochs.filter { $0.stage == stage }
+            .reduce(0) { $0 + max(0, $1.endUnix - $1.startUnix) }
+        let leading = baseline.leadingBoundary.map {
+            $0.stage == stage ? max(0, $0.endUnix - $0.startUnix) : 0
+        } ?? 0
+        return epochs + leading
+    }
+
+    private func stageTile(_ title: String, seconds: Int, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(durationText(seconds))
+                .font(.headline)
+                .foregroundStyle(tint)
+                .lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(StrandPalette.surfaceRaised,
+                    in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sleepStageOverview(_ baseline: SleepStagerV2BaselineArtifact) -> some View {
+        let wake = stageSeconds(.wake, in: baseline)
+        let light = stageSeconds(.light, in: baseline)
+        let deep = stageSeconds(.deep, in: baseline)
+        let rem = stageSeconds(.rem, in: baseline)
+        return NoopCard(tint: StrandPalette.restColor) {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader("Sleep stages", overline: "Archived V2 estimates")
+                Text("Estimated asleep: " + durationText(light + deep + rem))
+                    .font(.headline)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
+                          spacing: 10) {
+                    stageTile("Awake", seconds: wake, tint: StrandPalette.metricRose)
+                    stageTile("Light", seconds: light, tint: StrandPalette.metricCyan)
+                    stageTile("Deep", seconds: deep, tint: StrandPalette.metricPurple)
+                    stageTile("REM", seconds: rem, tint: StrandPalette.restColor)
+                }
+                NightLabHypnogramView(baseline: baseline)
+                Text("Stages are model estimates, not clinically verified sleep stages.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
     }
