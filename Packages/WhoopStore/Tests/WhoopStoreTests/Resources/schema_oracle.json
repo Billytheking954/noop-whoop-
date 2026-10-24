@@ -2348,7 +2348,9 @@
           "default": null
         }
       ],
-      "primaryKey": [],
+      "primaryKey": [
+        "rowid"
+      ],
       "indices": [
         {
           "name": "idx_appleHealthWorkoutIdentity_natural",
