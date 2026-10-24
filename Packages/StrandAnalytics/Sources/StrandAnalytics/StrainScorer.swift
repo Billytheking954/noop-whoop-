@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 10021)
+Total output lines: 672
+
 import Foundation
 import WhoopProtocol
 
@@ -239,8 +242,18 @@ public enum StrainScorer {
     /// rather than a reimplementation of it. Delete it if that test ever goes.
     static func sampleDurationMinutes(_ hr: [HRSample]) -> Double {
         guard hr.count >= 2 else { return fallbackSampleMin }
-        let deltaS = abs(Double(hr[1].ts - hr[0].ts))
-        return deltaS > 0 ? deltaS / 60.0 : fallbackSampleMin
+        let deltaS = Double(hr[1].ts) - Double(hr[0].ts)
+        return deltaS > 0 ? deltaS / 60.0 : 0
+    }
+
+    /// Scoring requires strictly increasing timestamps. Duplicate or out-of-order samples have no
+    /// defensible elapsed-time interpretation, so the public scorer refuses them rather than guessing.
+    static func hasStrictlyIncreasingTimestamps(_ hr: [HRSample]) -> Bool {
+        guard hr.count > 1 else { return true }
+        for index in 1..<hr.count where hr[index - 1].ts >= hr[index].ts {
+            return false
+        }
+        return true
     }
 
     /// Per-sample durations (minutes): each reading covers the gap to the NEXT one, clamped to
@@ -262,8 +275,8 @@ public enum StrainScorer {
         var out: [Double] = []
         out.reserveCapacity(hr.count)
         for i in 0..<(hr.count - 1) {
-            let deltaS = abs(Double(hr[i + 1].ts - hr[i].ts))
-            let minutes = deltaS > 0 ? deltaS / 60.0 : fallbackSampleMin
+            let deltaS = Double(hr[i + 1].ts) - Double(hr[i].ts)
+            let minutes = deltaS > 0 ? deltaS / 60.0 : 0
             out.append(min(minutes, maxSampleGapMin))
         }
         out.append(out[out.count - 1])   // the final reading has no successor; reuse the gap before it
@@ -341,8 +354,7 @@ public enum StrainScorer {
     /// method's own denominator, or pass `logMapDenominator(method:sex:)` yourself. (#1545)
     public static func trimpToStrain(_ trimp: Double, denominator: Double = strainDenominator) -> Double {
         if trimp <= 0 { return 0 }
-        // D ≤ 1 (and NaN) is outside the map's domain: ln(1) = 0 divides to ±∞, ln(D) < 0 below 1
-        // flips the sign, and ln(D) is NaN at or below 0. Out-of-domain D is no score, like
+        // D ≤ 1 (and NaN) is outside the…21 tokens truncated…gn, and ln(D) is NaN at or below 0. Out-of-domain D is no score, like
         // TRIMP ≤ 0 — before this guard D = 1 returned +Inf here and a saturated 9.2e16 on Android
         // for the same input (the denominator-domain fix). The default 7201 is unaffected.
         guard denominator > 1 else { return 0 }
@@ -404,6 +416,10 @@ public enum StrainScorer {
                               // the day at live-HR tick rate before the scoring pass asks.
                               diag: ((String) -> Void)? = nil,
                               day: String = "") -> Double? {
+        guard hasStrictlyIncreasingTimestamps(hr) else {
+            diag?("effort score day=\(day) refused=nonmonotonic-timestamps hr=\(hr.count)")
+            return nil
+        }
         // Resolve BEFORE the memo key is built, or a Banister request would be cached under Edwards'
         // denominator and a later Edwards request could collide with it.
         let resolvedDenominator = denominator ?? logMapDenominator(method: method, sex: sex)
