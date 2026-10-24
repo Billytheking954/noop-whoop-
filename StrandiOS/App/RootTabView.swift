@@ -130,12 +130,10 @@ struct RootTabView: View {
                 guard selectedTab != 0 else { return }
                 let dx = v.translation.width, dy = v.translation.height
                 guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
-                let tabs = auraTodayPreviewEnabled ? [0, 1, 2, 3, 4] : [0, 1, 2, 4]
-                guard let index = tabs.firstIndex(of: selectedTab) else { return }
-                let next = tabs[min(tabs.count - 1, max(0, index + (dx < 0 ? 1 : -1)))]
-                if next != selectedTab {
-                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
-                }
+                guard let next = AuraShellTabs.adjacent(
+                    to: selectedTab, towardsNext: dx < 0, auraEnabled: auraTodayPreviewEnabled
+                ) else { return }
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
             }
     }
 
