@@ -22,7 +22,9 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         let mapped = AuraTodayAdapter.map(day(), todayKey: "2026-10-24",
                                           sourceID: "whoop-export")
         XCTAssertEqual(mapped.charge.value, 73)
-        XCTAssertEqual(mapped.charge.kind, .estimated)
+        XCTAssertEqual(mapped.charge.kind, .unresolved)
+        XCTAssertEqual(AuraTodayAdapter.map(day(), todayKey: "2026-10-24",
+                                            chargeKind: .estimated).charge.kind, .estimated)
         XCTAssertEqual(mapped.charge.day, "2026-10-24")
         XCTAssertNil(mapped.charge.measuredAt)
         XCTAssertEqual(mapped.charge.sourceID, "whoop-export")
@@ -46,6 +48,7 @@ final class AuraPresentationAdaptersTests: XCTestCase {
     func testEffortIsV2ScaleAndNotWHOOPTwentyOnePointScale() {
         let mapped = AuraFitnessAdapter.map(day(), todayKey: "2026-10-24")
         XCTAssertEqual(mapped.effort.value, 23)
+        XCTAssertEqual(mapped.effort.kind, .unresolved)
         XCTAssertEqual(mapped.effort.unit, "/100")
     }
 
