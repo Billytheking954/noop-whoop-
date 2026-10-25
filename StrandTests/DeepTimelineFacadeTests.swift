@@ -11,6 +11,42 @@ import StrandDesign
 /// WhoopStore via the DEBUG `setStoreForTesting` seam.
 final class DeepTimelineFacadeTests: XCTestCase {
 
+    // MARK: - Phase 2 calendar and precise-readout regressions
+
+    func testLocalDayWindowsAcrossUKDaylightSavingChanges() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+
+        let spring = calendar.date(from: DateComponents(year: 2026, month: 3, day: 29))!
+        let autumn = calendar.date(from: DateComponents(year: 2026, month: 10, day: 25))!
+        let normal = calendar.date(from: DateComponents(year: 2026, month: 10, day: 26))!
+
+        XCTAssertEqual(FullDayChartView.localDayBounds(start: spring, calendar: calendar)
+            .upperBound.timeIntervalSince(spring), 23 * 3_600, accuracy: 1)
+        XCTAssertEqual(FullDayChartView.localDayBounds(start: autumn, calendar: calendar)
+            .upperBound.timeIntervalSince(autumn), 25 * 3_600, accuracy: 1)
+        XCTAssertEqual(FullDayChartView.localDayBounds(start: normal, calendar: calendar)
+            .upperBound.timeIntervalSince(normal), 24 * 3_600, accuracy: 1)
+
+        XCTAssertEqual(FullDayChartView.shiftedDay(autumn, by: 1, calendar: calendar), normal)
+        XCTAssertEqual(FullDayChartView.shiftedDay(normal, by: -1, calendar: calendar), autumn)
+    }
+
+    func testRawTimelineReadoutRetainsSecondsButBucketAverageDoesNot() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let timestamp = calendar.date(from: DateComponents(year: 2026, month: 10, day: 26,
+                                                             hour: 14, minute: 7, second: 42))!
+        let zone = calendar.timeZone
+        let raw = FullDayChartView.timelineTimeLabel(timestamp, raw: true, bucketSeconds: 1,
+                                                     timeZone: zone)
+        let average = FullDayChartView.timelineTimeLabel(timestamp, raw: false, bucketSeconds: 300,
+                                                         timeZone: zone)
+        XCTAssertTrue(raw.contains("14:07:42"), raw)
+        XCTAssertTrue(average.contains("14:07"), average)
+        XCTAssertFalse(average.contains("14:07:42"), average)
+    }
+
     // MARK: - Pure adaptive-resolution decision
 
     /// A whole DAY at the default budget picks a COARSE bucket — never raw (raw 86k seconds would be the
