@@ -2,7 +2,7 @@ name: App build (iPhone)
 
 on:
   pull_request:
-    branches: [main, integration/aura-v2-candidate-20261024]
+    branches: [main, integration/aura-v2-candidate-20261024, integration/aura-ui-phase2-20261024]
     paths:
       - 'Strand/**'
       - 'StrandTests/**'
@@ -181,7 +181,7 @@ jobs:
             -UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityM
           sleep 18
           xcrun simctl io "$UDID" screenshot "$AURA_DIR/aura-today-accessibility-medium-dark.png"
-          for SCREEN in aurarest aurasleepdetail aurafitness auraworkoutdetail aurahealth auratrends auradevices aurasettings; do
+          for SCREEN in aurarest aurasleepdetail aurafitness auraworkoutdetail aurahealth auratrends auradevices aurasettings auranightlab; do
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
             xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
             sleep 18

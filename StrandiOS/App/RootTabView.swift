@@ -43,6 +43,8 @@ struct RootTabView: View {
     @State private var quickAction: QuickAction?
     /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
     @State private var showDevices = false
+    /// Viewing classic Today is temporary; a quick visit must not silently replace every Aura tab.
+    @State private var showingClassicDashboard = false
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
@@ -72,7 +74,7 @@ struct RootTabView: View {
     /// Aura retains an explicit Full V2 dashboard fallback inside its Today screen.
     @ViewBuilder private var todayTabRoot: some View {
         if auraTodayPreviewEnabled {
-            AuraTodayView(onShowClassic: { auraTodayPreviewEnabled = false })
+            AuraTodayView(onShowClassic: { showingClassicDashboard = true })
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
@@ -200,8 +202,12 @@ struct RootTabView: View {
             // hierarchy's gestures, disable the added one" — exactly this requirement. `.none` disables
             // the subview hierarchy TOO, which on a pushed screen would take out scrolling, taps and the
             // interactive-pop itself: far worse than the bug being fixed.
+            // Aura uses native bottom-tab navigation only. The legacy anywhere-swipe gesture
+            // can recognise diagonal movements during vertical scrolling and move tabs unexpectedly.
+            // Keep classic V2 behaviour unchanged while excluding the recogniser in Aura mode.
             .simultaneousGesture(tabSwipeGesture,
-                                 including: tabPaths[selectedTab].isEmpty ? .all : .subviews)
+                                 including: auraTodayPreviewEnabled ? .subviews
+                                     : (tabPaths[selectedTab].isEmpty ? .all : .subviews))
         .task {
             await repo.refresh()
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
@@ -222,6 +228,18 @@ struct RootTabView: View {
         }
         // Live's "Manage devices" affordance (and any future cross-screen link to Devices) routes here:
         // present the Devices manager in its own nav stack, the same way the quick-action screens do.
+        .sheet(isPresented: $showingClassicDashboard) {
+            NavigationStack {
+                TodayView()
+                    .tabRouteDestinations()
+                    .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingClassicDashboard = false }
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $showDevices) {
             devicesScreen
         }
@@ -499,8 +517,12 @@ struct RootTabView: View {
         moreSection("Insights") {
             MoreRow("What Moves You", "wand.and.sparkles", .insightsHub)
             MoreRow("Intelligence", "brain.head.profile", .intelligence)
-            MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
-            MoreRow("Sleep", "bed.double", .sleep)
+            // Aura already has dedicated Trends and Rest tabs, with links to the original
+            // V2 detail screens. Avoid showing duplicate top-level routes in You.
+            if !auraTodayPreviewEnabled {
+                MoreRow("Trends", "chart.line.uptrend.xyaxis", .trends)
+                MoreRow("Sleep", "bed.double", .sleep)
+            }
             if coachEnabled { MoreRow("Coach", "sparkles", .coach) }
             MoreRow("Insights", "lightbulb.fill", .insights)
             MoreRow("Explore", "square.grid.2x2.fill", .explore)
@@ -511,9 +533,15 @@ struct RootTabView: View {
                 MoreRow("Health & Stress", "heart.text.square", .auraHealth)
             }
             MoreRow("Live", "waveform.path.ecg", .live)
-            MoreRow("Workouts", "figure.run", .workouts)
+            // Aura Fitness owns the primary workouts path and links to V2 management.
+            if !auraTodayPreviewEnabled {
+                MoreRow("Workouts", "figure.run", .workouts)
+            }
             MoreRow("Lift Log", "dumbbell.fill", .liftLog)
             MoreRow("Health", "heart.text.square.fill", .health)
+            if auraTodayPreviewEnabled {
+                MoreRow(LocalizedStringKey(String(localized: "Night Lab", table: "AuraPreview")), "moon.stars", .nightLab)
+            }
             MoreRow("Lab Book", "books.vertical.fill", .labBook)
             MoreRow("Stress", "bolt.heart.fill", .stress)
             MoreRow("Breathe", "wind", .breathe)
@@ -536,6 +564,19 @@ struct RootTabView: View {
             MoreRow("NOOP Limitations", "list.bullet.rectangle", .noopLimitations)
         }
         moreSection("App") {
+            if auraTodayPreviewEnabled {
+                HStack(spacing: 12) {
+                    Text(String(localized: "Use Aura interface", table: "AuraPreview"))
+                        .font(NoopSpecType.rowLabel)
+                        .foregroundStyle(NoopPalette.textPrimary)
+                    Spacer(minLength: 8)
+                    Toggle(String(localized: "Use Aura interface", table: "AuraPreview"),
+                           isOn: $auraTodayPreviewEnabled)
+                        .labelsHidden()
+                }
+                .padding(16)
+                .frame(minHeight: 44)
+            }
             // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
             // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
             // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
@@ -688,7 +729,7 @@ struct RootTabView: View {
 private enum MoreDestination: Hashable {
     case auraHealth
     case insightsHub, intelligence, coach, insights, explore, compare, trends, sleep
-    case live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
+    case live, workouts, liftLog, health, labBook, nightLab, stress, breathe, intervals, rhythm
     case fusedRecord, appleHealth, miBand, devices, dataSources, backupSync, shortcutsExport, noopLimitations
     case alarms, automations, dailyInsightNotifications, testCentre, siriShortcuts, powerSaving, settings
 
@@ -708,6 +749,7 @@ private enum MoreDestination: Hashable {
         case .liftLog:         LiftLogView()
         case .health:          HealthView()
         case .labBook:         LabBookView()
+        case .nightLab:        NightLabView()
         case .stress:          StressView()
         case .breathe:         BreathingView()
         case .intervals:       IntervalTimerView()

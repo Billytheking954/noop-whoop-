@@ -73,13 +73,24 @@ struct AuraRestState: Equatable {
 }
 
 enum AuraRestAdapter {
+    /// DailyMetric historically crossed some import/demo boundaries as 0...100 even though the
+    /// canonical store value is a 0...1 fraction. Keep that legacy tolerance at the presentation
+    /// boundary so an old row can never render as 8,400%, while rejecting impossible values rather
+    /// than clamping them into a plausible-looking result.
+    static func efficiencyPercent(_ raw: Double?) -> Double? {
+        guard var value = raw, value.isFinite, value > 0 else { return nil }
+        if value > 1.5 { value /= 100 }
+        guard value <= 1 else { return nil }
+        return value * 100
+    }
+
     static func map(_ day: DailyMetric?, todayKey: String, sourceID: String? = nil,
                     stagesAreVendorDerived: Bool = false) -> AuraRestState {
         let kind: AuraValueKind = stagesAreVendorDerived ? .vendorDerived : .estimated
         return AuraRestState(
             sleepMinutes: .mapped(day?.totalSleepMin, unit: "min", day: day?.day, todayKey: todayKey,
                                   sourceID: sourceID, kind: .recordedAggregate),
-            sleepEfficiency: .mapped(day?.efficiency.map { $0 * 100 }, unit: "%",
+            sleepEfficiency: .mapped(efficiencyPercent(day?.efficiency), unit: "%",
                                      day: day?.day, todayKey: todayKey,
                                      sourceID: sourceID, kind: .estimated),
             deepMinutes: .mapped(day?.deepMin, unit: "min", day: day?.day,
