@@ -317,6 +317,31 @@ struct TrendsView: View {
                         // The Charge / Effort / Rest trio, presented in NOOP's pip language.
                         weekInReview(charge: metrics.recovery, effort: metrics.strain, rest: metrics.rest)
                             .staggeredAppear(index: 1)
+                        NavigationLink {
+                            FullDayChartView()
+                        } label: {
+                            NoopCard {
+                                HStack(spacing: NoopMetrics.space3) {
+                                    Image(systemName: "waveform.path.ecg")
+                                        .foregroundStyle(StrandPalette.accent)
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                                        Text("Day detail")
+                                            .font(StrandFont.headline)
+                                            .foregroundStyle(StrandPalette.textPrimary)
+                                        Text("Inspect your sensor readings by minute or second")
+                                            .font(StrandFont.footnote)
+                                            .foregroundStyle(StrandPalette.textTertiary)
+                                    }
+                                    Spacer(minLength: NoopMetrics.space1)
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("noop.trends.dayDetail")
                         rangeBar(recovery: metrics.recovery)
                             .staggeredAppear(index: 2)
                         heroRecovery(recovery: metrics.recovery)
@@ -724,21 +749,19 @@ struct TrendsView: View {
         let cap = recovery.caption
         let isWide = recovery.widened
         return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            HStack(spacing: NoopMetrics.space2) {
-                // Six ranges plus the trailing-window caption need to share a compact iPhone row.
-                // Let the segmented control collapse to equal-width cells instead of squeezing the
-                // caption narrower than one word (which wrapped the final G in TRAILING by itself).
-                SegmentedPillControl(Range.allCases, selection: $range,
-                                     adaptsToAvailableWidth: true) { $0.label }
-                // Keep the caption's two lines internally leading-aligned, but anchor the whole
-                // caption column to the page's trailing edge.
-                Spacer(minLength: NoopMetrics.space2)
+            // Give all six ranges the full screen width. The former adjacent
+            // caption crowded narrow iPhones and large accessibility text sizes.
+            SegmentedPillControl(Range.allCases, selection: $range,
+                                 adaptsToAvailableWidth: true) { $0.label }
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                Text(cap)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(isWide ? StrandPalette.statusWarning : StrandPalette.textTertiary)
+                    .accessibilityLabel(cap)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: NoopMetrics.space1)
                 rangeCaption
             }
-            Text(cap)
-                .font(StrandFont.footnote)
-                .foregroundStyle(isWide ? StrandPalette.statusWarning : StrandPalette.textTertiary)
-                .accessibilityLabel(cap)
         }
     }
 
