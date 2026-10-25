@@ -1807,11 +1807,31 @@ struct SleepView: View {
         .accessibilityAddTraits(.isButton)
     }
 
+    /// Split an irregular overnight series at true sampling gaps. This is
+    /// presentation-only: timestamps and values are copied without alteration.
+    static func gapSeparatedOvernightPoints(_ input: [TrendPoint],
+                                            maxGap: TimeInterval) -> [TrendPoint] {
+        let ordered = input.sorted { $0.date < $1.date }
+        var previous: Date?
+        var segment = 0
+        return ordered.map { point in
+            if let previous, point.date.timeIntervalSince(previous) > maxGap {
+                segment += 1
+            }
+            previous = point.date
+            return TrendPoint(date: point.date, value: point.value,
+                              segment: "overnight-\(segment)")
+        }
+    }
+
     /// Optional overnight HRV trace. Reuses the existing sensor timeline facade,
     /// so only real stored readings are shown. The label identifies aggregation.
     @ViewBuilder
     private func overnightHRVChart(night: Night) -> some View {
-        let points = nightHRV.points
+        let points = Self.gapSeparatedOvernightPoints(
+            nightHRV.points,
+            maxGap: max(300, TimeInterval(nightHRV.bucketSeconds) * 3)
+        )
         if points.count >= 2 {
             let values = points.map(\.value)
             let minimum = values.min() ?? 0
@@ -1838,6 +1858,7 @@ struct SleepView: View {
                     gradient: Gradient(colors: [StrandPalette.sleepLight.opacity(0.5),
                                                 StrandPalette.sleepLight]),
                     valueRange: max(0, minimum - spread * 0.12)...(maximum + spread * 0.12),
+                    metricLabel: "HRV",
                     xRange: night.onsetDate...Date(timeIntervalSince1970: TimeInterval(night.session.endTs)),
                     height: 112,
                     touchScrub: true,
