@@ -65,6 +65,17 @@ final class AuraPresentationAdaptersTests: XCTestCase {
         XCTAssertEqual(imported.deepMinutes.kind, .vendorDerived)
     }
 
+    func testSleepEfficiencyLegacyPercentCannotRenderThousandsOfPercent() throws {
+        let legacy = DailyMetric(day: "2026-10-24", totalSleepMin: 420, efficiency: 84.7,
+            deepMin: 90, remMin: 95, lightMin: 235, disturbances: nil,
+            restingHr: 53, avgHrv: 67.4, recovery: 67, strain: 20,
+            exerciseCount: nil)
+        let mapped = AuraRestAdapter.map(legacy, todayKey: legacy.day)
+        XCTAssertEqual(try XCTUnwrap(mapped.sleepEfficiency.value), 84.7, accuracy: 0.001)
+        XCTAssertNil(AuraRestAdapter.efficiencyPercent(150))
+        XCTAssertNil(AuraRestAdapter.efficiencyPercent(-0.5))
+    }
+
     func testEffortIsV2ScaleAndNotWHOOPTwentyOnePointScale() {
         let mapped = AuraFitnessAdapter.map(day(), todayKey: "2026-10-24")
         XCTAssertEqual(mapped.effort.value, 23)
