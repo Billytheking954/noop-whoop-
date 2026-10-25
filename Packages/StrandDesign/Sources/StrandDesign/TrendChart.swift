@@ -508,6 +508,47 @@ public struct TrendChart: View {
                     }
                     .onEnded { _ in holdingBar = false; hoverX = nil },
                     including: showsHover && showsBars ? .all : .none)
+                #if os(iOS)
+                // iPhone line charts previously responded to mouse hover only. A tap
+                // pins the exact stored sample; a deliberate hold lets the finger
+                // inspect successive samples without stealing ordinary page scroll.
+                .simultaneousGesture(
+                    SpatialTapGesture().onEnded { tap in
+                        guard showsHover, !showsBars else { return }
+                        let x = min(max(tap.location.x, plot.minX), plot.maxX)
+                        let point = nearestPoint(toX: x, proxy: proxy, plot: plot)
+                        if selectedPoint?.date == point?.date && hoverX != nil {
+                            selectedPoint = nil
+                            hoverX = nil
+                        } else {
+                            selectedPoint = point
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { hoverX = x }
+                        }
+                    },
+                    including: showsHover && !showsBars ? .all : .subviews
+                )
+                .gesture(
+                    LongPressGesture(minimumDuration: 0.25, maximumDistance: 8)
+                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                        .onChanged { sequence in
+                            guard showsHover, !showsBars else { return }
+                            guard case .second(true, let drag) = sequence, let drag else { return }
+                            let x = min(max(drag.location.x, plot.minX), plot.maxX)
+                            selectedPoint = nearestPoint(toX: x, proxy: proxy, plot: plot)
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { hoverX = x }
+                        }
+                        .onEnded { _ in
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { hoverX = nil }
+                        },
+                    including: showsHover && !showsBars ? .all : .subviews
+                )
+                #endif
                 .onContinuousHover(coordinateSpace: .local) { phase in
                     guard showsHover else { return }
                     // Update the hover position in a NON-animating transaction. Otherwise entering or
