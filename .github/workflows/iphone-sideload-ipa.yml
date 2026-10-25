@@ -17,7 +17,7 @@ on:
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
   push:
-    branches: [main]
+    branches: [main, fix/aura-nightlab-ui-scroll-20261024]
     paths:
       - '.github/workflows/iphone-sideload-ipa.yml'
       - '.github/workflows/app-build.yml'
@@ -131,6 +131,13 @@ jobs:
             assert any(n.startswith('Payload/NOOP.app/PlugIns/NOOPWidgets.appex/_CodeSignature/') for n in entries)
             assert not any('/Watch/' in n or '/MacOS/' in n for n in entries)
           PY
+          # A sideloadable IPA must not carry profiles from another developer account.
+          python3 - "$NAME" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile("release-out/" + sys.argv[1]) as z:
+            forbidden = [p for p in z.namelist() if p.endswith((".mobileprovision", "embedded.mobileprovision"))]
+            assert not forbidden, f"Unexpected bundled provisioning material: {forbidden}"
+          PY
           IPA_SHA="$(shasum -a 256 "release-out/$NAME" | awk '{print $1}')"
           printf '%s  %s\n' "$IPA_SHA" "$NAME" > "release-out/$NAME.sha256.txt"
           python3 - "$NAME" "$SHA" <<'PY'
@@ -153,16 +160,25 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Publish clearly labelled unsigned sideload build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/aura-nightlab-ui-scroll-20261024')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           SHA="${{ steps.ipa.outputs.sha }}"
-          test "$SHA" = "$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-          TAG="noop-v2-iphone-sideload-${SHA:0:12}"
-          ! gh release view "$TAG" >/dev/null 2>&1
-          gh release create "$TAG" release-out/* --target "$SHA" \
-            --title "NOOP V2 iPhone 12.0.0 (unsigned sideload IPA)" \
-            --notes "Built fresh from main commit $SHA. iPhone arm64 only. This IPA carries ad-hoc capability templates and must be re-signed by AltStore or SideStore before installation. It is distinct from the signed final-release workflow. Experimental SpO2 is instrumentation only."
+          test "$SHA" = "$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | awk '{print $1}')"
+          if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            TAG="noop-v2-iphone-sideload-${SHA:0:12}"
+            ! gh release view "$TAG" >/dev/null 2>&1
+            gh release create "$TAG" release-out/* --target "$SHA" \
+              --title "NOOP V2 iPhone 12.0.0 (unsigned sideload IPA)" \
+              --notes "Built fresh from main commit $SHA. iPhone arm64 only. This IPA carries ad-hoc capability templates and must be re-signed by AltStore or SideStore before installation. It is distinct from the signed final-release workflow. Experimental SpO2 is instrumentation only."
+          else
+            test "$GITHUB_REF_NAME" = "fix/aura-nightlab-ui-scroll-20261024"
+            TAG="noop-v2-aura-pr54-${SHA:0:12}"
+            ! gh release view "$TAG" >/dev/null 2>&1
+            gh release create "$TAG" release-out/* --target "$SHA" --prerelease \
+              --title "NOOP V2 x Aura PR #54 - unsigned iPhone test IPA" \
+              --notes "Built from the unmerged PR #54 branch at exact commit $SHA. iPhone arm64 Release archive. Aura UI with authoritative NOOP V2 data engines. This is an unsigned/sideload test prerelease with ad-hoc capability templates, NOT an Apple-signed installable binary. SideStore/AltStore must re-sign; requested HealthKit/App Group entitlements may require compatible provisioning. Simulator CI does not prove physical-device or overnight WHOOP operation. Experimental SpO2 is not production scoring."
+          fi
