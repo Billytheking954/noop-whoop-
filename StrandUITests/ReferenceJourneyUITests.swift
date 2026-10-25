@@ -69,6 +69,30 @@ final class ReferenceJourneyUITests: XCTestCase {
         XCTAssertTrue(health.isSelected, "Right drag unexpectedly changed tabs")
     }
 
+    /// Phase 2: navigate to the real Deep Timeline via Trends, not the
+    /// stand-alone DEBUG preview, so the correct NavigationStack is exercised.
+    func testTrendsOpenDayDetailWithoutChangingTabs() {
+        let app = launch()
+        let tabs = app.tabBars.firstMatch
+        XCTAssertTrue(tabs.waitForExistence(timeout: 30))
+
+        let more = tabs.buttons["More"]
+        more.tap()
+        let trends = app.buttons["Trends"].firstMatch
+        XCTAssertTrue(trends.waitForExistence(timeout: 20))
+        trends.tap()
+
+        let detail = app.buttons["noop.trends.dayDetail"].firstMatch
+        XCTAssertTrue(detail.waitForExistence(timeout: 20))
+        detail.tap()
+
+        let signal = app.buttons["noop.timeline.signal"].firstMatch
+        XCTAssertTrue(signal.waitForExistence(timeout: 20))
+        app.swipeUp()
+        XCTAssertTrue(more.isSelected, "Timeline vertical scrolling changed the selected tab")
+        XCTAssertTrue(signal.exists, "Signal picker disappeared after scrolling")
+    }
+
     func testCalendarOpensDateSelection() {
         let app = launch()
         let calendar = app.buttons["noop.today.calendar"]
