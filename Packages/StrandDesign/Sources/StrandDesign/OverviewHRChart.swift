@@ -540,8 +540,7 @@ public struct OverviewHRChart: View {
     /// OverviewHRChart semantics).
     private var accessibilitySummary: String {
         guard !points.isEmpty else {
-            return metricLabel == nil ? String(localized: "No heart-rate data", bundle: .module)
-                                      : String(localized: "No data", bundle: .module)
+            return String(localized: "No heart-rate data", bundle: .module)
         }
         let values = points.map(\.value)
         let lo = values.min() ?? valueRange.lowerBound
