@@ -57,6 +57,9 @@ public struct OverviewHRChart: View {
     public var effort: EdgeMarker?
     public var gradient: Gradient
     public var valueRange: ClosedRange<Double>
+    /// When reused for HRV, name its actual metric rather than announcing BPM.
+    /// nil preserves the original heart-rate label and VoiceOver summary.
+    public var metricLabel: String?
     /// Explicit x-axis window. When set, the axis spans exactly this range (so missing data shows as
     /// empty space); when nil, the axis is derived from the data extent.
     public var xRange: ClosedRange<Date>?
@@ -89,6 +92,7 @@ public struct OverviewHRChart: View {
         effort: EdgeMarker? = nil,
         gradient: Gradient = Gradient(colors: [StrandPalette.metricRose.opacity(0.55), StrandPalette.metricRose]),
         valueRange: ClosedRange<Double> = 40...120,
+        metricLabel: String? = nil,
         xRange: ClosedRange<Date>? = nil,
         height: CGFloat = 220,
         showsHover: Bool = true,
@@ -107,6 +111,7 @@ public struct OverviewHRChart: View {
         self.effort = effort
         self.gradient = gradient
         self.valueRange = valueRange
+        self.metricLabel = metricLabel
         self.xRange = xRange
         self.height = height
         self.showsHover = showsHover
@@ -285,12 +290,16 @@ public struct OverviewHRChart: View {
         }
 
         ForEach(displayPoints) { p in
-            AreaMark(x: .value("Time", p.date), y: .value("BPM", p.value))
+            AreaMark(x: .value("Time", p.date),
+                     y: .value(metricLabel ?? "BPM", p.value),
+                     series: .value("Segment", p.segment))
                 .interpolationMethod(.catmullRom)
                 .foregroundStyle(areaFill)
         }
         ForEach(displayPoints) { p in
-            LineMark(x: .value("Time", p.date), y: .value("BPM", p.value))
+            LineMark(x: .value("Time", p.date),
+                     y: .value(metricLabel ?? "BPM", p.value),
+                     series: .value("Segment", p.segment))
                 .interpolationMethod(.catmullRom)
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                 .foregroundStyle(lineStroke)
@@ -522,7 +531,7 @@ public struct OverviewHRChart: View {
         // (matches the sibling TrendChart). The only datum affordance otherwise is hover, which is
         // dead on touch — so on iPhone this chart spoke no heart rate at all.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Heart rate, 24 hours"))
+        .accessibilityLabel(Text(metricLabel ?? String(localized: "Heart rate, 24 hours", bundle: .module)))
         .accessibilityValue(Text(accessibilitySummary))
     }
 
@@ -530,13 +539,18 @@ public struct OverviewHRChart: View {
     /// chart shows visually, so the collapsed element still conveys the whole picture (cf. the Android
     /// OverviewHRChart semantics).
     private var accessibilitySummary: String {
-        guard !points.isEmpty else { return String(localized: "No heart-rate data", bundle: .module) }
+        guard !points.isEmpty else {
+            return metricLabel == nil ? String(localized: "No heart-rate data", bundle: .module)
+                                      : String(localized: "No data", bundle: .module)
+        }
         let values = points.map(\.value)
         let lo = values.min() ?? valueRange.lowerBound
         let hi = values.max() ?? valueRange.upperBound
-        var parts = [String(localized: "\(points.count) readings", bundle: .module),
-                     String(localized: "average \(valueFormat(averageValue)) bpm", bundle: .module),
-                     String(localized: "range \(valueFormat(lo)) to \(valueFormat(hi))", bundle: .module)]
+        var parts = [String(localized: "\(points.count) readings", bundle: .module)]
+        if metricLabel == nil {
+            parts.append(String(localized: "average \(valueFormat(averageValue)) bpm", bundle: .module))
+        }
+        parts.append(String(localized: "range \(valueFormat(lo)) to \(valueFormat(hi))", bundle: .module))
         if let sleep {
             parts.append(String(localized: "asleep \(Self.hoursMinutes(sleep.end.timeIntervalSince(sleep.start)))", bundle: .module))
         }
