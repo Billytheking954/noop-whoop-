@@ -1947,7 +1947,8 @@ struct SleepView: View {
                         from: Date(timeIntervalSince1970: TimeInterval(selected.ts)))
                     HStack(spacing: 4) {
                         Text("\(Int(selected.bpm.rounded())) bpm")
-                        Text(verbatim: "· \(stamp)")
+                        Text("·")
+                        Text(verbatim: stamp)
                         Text("\(1)-minute average")
                     }
                         .font(StrandFont.footnote)
