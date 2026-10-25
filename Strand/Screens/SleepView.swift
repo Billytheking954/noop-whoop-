@@ -1945,7 +1945,11 @@ struct SleepView: View {
                 if let selected = buckets.first(where: { $0.ts == inspectedNightHRStamp }) {
                     let stamp = Self.stageAxisFormatter.string(
                         from: Date(timeIntervalSince1970: TimeInterval(selected.ts)))
-                    Text("\(Int(selected.bpm.rounded())) bpm · \(stamp) · 1-min avg")
+                    HStack(spacing: 4) {
+                        Text("\(Int(selected.bpm.rounded())) bpm")
+                        Text(verbatim: "· \(stamp)")
+                        Text("\(1)-minute average")
+                    }
                         .font(StrandFont.footnote)
                         .monospacedDigit()
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -1954,7 +1958,7 @@ struct SleepView: View {
                         .padding(4)
                 }
             }
-            .accessibilityLabel(Text("Sleeping heart rate through the night. Tap for measured-minute details."))
+            .accessibilityLabel(Text("Sleeping heart rate through the night"))
         } else {
             Text("No heart-rate detail for this night")
                 .font(StrandFont.footnote)
