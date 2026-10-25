@@ -326,10 +326,10 @@ struct TrendsView: View {
                                         .foregroundStyle(StrandPalette.accent)
                                         .accessibilityHidden(true)
                                     VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                                        Text("Day detail")
+                                        Text("Deep Timeline")
                                             .font(StrandFont.headline)
                                             .foregroundStyle(StrandPalette.textPrimary)
-                                        Text("Inspect your sensor readings by minute or second")
+                                        Text("Every second of your day, zoomable.")
                                             .font(StrandFont.footnote)
                                             .foregroundStyle(StrandPalette.textTertiary)
                                     }
