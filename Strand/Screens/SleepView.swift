@@ -1032,6 +1032,10 @@ struct SleepView: View {
         // WHOOP top-chart data (ryanAtriumAi #988): 1-min sleeping-HR buckets for THIS night, reloaded
         // only when the displayed night changes (same `.task(id:)` pattern the other per-night loads use).
         .task(id: night.session.startTs) {
+            // Do not display the previous night's samples during an async re-read.
+            nightHR = []
+            nightHRV = .empty
+            inspectedNightHRStamp = nil
             nightHR = await repo.hrBuckets(from: night.session.startTs,
                                            to: night.session.endTs,
                                            bucketSeconds: 60)
