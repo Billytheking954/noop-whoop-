@@ -122,6 +122,9 @@ struct SleepView: View {
     /// Sleeping heart-rate for the displayed night (1-min buckets), for the WHOOP-style HR chart above
     /// the stage rows. Loaded once per night via `.task(id:)` on the stage card. (ryanAtriumAi #988)
     @State private var nightHR: [HRBucket] = []
+    // HRV is read independently from the same persisted timeline backend as Explore.
+    // No interpolation or fallback estimates are produced for missing overnight data.
+    @State private var nightHRV: Repository.TimelineSeries = .empty
     /// Display-only sample inspected on the overnight HR graph. nil means no selection.
     @State private var inspectedNightHRStamp: Int? = nil
 
@@ -1032,6 +1035,12 @@ struct SleepView: View {
             nightHR = await repo.hrBuckets(from: night.session.startTs,
                                            to: night.session.endTs,
                                            bucketSeconds: 60)
+            let hrv = await repo.timelineSeries(metric: .hrv,
+                                                from: night.session.startTs,
+                                                to: night.session.endTs,
+                                                targetPoints: 300)
+            guard !Task.isCancelled else { return }
+            nightHRV = hrv
         }
     }
 
@@ -1591,6 +1600,7 @@ struct SleepView: View {
                 .frame(height: 124)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 2)
+            overnightHRVChart(night: night)
             stageTimelineRow(.awake, minutes: s.awake, percent: stageSharePercent(.awake, s), intervals: smoothed, origin: origin, span: span)
             stageTimelineRow(.rem,   minutes: s.rem,   percent: stageSharePercent(.rem, s), intervals: smoothed, origin: origin, span: span)
             stageTimelineRow(.light, minutes: s.light, percent: stageSharePercent(.light, s), intervals: smoothed, origin: origin, span: span)
@@ -1791,6 +1801,49 @@ struct SleepView: View {
         .accessibilityLabel("\(stage.label): \(durationText(minutes)), \(percent) percent of the night")
         .accessibilityHint("Highlights this stage on the sleep chart")
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// Optional overnight HRV trace. Reuses the existing sensor timeline facade,
+    /// so only real stored readings are shown. The label identifies aggregation.
+    @ViewBuilder
+    private func overnightHRVChart(night: Night) -> some View {
+        let points = nightHRV.points
+        if points.count >= 2 {
+            let values = points.map(\.value)
+            let minimum = values.min() ?? 0
+            let maximum = values.max() ?? 100
+            let spread = max(1, maximum - minimum)
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                HStack {
+                    Text("HRV").strandOverline()
+                    Spacer()
+                    if nightHRV.isRaw {
+                        Text("Raw · per second")
+                            .font(StrandFont.footnote)
+                    } else if nightHRV.bucketSeconds >= 60 {
+                        Text("\(nightHRV.bucketSeconds / 60)-minute average")
+                            .font(StrandFont.footnote)
+                    } else {
+                        Text("\(nightHRV.bucketSeconds)-second average")
+                            .font(StrandFont.footnote)
+                    }
+                }
+                .foregroundStyle(StrandPalette.textSecondary)
+                OverviewHRChart(
+                    points: points,
+                    gradient: Gradient(colors: [StrandPalette.sleepLight.opacity(0.5),
+                                                StrandPalette.sleepLight]),
+                    valueRange: max(0, minimum - spread * 0.12)...(maximum + spread * 0.12),
+                    xRange: night.onsetDate...Date(timeIntervalSince1970: TimeInterval(night.session.endTs)),
+                    height: 112,
+                    touchScrub: true,
+                    valueFormat: { String(Int($0.rounded())) + " ms" },
+                    dateFormat: { Self.stageAxisFormatter.string(from: $0) }
+                )
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 2)
+        }
     }
 
     /// Find the actual measured/averaged HR bucket nearest a touch, never a
