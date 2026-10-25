@@ -1,0 +1,34 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Energy Reserve" : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Energiereserve" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Energy Reserve" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Reserva de energía" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Réserve d’énergie" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Riserva di energia" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Rezerwa energii" } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Reserva de energia" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Запас энергии" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "能量储备" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "能量儲備" } }
+      }
+    },
+    "Training Readiness" : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Trainingsbereitschaft" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Training Readiness" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Preparación para entrenar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Préparation à l’entraînement" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Prontezza all'allenamento" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Gotowość treningowa" } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Prontidão para o treino" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Готовность к тренировке" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "训练准备度" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "訓練準備度" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
