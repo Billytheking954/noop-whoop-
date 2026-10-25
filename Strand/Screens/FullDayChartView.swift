@@ -94,7 +94,7 @@ struct FullDayChartView: View {
     private var visibleWindow: ClosedRange<Date> { zoomDomain ?? dayBounds }
 
     var body: some View {
-        ScreenScaffold(title: "Deep Timeline", subtitle: "Inspect actual sensor readings, one day at a time.") {
+        ScreenScaffold(title: "Deep Timeline", subtitle: "Every second of your day, zoomable.") {
             dayNav
             metricPills
             sourcePill
@@ -143,11 +143,11 @@ struct FullDayChartView: View {
     // A native menu removes the horizontally scrolling row of signal buttons.
     private var metricPills: some View {
         HStack(spacing: NoopMetrics.space2) {
-            Text("Signal")
+            Text("Metric")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
             Spacer()
-            Picker("Signal", selection: $metric) {
+            Picker("Metric", selection: $metric) {
                 ForEach(Repository.TimelineMetric.allCases, id: \.self) { candidate in
                     Text(candidate.title).tag(candidate)
                 }
@@ -164,10 +164,10 @@ struct FullDayChartView: View {
                 .foregroundStyle(StrandPalette.textTertiary)
                 .accessibilityHidden(true)
             Group {
-                if let sourceName { Text(verbatim: sourceName) } else { Text("Active device") }
+                if let sourceName { Text(verbatim: sourceName) } else { Text("Device") }
             }
             Spacer(minLength: NoopMetrics.space2)
-            Text("Device data only")
+            Text("Recorded on device")
                 .foregroundStyle(StrandPalette.textTertiary)
         }
         .font(StrandFont.footnote)
@@ -336,7 +336,7 @@ struct FullDayChartView: View {
         if metricUnsupported, metric == .respiration {
             return String(localized: "This strap sends no raw respiration stream. Your estimated respiratory rate appears on the Health screen.")
         }
-        return String(localized: "No readings from the active device for this window. Try synchronising.")
+        return String(localized: "Nothing offloaded for this window yet.")
     }
 
     @ViewBuilder private var zoomHint: some View {
