@@ -643,6 +643,7 @@ enum DemoScreens {
         case "aurahealth": return AnyView(AuraHealthSummary())
         case "auradevices": return AnyView(DevicesView())
         case "aurasettings": return AnyView(SettingsView())
+        case "auranightlab": return AnyView(NightLabView())
         case "aurasleepdetail":
             let end = Int(Date().timeIntervalSince1970) - 3_600
             let start = end - 8 * 3_600
@@ -718,7 +719,7 @@ private struct AuraDemoTabHost: View {
         case "aurarest", "aurasleepdetail": return 1
         case "aurafitness", "auraworkoutdetail": return 2
         case "auratrends": return 3
-        case "auradevices", "aurasettings": return 4
+        case "auradevices", "aurasettings", "auranightlab": return 4
         default: return 0
         }
     }
