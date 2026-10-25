@@ -1,4 +1,6 @@
 import XCTest
+import Foundation
+import StrandDesign
 @testable import Strand
 
 /// Phase 2 overnight-chart interaction tests. Selection must reflect a stored
@@ -18,6 +20,19 @@ final class SleepNightHRInspectionTests: XCTestCase {
                                                       target: 1_800))
         XCTAssertEqual(SleepView.nearestNightSampleIndex([0, 60, 3_600, 3_660],
                                                          target: 1_800, maxDistance: 2_000), 1)
+    }
+
+    func testOvernightHRVSegmentsRespectMissingData() {
+        let seconds = [0, 60, 120, 3_600, 3_660]
+        let source = seconds.map {
+            TrendPoint(date: Date(timeIntervalSince1970: Double($0)), value: Double($0 / 60))
+        }
+        let separated = SleepView.gapSeparatedOvernightPoints(source, maxGap: 300)
+        XCTAssertEqual(separated.map(\.value), source.map(\.value))
+        XCTAssertEqual(separated.map(\.date), source.map(\.date))
+        XCTAssertEqual(separated.map(\.segment),
+                       ["overnight-0", "overnight-0", "overnight-0",
+                        "overnight-1", "overnight-1"])
     }
 
     func testDenseOvernightSeriesUsesBoundedSearch() {
