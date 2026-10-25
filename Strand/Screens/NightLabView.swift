@@ -14,10 +14,7 @@ struct NightLabView: View {
     var body: some View {
         ScreenScaffold(title: "Night Lab", subtitle: "Archived evidence, saved replay results and portable bundles") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { archiveActions }
-                    VStack(alignment: .leading, spacing: 8) { archiveActions }
-                }
+                archiveActions
                 if model.loading { ProgressView() }
                 if model.transferring { ProgressView("Verifying bundle…") }
                 if let message = model.transferMessage { Text(message) }
@@ -59,10 +56,23 @@ struct NightLabView: View {
         }
     }
 
-    @ViewBuilder private var archiveActions: some View {
-                    Button("Refresh") { Task { await model.refresh() } }
-                    Button("Import bundle…") { presentImporter() }
-                    Button("Export selected…") {
+    private var archiveActions: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    Task { await model.refresh() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                Button {
+                    presentImporter()
+                } label: {
+                    Label("Import bundle…", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+            }
+            Button {
                         Task {
                             guard let data = await model.exportSelectedNight(),
                                   let nightID = model.selectedID else { return }
@@ -70,8 +80,13 @@ struct NightLabView: View {
                             exportDocument = NightLabBundleDocument(data: data)
                             showingExporter = true
                         }
-                    }
-                    .disabled(model.selectedID == nil || model.transferring)
+            } label: {
+                Label("Export selected…", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .disabled(model.selectedID == nil || model.transferring)
+        }
+        .buttonStyle(.bordered)
     }
 
     private func selectorTitle(_ entry: NightLabInspectionEntry) -> String {
