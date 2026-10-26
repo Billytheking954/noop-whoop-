@@ -213,8 +213,8 @@ struct TestCentreView: View {
             let result = await LocalSelfTest.run(repo: model.repo)
             localSelfTestReport = result.text
             localSelfTestStatus = result.needsAttention
-                ? "Completed. Some results need investigation."
-                : "Completed. Local daily-history checks were consistent."
+                ? String(localized: "Worth checking")
+                : String(localized: "Done")
             localSelfTestRunning = false
         }
     }
@@ -347,16 +347,16 @@ struct TestCentreView: View {
                 }
                 Divider().overlay(StrandPalette.hairline)
 
-                NoopButton("Run local self-test", systemImage: "checkmark.shield", kind: .secondary) {
+                NoopButton("Check stored data", systemImage: "checkmark.shield", kind: .secondary) {
                     runLocalSelfTest()
                 }
                 .disabled(localSelfTestRunning)
                 .accessibilityIdentifier("noop.testcentre.run-local-selftest")
-                Text("Checks recent saved daily records against loaded dashboard history, offline. Also reports the last cold-start local loading time. Never resets data or contacts WHOOP.")
+                Text("LOCAL ONLY")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                 if localSelfTestRunning {
-                    ProgressView("Checking local history")
+                    ProgressView("Checking…")
                 }
                 if let status = localSelfTestStatus {
                     Text(status)
@@ -364,13 +364,14 @@ struct TestCentreView: View {
                         .accessibilityIdentifier("noop.testcentre.local-selftest-status")
                 }
                 if let result = localSelfTestReport {
-                    DisclosureGroup("View local self-test details") {
+                    DisclosureGroup("Details") {
                         Text(result)
                             .font(StrandFont.caption)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Button("Copy local self-test report") { PlatformPasteboard.copy(result) }
+                    Button("Copy") { PlatformPasteboard.copy(result) }
+                        .accessibilityIdentifier("noop.testcentre.copy-local-selftest")
                         .buttonStyle(.bordered)
                 }
 
