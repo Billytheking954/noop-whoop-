@@ -191,10 +191,12 @@ public enum EnergyReserveEngine {
 
         // Natural-key de-duplication prevents a repeated sync row from draining the estimate twice.
         var seen = Set<String>()
+        // Reject other-day/future versions *before* de-duplicating by workout ID.
+        // A stale history row must not hide an otherwise valid in-day sync update.
         let usable = activities
-            .filter { seen.insert($0.id).inserted }
             .filter { $0.end >= dayInterval.lowerBound && $0.end < dayInterval.upperBound && $0.end <= evaluatedAt }
             .sorted { $0.end < $1.end }
+            .filter { seen.insert($0.id).inserted }
         var running = Double(morning)
         for event in usable {
             let eventStrain = event.strain.flatMap { (0...100).contains($0) ? $0 : nil }
@@ -202,11 +204,17 @@ public enum EnergyReserveEngine {
             guard eventStrain != nil || eventKcal != nil else { continue }
             // Strain is preferred; calories are only a bounded fallback when the workout lacks strain.
             let cost = eventStrain.map { $0 * 0.45 } ?? min(18, (eventKcal ?? 0) / 60)
-            running = clamp(running - cost, 0, 100)
+            // The current daily strain is an aggregate, not an additional event.
+            // Never let summed workout costs overshoot the measured daily depletion:
+            // otherwise the final current point jumps UP without a restoration event.
+            running = max(Double(current), clamp(running - cost, 0, 100))
             result.append(TrendPoint(timestamp: event.end, value: Int(running.rounded()), source: .workout))
         }
 
-        if dayInterval.contains(evaluatedAt), result.last?.timestamp != evaluatedAt {
+        if dayInterval.contains(evaluatedAt) {
+            // A workout or wake checkpoint may share this exact timestamp. Replace
+            // it instead of leaving the curve's endpoint out of sync with the score.
+            if result.last?.timestamp == evaluatedAt { result.removeLast() }
             result.append(TrendPoint(timestamp: evaluatedAt, value: current, source: .current))
         }
         return result
