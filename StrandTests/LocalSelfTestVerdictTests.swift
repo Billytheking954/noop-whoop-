@@ -1,5 +1,5 @@
 import XCTest
-@testable import NOOPiOS
+@testable import Strand
 
 /// Pure local-history verdict guards. The self-test must never claim a blank
 /// dashboard proves the database lost records, or pass while still loading.
