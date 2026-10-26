@@ -87,7 +87,9 @@ struct RootTabView: View {
     }
 
     private func reselectTab(_ tag: Int) {
-        Task { await repo.refresh() }
+        // A tap on an already-selected tab should only pop/scroll to top.
+        // The eager repo.refresh() kicked off a whole dashboard/store read
+        // while the user was still interacting; pull-to-refresh remains available.
         if !tabPaths[tag].isEmpty {
             tabPaths[tag] = NavigationPath()
         } else {
@@ -116,9 +118,8 @@ struct RootTabView: View {
         // system owns the behaviour — iOS 26's tab bar MINIMISES to a pill on scroll down rather than
         // sliding away entirely, so this is the platform's read of the same intent, not a copy of ours.
         .noopTabBarAutoHide(bottomBarAutoHide)
-            // Tab crossfade — README §Motion: ~240ms opacity swap between tab roots, global calm
-            // easing cubic-bezier(0.22,1,0.36,1).
-            .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
+            // Let the native TabView perform its own tab transition. A blanket
+            // parent animation also animated expensive subtree re-layout and charts.
             // Tab changes belong to the native tab bar. An ancestor DragGesture previously
             // competed with vertical scrolling, chart inspection and navigation gestures on
             // every tab. Today retains its own intentionally horizontal day navigation.
