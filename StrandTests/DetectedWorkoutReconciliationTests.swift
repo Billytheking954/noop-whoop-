@@ -145,7 +145,7 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
                                 distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
         _ = try await store.upsertWorkouts([valid, future], deviceId: deviceId)
         let completed = await repo.workoutRows(days: 7, reconcileHeartRate: false)
-        XCTAssertEqual(completed.map(\\.startTs), [valid.startTs])
+        XCTAssertEqual(completed.map { $0.startTs }, [valid.startTs])
         // Quarantine is intentionally read-only: the source record is still available
         // for diagnosis or when the clock becomes correct, not silently deleted.
         let raw = try await store.workouts(deviceId: deviceId, from: now - 7200, to: now + 7200, limit: 20)
