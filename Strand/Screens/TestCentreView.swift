@@ -1118,6 +1118,13 @@ private struct ConnectionReadoutPanel: View {
 /// emitter writes, so the panel never diverges from the headline Charge number. No hardcoded colours;
 /// uses the same ReadoutRow tokens as the Sleep / Battery panels. No em-dash in any string here.
 private struct RecoveryReadoutPanel: View {
+    private enum CopyKey {
+        static let capture = "Capture Energy & Readiness evidence"
+        static let explanation = "Adds a one-time, redacted snapshot of the real inputs and experimental estimates to this Recovery report. Missing data stays missing; no health history is changed."
+        static let reading = "Reading on-device history…"
+        static let captured = "Evidence captured. Tap Share to review and export."
+    }
+
     @ObservedObject var live: LiveState
     @EnvironmentObject private var model: AppModel
     @State private var capturingScoreEvidence = false
@@ -1127,12 +1134,15 @@ private struct RecoveryReadoutPanel: View {
         let last = TestReadout.lastChargeBreakdown(taggedTail: live.taggedTail(domain: .recovery))
         VStack(alignment: .leading, spacing: 4) {
             ReadoutRow(label: String(localized: "Last Charge breakdown"), value: last ?? String(localized: "no night scored yet"))
-            NoopButton("Capture Energy & Readiness evidence", systemImage: "checkmark.shield",
-                       kind: .secondary) {
+            Button {
                 captureScoreEvidence()
+            } label: {
+                Label(phase4String(CopyKey.capture),
+                      systemImage: "checkmark.shield")
             }
+            .buttonStyle(NoopButtonStyle(.secondary))
             .disabled(capturingScoreEvidence)
-            Text("Adds a one-time, redacted snapshot of the real inputs and experimental estimates to this Recovery report. Missing data stays missing; no health history is changed.")
+            Text(phase4String(CopyKey.explanation))
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1152,7 +1162,7 @@ private struct RecoveryReadoutPanel: View {
     private func captureScoreEvidence() {
         guard !capturingScoreEvidence else { return }
         capturingScoreEvidence = true
-        scoreEvidenceStatus = String(localized: "Reading on-device history…")
+        scoreEvidenceStatus = phase4String(CopyKey.reading)
         Task { @MainActor in
             let now = Date()
             let calendar = Calendar.current
@@ -1195,8 +1205,14 @@ private struct RecoveryReadoutPanel: View {
             let lines = ScoreValidationTrace.lines(snapshot)
             lines.forEach { live.append(log: $0, domain: .recovery) }
             capturingScoreEvidence = false
-            scoreEvidenceStatus = String(localized: "Captured \(lines.count) evidence lines for \(targetDay). Tap Share to review and export them.")
+            scoreEvidenceStatus = phase4String(CopyKey.captured)
         }
+    }
+
+    /// Phase 3 introduced the score names in their own small catalog. Keep related validation copy in
+    /// that table as well, rather than duplicating it in the multi-megabyte main app catalog.
+    private func phase4String(_ key: String) -> String {
+        NSLocalizedString(key, tableName: "Phase3", bundle: .main, value: key, comment: "")
     }
 }
 
