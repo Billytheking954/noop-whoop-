@@ -6590,11 +6590,10 @@ private struct TodayDeviceBatteryShortcut: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
-                live.connected
-                ? (live.charging == true
-                   ? "WHOOP charging, \(DeviceBatteryDisplay.percent(live.batteryPct))"
-                   : "WHOOP device, \(DeviceBatteryDisplay.percent(live.batteryPct))")
-                : "WHOOP disconnected"
+                Text(DeviceBatteryDisplay.voiceOverLabel(
+                    connected: live.connected,
+                    charging: live.charging,
+                    battery: live.batteryPct))
             )
             .accessibilityHint("Open device settings")
             .accessibilityIdentifier("noop.today.device-battery")
