@@ -24,6 +24,34 @@ final class SQLiteWALIntegrityTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: wal), beforeWal)
     }
 
+    func testCorruptCurrentEpochFrameSaltIsRejectedEvenWhenQuickCheckPasses() throws {
+        // The main file contains a committed row; a later committed row lives only in the WAL.
+        // SQLite can ignore a frame with a mismatched salt and still return "ok" from quick_check.
+        for saltOffset in [8, 12] {
+            let main = try fixtureWithCommittedMainAndCurrentWal()
+            let wal = URL(fileURLWithPath: main.path + "-wal")
+            var bytes = try Data(contentsOf: wal)
+            XCTAssertGreaterThan(bytes.count, 32 + 24, "Fixture must contain a complete WAL frame")
+            bytes[32 + saltOffset] ^= 1
+            try bytes.write(to: wal)
+
+            XCTAssertNotNil(SQLiteWALIntegrity.failure(atPath: wal.path, databaseAtPath: main.path),
+                            "A corrupted current-epoch frame salt must not be accepted as an old reset tail")
+
+            var readerConfiguration = Configuration()
+            readerConfiguration.readonly = true
+            let reader = try DatabaseQueue(path: main.path, configuration: readerConfiguration)
+            let rows = try reader.read { db in
+                try String.fetchAll(db, sql: "SELECT id FROM device ORDER BY id")
+            }
+            XCTAssertEqual(rows, ["old"], "Native SQLite demonstrates that the WAL-only row was ignored")
+            let quickCheck = try reader.read { db in
+                try String.fetchOne(db, sql: "PRAGMA quick_check")
+            }
+            XCTAssertEqual(quickCheck, "ok", "quick_check alone does not detect the omitted committed WAL row")
+        }
+    }
+
     func testDamagedMagicAndHeaderChecksumAreRejected() throws {
         for offset in [0, 12, 24] {
             let main = try fixture()
@@ -109,6 +137,36 @@ final class SQLiteWALIntegrityTests: XCTestCase {
         }
         return try withExtendedLifetime(queue) {
             let main = tmp.appendingPathComponent("copy-\(UUID().uuidString).sqlite")
+            try FileManager.default.copyItem(at: original, to: main)
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: original.path + "-wal"),
+                                            to: URL(fileURLWithPath: main.path + "-wal"))
+            return main
+        }
+    }
+
+    /// Builds a database where "old" is already checkpointed into the main file and "new" is
+    /// committed only to the current WAL epoch. This reproduces the silent-omission failure precisely.
+    private func fixtureWithCommittedMainAndCurrentWal() throws -> URL {
+        let original = tmp.appendingPathComponent("writer-current-epoch-\(UUID().uuidString).sqlite")
+        var config = Configuration()
+        config.prepareDatabase { db in
+            _ = try String.fetchOne(db, sql: "PRAGMA journal_mode=WAL")
+            _ = try Int.fetchOne(db, sql: "PRAGMA wal_autocheckpoint=0")
+        }
+        let queue = try DatabaseQueue(path: original.path, configuration: config)
+        try queue.writeWithoutTransaction { db in
+            try db.execute(sql: "CREATE TABLE grdb_migrations (identifier TEXT)")
+            try db.execute(sql: "CREATE TABLE device (id TEXT)")
+            try db.execute(sql: "INSERT INTO device VALUES ('old')")
+        }
+        try queue.writeWithoutTransaction { db in
+            _ = try Row.fetchOne(db, sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+        }
+        try queue.writeWithoutTransaction { db in
+            try db.execute(sql: "INSERT INTO device VALUES ('new')")
+        }
+        return try withExtendedLifetime(queue) {
+            let main = tmp.appendingPathComponent("copy-current-epoch-\(UUID().uuidString).sqlite")
             try FileManager.default.copyItem(at: original, to: main)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: original.path + "-wal"),
                                             to: URL(fileURLWithPath: main.path + "-wal"))
