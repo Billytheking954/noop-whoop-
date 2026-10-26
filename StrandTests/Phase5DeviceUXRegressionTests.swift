@@ -20,6 +20,61 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
         }
     }
 
+    func testBatteryVoiceOverLabelsRespectConnectionAndReportedCharging() {
+        let charging = DeviceBatteryDisplay.voiceOverLabel(
+            connected: true, charging: true, battery: 75)
+        let notCharging = DeviceBatteryDisplay.voiceOverLabel(
+            connected: true, charging: false, battery: 75)
+        let unknown = DeviceBatteryDisplay.voiceOverLabel(
+            connected: true, charging: nil, battery: nil)
+        let disconnected = DeviceBatteryDisplay.voiceOverLabel(
+            connected: false, charging: nil, battery: 75)
+
+        XCTAssertTrue(charging.contains("75%"))
+        XCTAssertTrue(notCharging.contains("75%"))
+        XCTAssertTrue(unknown.contains("—"))
+        XCTAssertFalse(disconnected.contains("75%"))
+        XCTAssertFalse(charging.isEmpty)
+        XCTAssertFalse(disconnected.isEmpty)
+    }
+
+    func testDeviceBatteryCopyIsTranslatedInShippingStringTable() throws {
+        let file = try sourceText("Strand/Resources/Phase3.xcstrings")
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(file.utf8)) as? [String: Any])
+        let strings = try XCTUnwrap(root["strings"] as? [String: Any])
+        for key in [
+            "Not charging", "Charging status unavailable", "Device not connected",
+            "WHOOP charging, %@", "WHOOP device, %@", "WHOOP disconnected"
+        ] {
+            let entry = try XCTUnwrap(strings[key] as? [String: Any], "Missing \(key)")
+            let translations = try XCTUnwrap(entry["localizations"] as? [String: Any])
+            for language in ["de", "es", "fr", "pt-PT"] {
+                let value = try XCTUnwrap(translations[language] as? [String: Any],
+                                          "\(key) lacks \(language)")
+                let unit = try XCTUnwrap(value["stringUnit"] as? [String: String])
+                XCTAssertEqual(unit["state"], "translated")
+                if key.contains("%@") {
+                    XCTAssertTrue(unit["value", default: ""].contains("%@"),
+                                  "VoiceOver argument missing in \(language)")
+                }
+            }
+        }
+    }
+
+    func testDeviceArtworkHasDepthAndWovenDetailRatherThanTubePlaceholder() throws {
+        let source = try sourceText(
+            "Packages/StrandDesign/Sources/StrandDesign/ReferenceComponents.swift")
+        guard let start = source.range(of: "public struct ReferenceBandIllustration: View") else {
+            return XCTFail("Device illustration missing")
+        }
+        let illustration = source[start.lowerBound...]
+        XCTAssertTrue(illustration.contains("FillStyle(eoFill: true)"))
+        XCTAssertTrue(illustration.contains("Canvas { context"))
+        XCTAssertTrue(illustration.contains("sensor surface"))
+        XCTAssertFalse(illustration.contains("Ellipse().stroke"))
+    }
+
     /// Prevent reintroducing an unconditional full-repository refresh on a tab re-tap.
     /// Pull-to-refresh and on-launch refresh still exist separately.
     func testTabReselectionNeverRequeriesFullDashboard() throws {
