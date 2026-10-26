@@ -23,10 +23,10 @@ final class LocalSelfTestVerdictTests: XCTestCase {
                        .inconclusive)
     }
 
-    func testEmptyInstallIsNotMisreportedAsDataLoss() {
+    func testEmptyComparisonIsInconclusiveNotDataLoss() {
         XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: [], cachedDays: [],
                                                    cacheLoaded: true),
-                       .present)
+                       .inconclusive)
     }
 
     func testPopulatedCacheWithPopulatedStoreIsConsistent() {
