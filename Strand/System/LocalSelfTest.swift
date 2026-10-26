@@ -1,7 +1,7 @@
 import Foundation
 import WhoopStore
 
-/// Local-only timing of the iOS root repository refresh. This is NOT a measurement of when
+/// Local-only timing of the first successful repository cache publication. This is NOT a measurement of when
 /// individual Today cards finish loading. One sample per app process, stored as small scalars.
 @MainActor
 enum ColdLaunchTrace {
@@ -51,10 +51,13 @@ enum LocalSelfTest {
         case inconclusive
     }
 
-    static func cacheVerdict(persistedDays: Int?, cachedDays: Int, cacheLoaded: Bool) -> CacheVerdict {
+    static func cacheVerdict(persistedDays: Set<String>?, cachedDays: Set<String>,
+                             cacheLoaded: Bool) -> CacheVerdict {
         guard cacheLoaded, let persistedDays else { return .inconclusive }
-        if persistedDays > 0 && cachedDays == 0 { return .storedDaysNotInCache }
-        if persistedDays == 0 && cachedDays > 0 { return .inconclusive }
+        // Apple-only vital and activity-step days can legitimately appear in cache
+        // without having an imported/computed WHOOP daily row.
+        if persistedDays.isEmpty && !cachedDays.isEmpty { return .inconclusive }
+        if !persistedDays.subtracting(cachedDays).isEmpty { return .storedDaysNotInCache }
         return .present
     }
 
@@ -77,12 +80,12 @@ enum LocalSelfTest {
             "Recent days in dashboard cache: \(cachedAtStart)"
         ]
         if let trace = ColdLaunchTrace.latest() {
-            lines.append(String(format: "Last app root local-refresh time: %.2fs", trace.seconds))
-            lines.append("Last root-refresh completed with cache loaded: \(trace.cacheLoaded ? "yes" : "no")")
-            lines.append("Last root-refresh cached days (all available history): \(trace.cachedDays)")
-            lines.append("Note: root refresh timing does not measure per-card rendering.")
+            lines.append(String(format: "Time to first successful local cache publication: %.2fs", trace.seconds))
+            lines.append("First cache publication completed with cache loaded: \(trace.cacheLoaded ? "yes" : "no")")
+            lines.append("First cache publication cached days (all available history): \(trace.cachedDays)")
+            lines.append("Note: cache publication timing does not measure per-card rendering.")
         } else {
-            lines.append("Last app root local-refresh time: not recorded")
+            lines.append("Time to first local cache publication: not recorded")
         }
 
         guard let store = repo.existingStoreForDiagnostics() else {
@@ -91,10 +94,11 @@ enum LocalSelfTest {
             return Result(text: lines.joined(separator: "\n"), needsAttention: true)
         }
 
-        // Match the imported/computed source union used by Repository.refresh. Add the
-        // two supported non-strap daily sources, and de-duplicate source IDs after a re-pair.
-        let ids = Array(Set(repo.importedReadIds + repo.computedReadIds +
-                            [Repository.appleHealthSource, Repository.activityFileSource])).sorted()
+        // Match the two WHOOP daily source unions that refresh() merges into
+        // dashboard days. Apple daily vitals populate the separate vitalRows cache
+        // and activity-file steps can be absent/filtered, so treating those as
+        // required dashboard days would create false missing-history alarms.
+        let ids = Array(Set(repo.importedReadIds + repo.computedReadIds)).sorted()
         var persistedDays = Set<String>()
         var failedReads = 0
         for id in ids {
@@ -106,17 +110,20 @@ enum LocalSelfTest {
             }
         }
 
-        let cachedNow = repo.days.filter { $0.day >= fromDay && $0.day <= toDay }.count
-        let verdict = cacheVerdict(persistedDays: failedReads == 0 ? persistedDays.count : nil,
-                                   cachedDays: cachedNow, cacheLoaded: repo.loaded)
+        let cachedDayKeys = Set(repo.days.filter { $0.day >= fromDay && $0.day <= toDay }.map(\.day))
+        let cachedNow = cachedDayKeys.count
+        let missingCount = persistedDays.subtracting(cachedDayKeys).count
+        let verdict = cacheVerdict(persistedDays: failedReads == 0 ? persistedDays : nil,
+                                   cachedDays: cachedDayKeys, cacheLoaded: repo.loaded)
         lines.append("Local daily-metric read: \(failedReads == 0 ? "completed" : "INCOMPLETE (\(failedReads) source errors)")")
-        lines.append("Recent distinct days in local storage: \(failedReads == 0 ? String(persistedDays.count) : "unknown")")
+        lines.append("Recent distinct imported/computed WHOOP days in local storage: \(failedReads == 0 ? String(persistedDays.count) : "unknown")")
         lines.append("Recent days currently in dashboard cache: \(cachedNow)")
+        if failedReads == 0 { lines.append("Stored WHOOP days not in cache: \(missingCount)") }
         switch verdict {
         case .present:
-            lines.append("CACHE CHECK: PASS within sampled daily sources; individual cards remain unverified.")
+            lines.append("CACHE CHECK: PASS for sampled imported/computed WHOOP days; individual cards remain unverified.")
         case .storedDaysNotInCache:
-            lines.append("CACHE CHECK: INVESTIGATE. Saved daily rows exist but the dashboard cache is empty.")
+            lines.append("CACHE CHECK: INVESTIGATE. Saved imported/computed WHOOP days are absent from the dashboard cache.")
         case .inconclusive:
             lines.append("CACHE CHECK: INCONCLUSIVE. Loading or source reads could not be compared.")
         }
