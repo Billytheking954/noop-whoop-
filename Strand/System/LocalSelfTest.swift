@@ -85,8 +85,8 @@ enum LocalSelfTest {
             lines.append("Last app root local-refresh time: not recorded")
         }
 
-        guard let store = await repo.storeHandle() else {
-            lines.append("LOCAL STORE: UNAVAILABLE. This is not proof of deletion.")
+        guard let store = repo.existingStoreForDiagnostics() else {
+            lines.append("LOCAL STORE: NOT OPEN YET. Re-run after dashboard loading; no database was opened by this test.")
             lines.append("No Bluetooth sync, HealthKit read, reset or backup change was attempted.")
             return Result(text: lines.joined(separator: "\n"), needsAttention: true)
         }
