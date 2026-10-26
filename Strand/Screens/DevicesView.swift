@@ -7,6 +7,22 @@ enum DeviceBatteryDisplay {
         guard let value, value.isFinite, (0...100).contains(value) else { return "—" }
         return "\(Int(value.rounded()))%"
     }
+    // The small Phase3 catalog is already bundled with the iPhone app.
+    // Keep new Phase 5 copy translated without rewriting the huge legacy table.
+    private static func localized(_ key: String) -> String {
+        NSLocalizedString(key, tableName: "Phase3", bundle: .main,
+                          value: key, comment: "WHOOP battery and connection status")
+    }
+
+    static var notCharging: String { localized("Not charging") }
+    static var chargingUnavailable: String { localized("Charging status unavailable") }
+    static var disconnected: String { localized("Device not connected") }
+
+    static func voiceOverLabel(connected: Bool, charging: Bool?, battery: Double?) -> String {
+        guard connected else { return localized("WHOOP disconnected") }
+        let template = localized(charging == true ? "WHOOP charging, %@" : "WHOOP device, %@")
+        return String(format: template, percent(battery))
+    }
 }
 import StrandDesign
 import StrandAnalytics   // ConnectionReadout - the #987 clock-latch / RTC-epoch readout parsers
@@ -130,14 +146,14 @@ private struct ConceptDeviceView: View {
                                     Label("Charging", systemImage: "bolt.fill")
                                         .foregroundStyle(ReferenceStyle.green)
                                 } else if live.charging == false {
-                                    Label("Not charging", systemImage: "battery.100percent")
+                                    Label(DeviceBatteryDisplay.notCharging, systemImage: "battery.100percent")
                                         .foregroundStyle(StrandPalette.textSecondary)
                                 } else {
-                                    Label("Charging status unavailable", systemImage: "questionmark.circle")
+                                    Label(DeviceBatteryDisplay.chargingUnavailable, systemImage: "questionmark.circle")
                                         .foregroundStyle(StrandPalette.textSecondary)
                                 }
                             } else {
-                                Label("Device not connected", systemImage: "circle.dotted")
+                                Label(DeviceBatteryDisplay.disconnected, systemImage: "circle.dotted")
                                     .foregroundStyle(StrandPalette.textSecondary)
                             }
                         }
