@@ -14,7 +14,8 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
     }
 
     func testUnknownAndCorruptBatteryValuesStayUnknown() {
-        for pct: Double? in [nil, .nan, .infinity, -.infinity, -1, 100.1] {
+        let invalid: [Double?] = [nil, .nan, .infinity, -.infinity, -1, 100.1]
+        for pct in invalid {
             XCTAssertEqual(DeviceBatteryDisplay.percent(pct), "—")
         }
     }
