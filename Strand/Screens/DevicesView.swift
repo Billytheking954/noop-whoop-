@@ -1,4 +1,13 @@
 import SwiftUI
+
+// Keep user-facing device percentages integral and reject corrupt source values.
+// The estimator retains its original floating-point precision in LiveState.
+enum DeviceBatteryDisplay {
+    static func percent(_ value: Double?) -> String {
+        guard let value, value.isFinite, (0...100).contains(value) else { return "—" }
+        return "\(Int(value.rounded()))%"
+    }
+}
 import StrandDesign
 import StrandAnalytics   // ConnectionReadout - the #987 clock-latch / RTC-epoch readout parsers
 import WhoopStore
@@ -104,28 +113,39 @@ private struct ConceptDeviceView: View {
                     }
                     .padding(.top, 8)
 
-                    HStack(spacing: 16) {
-                        Spacer()
-                        // Drawn in SwiftUI: an original neutral band silhouette, never a brand render.
+                    // An original strap illustration, not a generic tube/bar standing in for
+                    // the WHOOP itself. Keep it static while live readings update below it.
+                    VStack(spacing: 12) {
                         ReferenceBandIllustration()
-                        Spacer()
-                        VStack(spacing: 4) {
-                            ZStack(alignment: .bottom) {
-                                RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.border)
-                                if live.connected, let battery = live.batteryPct {
-                                    RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.green)
-                                        .frame(height: 110 * Double(min(100, max(0, battery))) / 100)
-                                }
-                            }.frame(width: 24, height: 110)
-                            Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
+                            .frame(maxWidth: .infinity)
+                            .accessibilityHidden(true)
+                        VStack(spacing: 6) {
+                            Text(DeviceBatteryDisplay.percent(
+                                live.connected && SourceCoordinator.isWhoop(device) ? live.batteryPct : nil))
                                 .font(ReferenceStyle.value)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Battery").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                                .monospacedDigit()
+                            if live.connected && SourceCoordinator.isWhoop(device) {
+                                if live.charging == true {
+                                    Label("Charging", systemImage: "bolt.fill")
+                                        .foregroundStyle(ReferenceStyle.green)
+                                } else if live.charging == false {
+                                    Label("Not charging", systemImage: "battery.100percent")
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                } else {
+                                    Label("Charging status unavailable", systemImage: "questionmark.circle")
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                }
+                            } else {
+                                Label("Device not connected", systemImage: "circle.dotted")
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
                         }
+                        .font(ReferenceStyle.caption)
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
                     }
-                    .frame(height: 210)
+                    .frame(maxWidth: .infinity, minHeight: 210)
+                    .padding(.vertical, 10)
 
                     deviceActionCard {
                         Toggle(isOn: $broadcastRequested) {
