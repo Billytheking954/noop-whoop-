@@ -162,7 +162,7 @@ final class ReferenceJourneyUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["noop.testcentre.local-selftest-status"]
             .waitForExistence(timeout: 90), "local diagnostics must finish without a strap")
-        XCTAssertTrue(app.buttons["Copy local self-test report"].exists)
+        XCTAssertTrue(app.buttons["noop.testcentre.copy-local-selftest"].exists)
     }
 
     func testSetUpLaterRetainsRequirementsAndSkipsPairing() {
