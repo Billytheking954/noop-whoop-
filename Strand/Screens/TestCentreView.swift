@@ -1119,13 +1119,84 @@ private struct ConnectionReadoutPanel: View {
 /// uses the same ReadoutRow tokens as the Sleep / Battery panels. No em-dash in any string here.
 private struct RecoveryReadoutPanel: View {
     @ObservedObject var live: LiveState
+    @EnvironmentObject private var model: AppModel
+    @State private var capturingScoreEvidence = false
+    @State private var scoreEvidenceStatus: String?
 
     var body: some View {
         let last = TestReadout.lastChargeBreakdown(taggedTail: live.taggedTail(domain: .recovery))
         VStack(alignment: .leading, spacing: 4) {
             ReadoutRow(label: String(localized: "Last Charge breakdown"), value: last ?? String(localized: "no night scored yet"))
+            NoopButton("Capture Energy & Readiness evidence", systemImage: "checkmark.shield",
+                       kind: .secondary) {
+                captureScoreEvidence()
+            }
+            .disabled(capturingScoreEvidence)
+            Text("Adds a one-time, redacted snapshot of the real inputs and experimental estimates to this Recovery report. Missing data stays missing; no health history is changed.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let scoreEvidenceStatus {
+                Text(scoreEvidenceStatus)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.top, 2)
+    }
+
+    /// Explicit, user-triggered field evidence. This reads the SAME stored daily rows and pure engines as
+    /// Today, then emits through LiveState's existing redacting/persisting `.recovery` sink. It performs no
+    /// writes to the health store and sends nothing over BLE or the network.
+    private func captureScoreEvidence() {
+        guard !capturingScoreEvidence else { return }
+        capturingScoreEvidence = true
+        scoreEvidenceStatus = String(localized: "Reading on-device history…")
+        Task { @MainActor in
+            let now = Date()
+            let calendar = Calendar.current
+            let targetDay = Repository.logicalDayKey(now)
+            let start = Repository.logicalDayStart(now, calendar: calendar)
+            let end = calendar.date(byAdding: .day, value: 1, to: start)
+                ?? start.addingTimeInterval(86_400)
+            let evaluatedAt = min(now, end.addingTimeInterval(-0.001))
+
+            async let workoutsRead = model.repo.workoutRows(days: 3)
+            async let sleepsRead = model.repo.allSleepSessions(days: 3)
+            async let habitualRead = model.repo.habitualMidsleepSec()
+            let (workouts, sleeps, habitualMidsleep) = await (workoutsRead, sleepsRead, habitualRead)
+
+            let events = workouts.map { workout in
+                EnergyReserveEngine.ActivityEvent(
+                    id: "\(workout.startTs)|\(workout.sport)",
+                    start: Date(timeIntervalSince1970: TimeInterval(workout.startTs)),
+                    end: Date(timeIntervalSince1970: TimeInterval(workout.endTs)),
+                    strain: workout.strain,
+                    activeKilocalories: workout.energyKcal)
+            }
+            let overlappingSleeps = sleeps.filter {
+                $0.endTs > Int(start.timeIntervalSince1970)
+                    && $0.effectiveStartTs < Int(end.timeIntervalSince1970)
+            }
+            let wake = SleepView.mainNightSpan(overlappingSleeps, habitualMidsleepSec: habitualMidsleep)
+                .map { Date(timeIntervalSince1970: TimeInterval($0.end)) }
+            let currentStrain = model.repo.days.first(where: { $0.day == targetDay })?.strain
+            let energy = EnergyReserveEngine.estimate(
+                days: model.repo.days, targetDay: targetDay, dayInterval: start..<end,
+                wakeTime: wake, activities: events, currentStrain: currentStrain,
+                evaluatedAt: evaluatedAt)
+            let readiness = ReadinessEngine.evaluate(days: model.repo.days, today: targetDay)
+            let snapshot = ScoreValidationTrace.Snapshot(
+                targetDay: targetDay, generatedAt: now, dayInterval: start..<end,
+                dailyRowCount: model.repo.days.count,
+                activityEventCount: events.filter { $0.end >= start && $0.end < end }.count,
+                wakeTimeAvailable: wake != nil, energy: energy, readiness: readiness)
+            let lines = ScoreValidationTrace.lines(snapshot)
+            lines.forEach { live.append(log: $0, domain: .recovery) }
+            capturingScoreEvidence = false
+            scoreEvidenceStatus = String(localized: "Captured \(lines.count) evidence lines for \(targetDay). Tap Share to review and export them.")
+        }
     }
 }
 
