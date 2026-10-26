@@ -46,7 +46,7 @@ final class ReferenceJourneyUITests: XCTestCase {
                 let button = tabs.buttons[name]
                 XCTAssertTrue(button.waitForExistence(timeout: 10), name)
                 button.tap()
-                XCTAssertTrue(button.isSelected, "Switch to \\(name) failed")
+                XCTAssertTrue(button.isSelected, "Switch to " + name + " failed")
             }
         }
         let today = tabs.buttons["Today"]

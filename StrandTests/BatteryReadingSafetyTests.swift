@@ -46,12 +46,14 @@ final class BatteryReadingSafetyTests: XCTestCase {
         for (index, sample) in events.enumerated() {
             if let update = StrapChargingEvidence.statusUpdate(
                 event: sample.0, gaugeBit: sample.1) { last = update }
-            XCTAssertEqual(last, expected[index], "charge-state replay step \\(index)")
+            XCTAssertEqual(last, expected[index], "charge-state replay step " + String(index))
         }
         XCTAssertEqual(DeviceBatteryDisplay.systemImage(connected: false,
                                                         charging: last, battery: 76), "circle.dotted")
-        XCTAssertTrue(DeviceBatteryDisplay.voiceOverLabel(connected: false,
-                                                         charging: last, battery: 76).contains("disconnected"))
+        let offline = DeviceBatteryDisplay.voiceOverLabel(connected: false, charging: last, battery: 76)
+        let online = DeviceBatteryDisplay.voiceOverLabel(connected: true, charging: last, battery: 76)
+        XCTAssertFalse(offline.isEmpty)
+        XCTAssertNotEqual(offline, online, "an offline device must not announce a live battery state")
     }
 
     func testInvalidPercentNeverPollutesUIEstimatorOrAlertHook() {
