@@ -33,6 +33,9 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
         XCTAssertTrue(charging.contains("75%"))
         XCTAssertTrue(notCharging.contains("75%"))
         XCTAssertTrue(unknown.contains("—"))
+        XCTAssertTrue(notCharging.contains(DeviceBatteryDisplay.notCharging))
+        XCTAssertTrue(unknown.contains(DeviceBatteryDisplay.chargingUnavailable))
+        XCTAssertNotEqual(notCharging, unknown)
         XCTAssertFalse(disconnected.contains("75%"))
         XCTAssertFalse(charging.isEmpty)
         XCTAssertFalse(disconnected.isEmpty)
@@ -45,7 +48,8 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
         let strings = try XCTUnwrap(root["strings"] as? [String: Any])
         for key in [
             "Not charging", "Charging status unavailable", "Device not connected",
-            "WHOOP charging, %@", "WHOOP device, %@", "WHOOP disconnected"
+            "Open device settings", "WHOOP charging, %@", "WHOOP device, %@",
+            "WHOOP disconnected"
         ] {
             let entry = try XCTUnwrap(strings[key] as? [String: Any], "Missing \(key)")
             let translations = try XCTUnwrap(entry["localizations"] as? [String: Any])
@@ -73,6 +77,7 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
         XCTAssertTrue(illustration.contains("Canvas { context"))
         XCTAssertTrue(illustration.contains("sensor surface"))
         XCTAssertFalse(illustration.contains("Ellipse().stroke"))
+        XCTAssertFalse(illustration.contains("Color(white:"))
     }
 
     /// Prevent reintroducing an unconditional full-repository refresh on a tab re-tap.

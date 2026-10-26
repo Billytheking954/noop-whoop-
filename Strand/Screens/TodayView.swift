@@ -6595,7 +6595,7 @@ private struct TodayDeviceBatteryShortcut: View {
                     charging: live.charging,
                     battery: live.batteryPct))
             )
-            .accessibilityHint("Open device settings")
+            .accessibilityHint(Text(DeviceBatteryDisplay.openDeviceSettings))
             .accessibilityIdentifier("noop.today.device-battery")
         }
     }

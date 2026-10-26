@@ -131,7 +131,9 @@ public struct ReferenceBandIllustration: View {
                 path.closeSubpath()
             }
             .fill(LinearGradient(colors: [
-                Color(white: 0.28), Color(white: 0.09), Color(white: 0.25)
+                StrandPalette.deviceBandFabricLight,
+                StrandPalette.deviceBandFabricDark,
+                StrandPalette.deviceBandFabricLight.opacity(0.88)
             ], startPoint: .topLeading, endPoint: .bottomTrailing),
                   style: FillStyle(eoFill: true))
 
@@ -147,7 +149,9 @@ public struct ReferenceBandIllustration: View {
                     weave.move(to: CGPoint(x: x + 5, y: y + 2))
                     weave.addLine(to: CGPoint(x: x + 17, y: y + 5))
                 }
-                context.stroke(weave, with: .color(.white.opacity(0.13)), lineWidth: 0.8)
+                context.stroke(weave,
+                               with: .color(StrandPalette.onDarkPrimary.opacity(0.13)),
+                               lineWidth: 0.8)
             }
             .frame(width: 180, height: 190)
             .mask(
@@ -164,34 +168,36 @@ public struct ReferenceBandIllustration: View {
 
             // Slightly raised optical module and textile mounting edge.
             RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .fill(Color(white: 0.07))
+                .fill(StrandPalette.deviceBandMount)
                 .frame(width: 61, height: 88)
                 .rotationEffect(.degrees(-13))
                 .offset(x: 31, y: 9)
-                .shadow(color: .black.opacity(0.23), radius: 6, x: 0, y: 5)
+                .shadow(color: StrandPalette.deviceBandShadow.opacity(0.23), radius: 6, x: 0, y: 5)
 
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(LinearGradient(
-                    colors: [Color(white: 0.48), Color(white: 0.23), Color(white: 0.10)],
+                    colors: [StrandPalette.deviceBandMetalLight,
+                             StrandPalette.deviceBandMetalMid,
+                             StrandPalette.deviceBandMetalDark],
                     startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 53, height: 80)
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.28), lineWidth: 1)
+                        .strokeBorder(StrandPalette.onDarkPrimary.opacity(0.28), lineWidth: 1)
                 }
                 .rotationEffect(.degrees(-13))
                 .offset(x: 31, y: 9)
 
             // The sensor surface uses its own dark glass, without a vendor logo.
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(white: 0.12))
+                .fill(StrandPalette.deviceBandSensor)
                 .frame(width: 39, height: 51)
                 .overlay {
                     VStack(spacing: 5) {
-                        Capsule().fill(.white.opacity(0.22)).frame(width: 15, height: 2)
+                        Capsule().fill(StrandPalette.onDarkPrimary.opacity(0.22)).frame(width: 15, height: 2)
                         HStack(spacing: 8) {
-                            Circle().fill(Color(white: 0.35)).frame(width: 8, height: 8)
-                            Circle().fill(Color(white: 0.25)).frame(width: 8, height: 8)
+                            Circle().fill(StrandPalette.deviceBandDetail).frame(width: 8, height: 8)
+                            Circle().fill(StrandPalette.deviceBandMetalMid).frame(width: 8, height: 8)
                         }
                     }
                 }

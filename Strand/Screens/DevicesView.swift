@@ -17,11 +17,16 @@ enum DeviceBatteryDisplay {
     static var notCharging: String { localized("Not charging") }
     static var chargingUnavailable: String { localized("Charging status unavailable") }
     static var disconnected: String { localized("Device not connected") }
+    static var openDeviceSettings: String { localized("Open device settings") }
 
     static func voiceOverLabel(connected: Bool, charging: Bool?, battery: Double?) -> String {
         guard connected else { return localized("WHOOP disconnected") }
-        let template = localized(charging == true ? "WHOOP charging, %@" : "WHOOP device, %@")
-        return String(format: template, percent(battery))
+        if charging == true {
+            return String(format: localized("WHOOP charging, %@"), percent(battery))
+        }
+        let device = String(format: localized("WHOOP device, %@"), percent(battery))
+        let status = charging == false ? notCharging : chargingUnavailable
+        return "\(device). \(status)"
     }
 }
 import StrandDesign
