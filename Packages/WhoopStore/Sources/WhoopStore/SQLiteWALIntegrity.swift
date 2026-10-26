@@ -38,21 +38,42 @@ public enum SQLiteWALIntegrity {
                 return "The backup WAL and main database page sizes differ."
             }
 
+            var sawResetTail = false
             while true {
                 let frame = try read(file, count: 24)
                 if frame.isEmpty { return nil }
                 guard frame.count == 24 else { return "The backup WAL frame header is truncated." }
-                // A reset can leave complete frames from the preceding epoch at the physical tail.
-                // SQLite ignores that tail, so it must not make an otherwise valid backup fail.
-                if word(frame, at: 8) != word(header, at: 16)
-                    || word(frame, at: 12) != word(header, at: 20) { return nil }
+                let page = try read(file, count: pageSize)
+                guard page.count == pageSize else { return "The backup WAL page is truncated." }
+
+                let frameMatchesEpoch = word(frame, at: 8) == word(header, at: 16)
+                    && word(frame, at: 12) == word(header, at: 20)
+                if sawResetTail {
+                    // A valid reset leaves only old-epoch frames after the first old-epoch frame.
+                    // Seeing a current-epoch frame later means an earlier frame's salt was damaged.
+                    guard !frameMatchesEpoch else {
+                        return "The backup WAL contains a current-epoch frame after its reset tail."
+                    }
+                    continue
+                }
+                if !frameMatchesEpoch {
+                    // The salts are not covered by the frame checksum. If this frame's checksum still
+                    // matches the active rolling checksum, it is a current-epoch frame with a damaged
+                    // salt, not a stale checkpoint-reset tail. Check this before accepting the tail.
+                    var candidate = checksum(frame, count: 8, seed: sums, littleEndian: littleEndian)
+                    candidate = checksum(page, count: pageSize, seed: candidate, littleEndian: littleEndian)
+                    guard candidate.0 != word(frame, at: 16) || candidate.1 != word(frame, at: 20) else {
+                        return "The backup WAL frame salt is invalid for the current checksum chain."
+                    }
+                    sawResetTail = true
+                    continue
+                }
+
                 let pageNumber = word(frame, at: 0)
                 guard pageNumber > 0, pageNumber < UInt32.max,
                       word(frame, at: 4) < UInt32.max else {
                     return "The backup WAL frame page number is invalid."
                 }
-                let page = try read(file, count: pageSize)
-                guard page.count == pageSize else { return "The backup WAL page is truncated." }
                 sums = checksum(frame, count: 8, seed: sums, littleEndian: littleEndian)
                 sums = checksum(page, count: pageSize, seed: sums, littleEndian: littleEndian)
                 guard sums.0 == word(frame, at: 16), sums.1 == word(frame, at: 20) else {
