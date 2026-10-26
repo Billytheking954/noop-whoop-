@@ -144,6 +144,27 @@ final class ReferenceJourneyUITests: XCTestCase {
         XCTAssertEqual(app.switches["Measured changes"].value as? String, saved)
     }
 
+    /// CI runs without a physical strap. Verify the self-test is reachable from the actual
+    /// iPhone navigation shell and produces a copyable, locally generated report.
+    func testLocalSelfTestReportsWithoutConnectedStrap() {
+        let app = launch()
+        let more = app.tabBars.buttons["More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 30))
+        more.tap()
+
+        let testCentre = app.buttons["Test Centre"]
+        XCTAssertTrue(testCentre.waitForExistence(timeout: 15))
+        testCentre.tap()
+
+        let run = app.buttons["noop.testcentre.run-local-selftest"]
+        XCTAssertTrue(run.waitForExistence(timeout: 15))
+        run.tap()
+
+        XCTAssertTrue(app.staticTexts["noop.testcentre.local-selftest-status"]
+            .waitForExistence(timeout: 90), "local diagnostics must finish without a strap")
+        XCTAssertTrue(app.buttons["Copy local self-test report"].exists)
+    }
+
     func testSetUpLaterRetainsRequirementsAndSkipsPairing() {
         let app = launch(screen: "addwizard")
         let later = app.buttons["Set up later"]
