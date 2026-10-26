@@ -52,6 +52,45 @@ final class SQLiteWALIntegrityTests: XCTestCase {
         }
     }
 
+    func testCorruptFinalCurrentEpochSaltAndChecksumFailsClosed() throws {
+        // Damage both the salt and the stored checksum of the final active-epoch frame. A damaged
+        // checksum otherwise makes that frame look like a stale reset tail; with no later frame to
+        // contradict it, SQLite can ignore the committed row and still report quick_check == "ok".
+        for saltOffset in [8, 12] {
+            for checksumOffset in [16, 20] {
+                let main = try fixtureWithCommittedMainAndCurrentWal()
+                let wal = URL(fileURLWithPath: main.path + "-wal")
+                var bytes = try Data(contentsOf: wal)
+                let encodedPageSize = Int(bytes[8]) << 24 | Int(bytes[9]) << 16
+                    | Int(bytes[10]) << 8 | Int(bytes[11])
+                let pageSize = encodedPageSize == 1 ? 65_536 : encodedPageSize
+                let frameSize = 24 + pageSize
+                let frameBytes = bytes.count - 32
+                XCTAssertGreaterThanOrEqual(frameBytes, frameSize, "Fixture must contain a complete WAL frame")
+                XCTAssertEqual(frameBytes % frameSize, 0, "Fixture must contain only complete WAL frames")
+                let lastFrameOffset = 32 + (frameBytes / frameSize - 1) * frameSize
+                bytes[lastFrameOffset + saltOffset] ^= 1
+                bytes[lastFrameOffset + checksumOffset] ^= 1
+                try bytes.write(to: wal)
+
+                XCTAssertNotNil(SQLiteWALIntegrity.failure(atPath: wal.path, databaseAtPath: main.path),
+                                "Salt plus checksum damage in the final current-epoch frame must fail closed")
+
+                var readerConfiguration = Configuration()
+                readerConfiguration.readonly = true
+                let reader = try DatabaseQueue(path: main.path, configuration: readerConfiguration)
+                let rows = try reader.read { db in
+                    try String.fetchAll(db, sql: "SELECT id FROM device ORDER BY id")
+                }
+                XCTAssertEqual(rows, ["old"], "Native SQLite demonstrates that the WAL-only row can be ignored")
+                let quickCheck = try reader.read { db in
+                    try String.fetchOne(db, sql: "PRAGMA quick_check")
+                }
+                XCTAssertEqual(quickCheck, "ok", "quick_check alone does not reveal the omitted committed WAL row")
+            }
+        }
+    }
+
     func testDamagedMagicAndHeaderChecksumAreRejected() throws {
         for offset in [0, 12, 24] {
             let main = try fixture()
