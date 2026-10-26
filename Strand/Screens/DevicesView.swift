@@ -19,6 +19,23 @@ enum DeviceBatteryDisplay {
     static var disconnected: String { localized("Device not connected") }
     static var openDeviceSettings: String { localized("Open device settings") }
 
+    static func systemImage(connected: Bool, charging: Bool?, battery: Double?) -> String {
+        guard connected else { return "circle.dotted" }
+        if charging == true { return "bolt.fill" }
+        guard let battery, battery.isFinite, (0...100).contains(battery) else {
+            return "questionmark.circle"
+        }
+        // Bucket the same rounded value shown beside the symbol, avoiding a
+        // "13%" label paired with the below-13% empty-battery glyph.
+        switch Int(battery.rounded()) {
+        case ..<13: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
+        }
+    }
+
     static func voiceOverLabel(connected: Bool, charging: Bool?, battery: Double?) -> String {
         guard connected else { return localized("WHOOP disconnected") }
         if charging == true {
@@ -155,7 +172,11 @@ private struct ConceptDeviceView: View {
                                     Label("Charging", systemImage: "bolt.fill")
                                         .foregroundStyle(ReferenceStyle.green)
                                 } else if live.charging == false {
-                                    Label(DeviceBatteryDisplay.notCharging, systemImage: "battery.100percent")
+                                    Label(DeviceBatteryDisplay.notCharging,
+                                          systemImage: DeviceBatteryDisplay.systemImage(
+                                            connected: true,
+                                            charging: false,
+                                            battery: live.batteryPct))
                                         .foregroundStyle(StrandPalette.textSecondary)
                                 } else {
                                     Label(DeviceBatteryDisplay.chargingUnavailable, systemImage: "questionmark.circle")

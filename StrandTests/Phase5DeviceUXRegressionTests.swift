@@ -20,6 +20,26 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
         }
     }
 
+    func testBatterySymbolTracksLevelWithoutInventingState() {
+        XCTAssertEqual(DeviceBatteryDisplay.systemImage(
+            connected: false, charging: nil, battery: 75), "circle.dotted")
+        XCTAssertEqual(DeviceBatteryDisplay.systemImage(
+            connected: true, charging: true, battery: 10), "bolt.fill")
+        XCTAssertEqual(DeviceBatteryDisplay.systemImage(
+            connected: true, charging: false, battery: nil), "questionmark.circle")
+        XCTAssertEqual(DeviceBatteryDisplay.systemImage(
+            connected: true, charging: false, battery: .nan), "questionmark.circle")
+
+        for (level, symbol) in [(0.0, "battery.0"), (13, "battery.25"),
+                                (38, "battery.50"), (63, "battery.75"),
+                                (88, "battery.100")] {
+            XCTAssertEqual(DeviceBatteryDisplay.systemImage(
+                connected: true, charging: false, battery: level), symbol)
+        }
+        XCTAssertEqual(DeviceBatteryDisplay.systemImage(
+            connected: true, charging: false, battery: 12.6), "battery.25")
+    }
+
     func testBatteryVoiceOverLabelsRespectConnectionAndReportedCharging() {
         let charging = DeviceBatteryDisplay.voiceOverLabel(
             connected: true, charging: true, battery: 75)

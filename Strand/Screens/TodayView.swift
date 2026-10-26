@@ -6572,8 +6572,10 @@ private struct TodayDeviceBatteryShortcut: View {
         if live.activeIsWhoop {
             Button { router.openDevices() } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: live.connected && live.charging == true
-                          ? "bolt.fill" : "battery.100percent")
+                    Image(systemName: DeviceBatteryDisplay.systemImage(
+                        connected: live.connected,
+                        charging: live.charging,
+                        battery: live.batteryPct))
                         .foregroundStyle(live.connected && live.charging == true
                                          ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                     Text(live.connected
