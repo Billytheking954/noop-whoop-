@@ -1397,6 +1397,8 @@ struct TodayView: View {
                     .datePickerStyle(.graphical).labelsHidden().padding(12)
                     .frame(minWidth: 320, minHeight: 360)
             }
+            // A small trailing device shortcut; its own view observes live state.
+            TodayDeviceBatteryShortcut()
         }
         .frame(minHeight: 46)
         .task {
@@ -1472,10 +1474,8 @@ struct TodayView: View {
 
     var body: some View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() },
-                       // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
-                       // Today supplies its own inner eager VStack (below), so the staggered section reveal is
-                       // unchanged, this only defers building the single inner stack until it scrolls in.
-                       // Byte-identical layout (LazyVStack == eager VStack alignment/spacing/header).
+                       // PERF (scroll): lazy outer column plus a lazy inner section stack,
+                       // so expensive charts and card groups are built when scrolled into view.
                        lazy: true,
                        // PERF (scroll stutter): the day-cycle scene is a static masked Image. CoreAnimation
                        // already caches it as a stable image layer, so it does NOT re-rasterize on body
@@ -1485,7 +1485,8 @@ struct TodayView: View {
                        // lag regression; removing the flatten restores native layer caching.
                        topBackground: showDayCycleBackground && !usesEditorialToday
                            ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+            // Lazy-load the expensive chart/card sections as they enter the viewport.
+            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 #if os(iOS)
                 // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
                 // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).
@@ -6556,6 +6557,47 @@ private struct ReferenceHealthSnapshot: View {
             let flags = await repo.exploreSeries(key: "hrv_rr_overcount", source: "my-whoop", days: 4000)
             overCounts = Dictionary(flags.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
             flagsLoaded = true
+        }
+    }
+}
+
+
+// Keep the 1 Hz live-strap state confined to this tiny header leaf.
+// TodayView itself deliberately does NOT observe LiveState, avoiding full-chart redraws.
+private struct TodayDeviceBatteryShortcut: View {
+    @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var router: NavRouter
+
+    var body: some View {
+        if live.activeIsWhoop {
+            Button { router.openDevices() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: live.connected && live.charging == true
+                          ? "bolt.fill" : "battery.100percent")
+                        .foregroundStyle(live.connected && live.charging == true
+                                         ? StrandPalette.statusPositive : StrandPalette.textSecondary)
+                    Text(live.connected
+                         ? DeviceBatteryDisplay.percent(live.batteryPct)
+                         : "—")
+                        .monospacedDigit()
+                }
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 36)
+                .background(.ultraThinMaterial, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                live.connected
+                ? (live.charging == true
+                   ? "WHOOP charging, \(DeviceBatteryDisplay.percent(live.batteryPct))"
+                   : "WHOOP device, \(DeviceBatteryDisplay.percent(live.batteryPct))")
+                : "WHOOP disconnected"
+            )
+            .accessibilityHint("Open device settings")
+            .accessibilityIdentifier("noop.today.device-battery")
         }
     }
 }
