@@ -96,6 +96,24 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             "a different workout after the dismissed one must remain suggestible")
     }
 
+    func testOverlapOnlyWorkoutReadPreservesSavedIntervalsAndRows() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let row = WorkoutRow(startTs: now - 3600, endTs: now - 1800,
+                             sport: "Running", source: "manual", durationS: 1800,
+                             energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                             distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+        let full = await repo.workoutRows(days: 7)
+        let spansOnly = await repo.workoutRows(days: 7, reconcileHeartRate: false)
+        XCTAssertEqual(full.map { [$0.startTs, $0.endTs] },
+                       spansOnly.map { [$0.startTs, $0.endTs] },
+                       "cheap candidate-overlap reads must preserve the display read's intervals")
+        XCTAssertEqual(spansOnly.first?.sport, "Running")
+    }
+
     func testAcceptedSuggestionReportsSuccessfulPersistence() async throws {
         let store = try await WhoopStore.inMemory()
         let repo = Repository(deviceId: deviceId)

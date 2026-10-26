@@ -2782,7 +2782,7 @@ final class Repository: ObservableObject {
     /// dismissible and exportable; new scoring passes neither create nor reconcile them (#2187).
     /// Dismissed spans are still filtered HERE so every consumer (Workouts, Today, Coach) preserves the
     /// user's prior "not a workout" decisions and the confirmation card cannot resurrect those windows.
-    func workoutRows(days: Int = 4000) async -> [WorkoutRow] {
+    func workoutRows(days: Int = 4000, reconcileHeartRate: Bool = true) async -> [WorkoutRow] {
         guard let store = await ensureStore() else { return [] }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
@@ -2823,6 +2823,11 @@ final class Repository: ObservableObject {
             deduped = WorkoutSource.dedupCrossSource(filtered)
         }
         let visible = deduped.sorted { $0.startTs > $1.startTs }
+        // Callers that need only workout INTERVALS (auto-suggestion overlap) must not
+        // run up to 300 unrelated HR aggregate/strain queries on every refresh.
+        // The display path retains reconciliation by default; timestamps and dedup
+        // are identical because the enrichment changes only HR, peak and strain.
+        guard reconcileHeartRate else { return visible }
         return await reconcileWorkoutHrWithTrace(visible, store: store)
     }
 
@@ -3281,7 +3286,7 @@ final class Repository: ObservableObject {
         let restingBpm = days.last(where: { $0.restingHr != nil })?.restingHr
 
         // Exclude every already-saved workout window (any source , strap, manual, imported, detected).
-        let saved = await workoutRows()
+        let saved = await workoutRows(reconcileHeartRate: false)
         let savedSpans = saved.map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
 
         // Workouts & GPS test mode: the published 12-minute result remains byte-identical. Aggregate,
