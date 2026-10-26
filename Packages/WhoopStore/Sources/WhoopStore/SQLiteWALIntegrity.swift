@@ -54,19 +54,30 @@ public enum SQLiteWALIntegrity {
                     return nil
                 }
                 guard frame.count == 24 else { return "The backup WAL frame header is truncated." }
-                let page = try read(file, count: pageSize)
-                guard page.count == pageSize else { return "The backup WAL page is truncated." }
 
                 let frameMatchesEpoch = word(frame, at: 8) == word(header, at: 16)
                     && word(frame, at: 12) == word(header, at: 20)
-                if sawResetTail {
-                    // The active epoch must be a prefix. A current-epoch frame after the tail begins
-                    // proves that an earlier current frame was damaged.
-                    guard !frameMatchesEpoch else {
-                        return "The backup WAL contains a current-epoch frame after its reset tail."
+                if sawResetTail && frameMatchesEpoch {
+                    return "The backup WAL contains a current-epoch frame after its reset tail."
+                }
+                let frameSalt = (word(frame, at: 8), word(frame, at: 12))
+                let page = try read(file, count: pageSize)
+                if page.count != pageSize {
+                    // SQLite can leave a partial old-epoch tail after RESTART. It is safe to ignore
+                    // only after at least two complete frames in the same stale epoch have supplied
+                    // checksum-chain evidence. An incomplete active frame or uncorroborated tail fails.
+                    if sawResetTail, !frameMatchesEpoch,
+                       let previousSalt = resetTailSalt,
+                       frameSalt.0 == previousSalt.0 && frameSalt.1 == previousSalt.1,
+                       resetTailFrameCount >= 2 {
+                        return nil
                     }
-
-                    let salt = (word(frame, at: 8), word(frame, at: 12))
+                    return "The backup WAL page is truncated."
+                }
+                if sawResetTail {
+                    // The active epoch must be a prefix. The guard above runs before reading the page,
+                    // so a current frame cannot be reclassified as truncated reset-tail padding.
+                    let salt = frameSalt
                     let stored = (word(frame, at: 16), word(frame, at: 20))
                     if let previousSalt = resetTailSalt {
                         if salt.0 == previousSalt.0 && salt.1 == previousSalt.1 {
