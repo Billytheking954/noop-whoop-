@@ -56,7 +56,7 @@ enum LocalSelfTest {
         guard cacheLoaded, let persistedDays else { return .inconclusive }
         // Apple-only vital and activity-step days can legitimately appear in cache
         // without having an imported/computed WHOOP daily row.
-        if persistedDays.isEmpty && !cachedDays.isEmpty { return .inconclusive }
+        if persistedDays.isEmpty { return .inconclusive }
         if !persistedDays.subtracting(cachedDays).isEmpty { return .storedDaysNotInCache }
         return .present
     }
@@ -68,8 +68,9 @@ enum LocalSelfTest {
 
     static func run(repo: Repository, now: Date = Date()) async -> Result {
         let start = ProcessInfo.processInfo.systemUptime
-        let fromDay = Repository.dayString(now.addingTimeInterval(-120 * 86_400))
-        let toDay = Repository.dayString(now.addingTimeInterval(86_400))
+        // Calendar arithmetic preserves the intended local-day range across DST.
+        let fromDay = Repository.dayString(Calendar.current.date(byAdding: .day, value: -120, to: now) ?? now)
+        let toDay = Repository.dayString(Calendar.current.date(byAdding: .day, value: 1, to: now) ?? now)
         let loadedAtStart = repo.loaded
         let cachedAtStart = repo.days.filter { $0.day >= fromDay && $0.day <= toDay }.count
 
@@ -90,7 +91,7 @@ enum LocalSelfTest {
 
         guard let store = repo.existingStoreForDiagnostics() else {
             lines.append("LOCAL STORE: NOT OPEN YET. Re-run after dashboard loading; no database was opened by this test.")
-            lines.append("No Bluetooth sync, HealthKit read, reset or backup change was attempted.")
+            lines.append("This diagnostic initiated no Bluetooth sync, HealthKit read, reset or backup change.")
             return Result(text: lines.joined(separator: "\n"), needsAttention: true)
         }
 
@@ -131,7 +132,7 @@ enum LocalSelfTest {
         if elapsed.isFinite && elapsed >= 0 {
             lines.append(String(format: "Self-test runtime: %.2fs", elapsed))
         }
-        lines.append("No Bluetooth sync, HealthKit read, reset or backup change was attempted.")
+        lines.append("This diagnostic initiated no Bluetooth sync, HealthKit read, reset or backup change.")
         lines.append("No SQLite integrity scan or full-history verification was performed.")
         lines.append("Blank cards or a recent-day mismatch are NOT by themselves proof of data loss.")
         return Result(text: lines.joined(separator: "\n"),
