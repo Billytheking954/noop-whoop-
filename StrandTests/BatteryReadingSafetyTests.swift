@@ -27,6 +27,33 @@ final class BatteryReadingSafetyTests: XCTestCase {
             event: "WRIST_ON(9)", gaugeBit: nil))
     }
 
+    /// Sequence replay: a pack attachment is not a charge transition, an absent gauge
+    /// reading must not overwrite a known state, and explicit OFF/removed ends charging.
+    /// This deliberately verifies app classification, not physical Bluetooth behaviour.
+    func testChargingEventSequencePreservesEvidenceAndUnknownState() {
+        let events: [(String, Int?)] = [
+            ("BATTERY_PACK_CONNECTED(21)", nil),
+            ("BATTERY_LEVEL(26)", nil),
+            ("CHARGING_ON(7)", nil),
+            ("BATTERY_PACK_CONNECTED(21)", nil),
+            ("BATTERY_LEVEL(26)", 1),
+            ("CHARGING_OFF(8)", nil),
+            ("BATTERY_LEVEL(26)", nil),
+            ("BATTERY_PACK_REMOVED(22)", nil),
+        ]
+        let expected: [Bool?] = [nil, nil, true, true, true, false, false, false]
+        var last: Bool?
+        for (index, sample) in events.enumerated() {
+            if let update = StrapChargingEvidence.statusUpdate(
+                event: sample.0, gaugeBit: sample.1) { last = update }
+            XCTAssertEqual(last, expected[index], "charge-state replay step \\(index)")
+        }
+        XCTAssertEqual(DeviceBatteryDisplay.systemImage(connected: false,
+                                                        charging: last, battery: 76), "circle.dotted")
+        XCTAssertTrue(DeviceBatteryDisplay.voiceOverLabel(connected: false,
+                                                         charging: last, battery: 76).contains("disconnected"))
+    }
+
     func testInvalidPercentNeverPollutesUIEstimatorOrAlertHook() {
         let live = LiveState()
         var notified: [Double] = []

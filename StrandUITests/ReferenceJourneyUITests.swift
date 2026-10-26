@@ -35,6 +35,31 @@ final class ReferenceJourneyUITests: XCTestCase {
         }
     }
 
+    /// Seeded iPhone Simulator regression for freezes on rapid native tab switching and
+    /// reselecting Today's tab. No real BLE or iPhone energy claims are made here.
+    func testRepeatedTabSwitchesAndDeviceShortcutRemainResponsive() {
+        let app = launch()
+        let tabs = app.tabBars.firstMatch
+        XCTAssertTrue(tabs.waitForExistence(timeout: 30))
+        for _ in 0..<3 {
+            for name in ["Health", "Activity", "More", "Today"] {
+                let button = tabs.buttons[name]
+                XCTAssertTrue(button.waitForExistence(timeout: 10), name)
+                button.tap()
+                XCTAssertTrue(button.isSelected, "Switch to \\(name) failed")
+            }
+        }
+        let today = tabs.buttons["Today"]
+        today.tap() // reselect must not force a heavy dashboard refresh or freeze
+        XCTAssertTrue(today.isSelected)
+        let shortcut = app.buttons["noop.today.device-battery"]
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 15),
+                      "the WHOOP device shortcut should be accessible on Today")
+        shortcut.tap()
+        XCTAssertTrue(app.buttons["Manage paired devices"].waitForExistence(timeout: 15),
+                      "the shortcut should open the existing device screen")
+    }
+
     /// Root screens must scroll vertically without a second gesture attempting to move tabs.
     /// This covers the original diagonal-drag regression on the primary iPhone screens.
     func testVerticalScrollingKeepsTheSelectedTab() {
