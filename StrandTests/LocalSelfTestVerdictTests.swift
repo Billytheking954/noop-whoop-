@@ -6,37 +6,49 @@ import XCTest
 @MainActor
 final class LocalSelfTestVerdictTests: XCTestCase {
     func testStoredRecentRowsButEmptyLoadedCacheNeedsInvestigation() {
-        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: 5, cachedDays: 0,
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: ["2026-10-23", "2026-10-24"], cachedDays: [],
                                                    cacheLoaded: true),
                        .storedDaysNotInCache)
     }
 
     func testUnfinishedInitialLoadIsInconclusive() {
-        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: 5, cachedDays: 0,
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: ["2026-10-23", "2026-10-24"], cachedDays: [],
                                                    cacheLoaded: false),
                        .inconclusive)
     }
 
     func testFailedStorageReadIsInconclusiveRatherThanNoData() {
-        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: nil, cachedDays: 0,
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: nil, cachedDays: [],
                                                    cacheLoaded: true),
                        .inconclusive)
     }
 
     func testEmptyInstallIsNotMisreportedAsDataLoss() {
-        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: 0, cachedDays: 0,
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: [], cachedDays: [],
                                                    cacheLoaded: true),
                        .present)
     }
 
     func testPopulatedCacheWithPopulatedStoreIsConsistent() {
-        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: 2, cachedDays: 3,
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: ["2026-10-23", "2026-10-24"], cachedDays: ["2026-10-23", "2026-10-24", "2026-10-25"],
                                                    cacheLoaded: true),
                        .present)
     }
 
+    func testSomeStoredDaysAbsentFromLoadedCacheNeedsInvestigation() {
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: ["2026-10-22", "2026-10-23"],
+                                                   cachedDays: ["2026-10-22"], cacheLoaded: true),
+                       .storedDaysNotInCache)
+    }
+
+    func testEqualCountsButDifferentDayKeysStillFail() {
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: ["2026-10-22"],
+                                                   cachedDays: ["2026-10-23"], cacheLoaded: true),
+                       .storedDaysNotInCache)
+    }
+
     func testUnmatchedCacheSourceDoesNotProduceFalsePass() {
-        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: 0, cachedDays: 3,
+        XCTAssertEqual(LocalSelfTest.cacheVerdict(persistedDays: [], cachedDays: ["2026-10-22", "2026-10-23"],
                                                    cacheLoaded: true),
                        .inconclusive)
     }
