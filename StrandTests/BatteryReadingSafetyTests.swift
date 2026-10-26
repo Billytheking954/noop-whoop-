@@ -6,6 +6,27 @@ import XCTest
 /// Does not simulate physical Bluetooth behaviour or measure actual battery life.
 @MainActor
 final class BatteryReadingSafetyTests: XCTestCase {
+    func testPackAttachmentDoesNotFalselyReportCharging() {
+        // A connected pack can be flat or poorly seated: never show a
+        // confirmed green charging state until the strap says charging.
+        XCTAssertNil(StrapChargingEvidence.statusUpdate(
+            event: "BATTERY_PACK_CONNECTED(21)", gaugeBit: nil))
+        XCTAssertNil(StrapChargingEvidence.statusUpdate(
+            event: "BATTERY_LEVEL(26)", gaugeBit: nil))
+        XCTAssertEqual(StrapChargingEvidence.statusUpdate(
+            event: "BATTERY_LEVEL(26)", gaugeBit: 0), false)
+        XCTAssertEqual(StrapChargingEvidence.statusUpdate(
+            event: "BATTERY_LEVEL(26)", gaugeBit: 1), true)
+        XCTAssertEqual(StrapChargingEvidence.statusUpdate(
+            event: "CHARGING_ON(7)", gaugeBit: nil), true)
+        XCTAssertEqual(StrapChargingEvidence.statusUpdate(
+            event: "CHARGING_OFF(8)", gaugeBit: nil), false)
+        XCTAssertEqual(StrapChargingEvidence.statusUpdate(
+            event: "BATTERY_PACK_REMOVED(22)", gaugeBit: nil), false)
+        XCTAssertNil(StrapChargingEvidence.statusUpdate(
+            event: "WRIST_ON(9)", gaugeBit: nil))
+    }
+
     func testInvalidPercentNeverPollutesUIEstimatorOrAlertHook() {
         let live = LiveState()
         var notified: [Double] = []
