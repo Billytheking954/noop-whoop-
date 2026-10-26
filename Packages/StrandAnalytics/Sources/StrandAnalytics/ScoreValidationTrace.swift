@@ -37,7 +37,7 @@ public enum ScoreValidationTrace {
     public static func lines(_ snapshot: Snapshot) -> [String] {
         let dayLength = Int(snapshot.dayInterval.upperBound.timeIntervalSince(snapshot.dayInterval.lowerBound).rounded())
         var output = [
-            "phase4ScoreContext schema=1 day=\(token(snapshot.targetDay)) generatedAtUnix=\(Int(snapshot.generatedAt.timeIntervalSince1970)) dayLengthS=\(dayLength) dailyRows=\(max(0, snapshot.dailyRowCount)) activityEvents=\(max(0, snapshot.activityEventCount)) wake=\(snapshot.wakeTimeAvailable ? \"present\" : \"missing\")",
+            "phase4ScoreContext schema=1 day=\(token(snapshot.targetDay)) generatedAtUnix=\(Int(snapshot.generatedAt.timeIntervalSince1970)) dayLengthS=\(dayLength) dailyRows=\(max(0, snapshot.dailyRowCount)) activityEvents=\(max(0, snapshot.activityEventCount)) wake=\(snapshot.wakeTimeAvailable ? "present" : "missing")",
             "phase4Energy estimated=true value=\(integer(snapshot.energy.value)) morning=\(integer(snapshot.energy.morningValue)) completeness=\(decimal(snapshot.energy.completeness, places: 3)) confidence=\(snapshot.energy.confidence.rawValue) trendPoints=\(snapshot.energy.trend.count)",
         ]
 
@@ -52,7 +52,7 @@ public enum ScoreValidationTrace {
 
         output.append("phase4Readiness estimated=true score=\(integer(snapshot.readiness.score)) level=\(snapshot.readiness.level.rawValue) completeness=\(decimal(snapshot.readiness.dataCompleteness, places: 3)) confidence=\(snapshot.readiness.confidence.rawValue) acwr=\(decimal(snapshot.readiness.acwr, places: 3)) monotony=\(decimal(snapshot.readiness.monotony, places: 3))")
         for signal in snapshot.readiness.signals {
-            output.append("phase4ReadinessSignal key=\(token(signal.key)) flag=\(signal.flag.rawValue) evidence=\(quoted(signal.evidence ?? \"missing\")) detail=\(quoted(signal.detail))")
+            output.append("phase4ReadinessSignal key=\(token(signal.key)) flag=\(signal.flag.rawValue) evidence=\(quoted(signal.evidence ?? "missing")) detail=\(quoted(signal.detail))")
         }
         output.append("phase4Limitations medical=false energyEstimate=true readinessEstimate=true minuteByMinuteFabricated=false missingDataImputed=false")
         return output
