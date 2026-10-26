@@ -96,9 +96,13 @@ final class EnergyReserveStressTests: XCTestCase {
         }
         // Corrupted and repeated history is a normal recovery scenario after interrupted sync.
         let repeatedDays = days + days.reversed()
-        let valid = (0..<1_000).map {
-            workout(id: "e\($0)", end: range.lowerBound.addingTimeInterval(Double(8 * 3600 + $0)),
-                    strain: Double(($0 % 8) + 1))
+        // Keep the compiler's type-checking work bounded as well as the runtime work.
+        var valid: [EnergyReserveEngine.ActivityEvent] = []
+        valid.reserveCapacity(1_000)
+        for index in 0..<1_000 {
+            let end = range.lowerBound.addingTimeInterval(Double(28_800 + index))
+            let effort = Double((index % 8) + 1)
+            valid.append(workout(id: "e\(index)", end: end, strain: effort))
         }
         let now = range.lowerBound.addingTimeInterval(18 * 3600)
         let original = EnergyReserveEngine.estimate(
