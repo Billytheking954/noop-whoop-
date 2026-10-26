@@ -104,7 +104,10 @@ struct FullDayChartView: View {
         .task(id: taskKey) { await reload() }
         .task(id: annotationKey) { await reloadAnnotations() }
         .task { await landOnLatestDayIfNeeded() }
-        .task(id: metric) { await resolveMetricUnsupported() }   // #623
+        .task(id: Self.dataScopeKey(metric: metric, deviceId: repo.deviceId,
+                                     refreshSeq: repo.refreshSeq)) {
+            await resolveMetricUnsupported()
+        }   // #623: metric, device and fresh data all affect unsupported state
         .task(id: repo.deviceId) { sourceName = repo.activeDeviceDisplayName() }
     }
 
@@ -120,13 +123,15 @@ struct FullDayChartView: View {
             metricUnsupported = false
             return
         }
-        metricUnsupported = !(await repo.strapHasEverProduced(metric))
+        let unsupported = !(await repo.strapHasEverProduced(metric))
+        guard !Task.isCancelled else { return }
+        metricUnsupported = unsupported
     }
 
     /// Annotations re-read only when the shown day changes or fresh strap data lands — deliberately NOT
     /// on zoom (see `sleepSpan` above), so scrubbing/pinching never re-queries sleeps/workouts.
     private var annotationKey: String {
-        "\(Int(dayStart.timeIntervalSince1970))|\(repo.refreshSeq)"
+        "\(Int(dayStart.timeIntervalSince1970))|\(repo.deviceId)|\(repo.refreshSeq)"
     }
 
     /// Re-read whenever the metric, the day, the source scope, the settled zoom window, or fresh strap
@@ -135,7 +140,14 @@ struct FullDayChartView: View {
     private var taskKey: String {
         let lo = Int(visibleWindow.lowerBound.timeIntervalSince1970)
         let hi = Int(visibleWindow.upperBound.timeIntervalSince1970)
-        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(lo)|\(hi)|\(repo.refreshSeq)"
+        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(lo)|\(hi)|\(repo.deviceId)|\(repo.refreshSeq)"
+    }
+
+    /// Invalidates the unsupported-state probe on device changes and newly banked data.
+    /// Pure identity, so tests can protect this even without BLE hardware.
+    static func dataScopeKey(metric: Repository.TimelineMetric, deviceId: String,
+                             refreshSeq: Int) -> String {
+        "\(metric.rawValue)|\(deviceId)|\(refreshSeq)"
     }
 
     // MARK: Controls

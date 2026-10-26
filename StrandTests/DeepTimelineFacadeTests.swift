@@ -47,6 +47,16 @@ final class DeepTimelineFacadeTests: XCTestCase {
         XCTAssertFalse(average.contains("14:07:42"), average)
     }
 
+    func testUnsupportedTimelineStateInvalidatesOnMetricDeviceAndRefresh() {
+        let baseline = FullDayChartView.dataScopeKey(metric: .spo2, deviceId: "whoop-A", refreshSeq: 5)
+        XCTAssertNotEqual(baseline, FullDayChartView.dataScopeKey(
+            metric: .respiration, deviceId: "whoop-A", refreshSeq: 5))
+        XCTAssertNotEqual(baseline, FullDayChartView.dataScopeKey(
+            metric: .spo2, deviceId: "whoop-B", refreshSeq: 5))
+        XCTAssertNotEqual(baseline, FullDayChartView.dataScopeKey(
+            metric: .spo2, deviceId: "whoop-A", refreshSeq: 6))
+    }
+
     // MARK: - Pure adaptive-resolution decision
 
     /// A whole DAY at the default budget picks a COARSE bucket — never raw (raw 86k seconds would be the

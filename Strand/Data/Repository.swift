@@ -2803,7 +2803,13 @@ final class Repository: ObservableObject {
         // #687: collapse the SAME activity tracked live under the strap AND imported from Health Connect /
         // Apple Health into one richer entry , they sit under different sources so without this they show
         // as two sessions. Dedup runs on the dismissed-filtered set, before the final newest-first sort.
-        let filtered = rows.filter { !WorkoutSource.isDismissed($0, spans: spans) }
+        // Preserve suspect source rows in the database, but never present future-ending
+        // sessions as completed workouts. The +1-day query bound above intentionally still
+        // fetches them so the read boundary, not a lossy import rewrite, owns quarantine.
+        let filtered = rows.filter {
+            WorkoutSource.isPlausibleCompletedWorkout($0, now: now)
+                && !WorkoutSource.isDismissed($0, spans: spans)
+        }
         // Workouts & GPS test mode: when on, run the dedup twin which returns the BYTE-IDENTICAL kept list
         // plus a trace line per collapsed cross-source pair, tagged `.workouts`. Zero-cost when off (the gate
         // is one UserDefaults bool read inside emitWorkouts), and the kept list equals dedupCrossSource(...)
@@ -3200,10 +3206,24 @@ final class Repository: ObservableObject {
         detectedDismissedTokens: [String]
     ) -> DetectedWorkout? {
         let exact = Set(autoDismissedTokens)
+        let priorAuto = WorkoutSource.parseDismissedSpans(autoDismissedTokens)
         let legacy = WorkoutSource.parseDismissedSpans(detectedDismissedTokens)
         return candidates
             .filter { candidate in
                 !exact.contains(autoDetectToken(candidate))
+                    // When a fresh sample shifts a window slightly, do not re-prompt for
+                    // the same dismissed activity. Bound BOTH endpoints to 3 minutes and
+                    // require >=80% of the shorter span, so a neighbouring workout survives.
+                    && !priorAuto.contains { span in
+                        let startGap = abs(Double(candidate.startSec) - Double(span.start))
+                        let endGap = abs(Double(candidate.endSec) - Double(span.end))
+                        let intersection = max(0.0, min(Double(candidate.endSec), Double(span.end))
+                                                    - max(Double(candidate.startSec), Double(span.start)))
+                        let shorter = min(Double(candidate.endSec - candidate.startSec),
+                                          Double(span.end - span.start))
+                        return shorter > 0 && startGap <= 180 && endGap <= 180
+                            && intersection >= shorter * 0.8
+                    }
                     && !legacy.contains { span in
                         candidate.startSec < span.end && span.start < candidate.endSec
                     }
@@ -3328,8 +3348,15 @@ final class Repository: ObservableObject {
         guard let row = WorkoutSource.buildManualRow(start: start, durationMin: durationMin,
                                                      sport: "Workout", avgHr: w.avgBpm,
                                                      energyKcal: nil) else { return false }
-        await saveManualWorkout(row)
-        return true
+        // Unlike the old void saveManualWorkout adapter, report success only after
+        // SQLite has actually acknowledged the upsert; do not hide the card on failure.
+        guard let store = await ensureStore() else { return false }
+        do {
+            _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// DISMISS a suggested window: record its span durably so it never re-prompts. Idempotent.

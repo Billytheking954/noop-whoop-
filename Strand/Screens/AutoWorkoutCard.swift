@@ -185,6 +185,7 @@ struct AutoWorkoutCard: View {
     }
 
     private func save(_ w: DetectedWorkout) {
+        guard !saving && !handledThisSession else { return }
         saving = true
         saveError = false
         Task {

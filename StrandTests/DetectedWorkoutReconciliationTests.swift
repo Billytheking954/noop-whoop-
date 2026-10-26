@@ -81,6 +81,36 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             "a candidate dismissed through either historical contract must never reappear")
     }
 
+    func testShiftedDismissalDoesNotResurfaceAndNeighbouringActivitySurvives() {
+        let original = DetectedWorkout(startSec: 3_000, endSec: 3_900,
+                                       avgBpm: 135, peakBpm: 160, durationMin: 15)
+        let shifted = DetectedWorkout(startSec: 3_030, endSec: 3_930,
+                                      avgBpm: 136, peakBpm: 161, durationMin: 15)
+        let separate = DetectedWorkout(startSec: 4_350, endSec: 5_250,
+                                       avgBpm: 140, peakBpm: 170, durationMin: 15)
+        let ignored = Repository.selectAutoDetectCandidate([shifted],
+            autoDismissedTokens: ["3000:3900"], detectedDismissedTokens: [])
+        XCTAssertNil(ignored, "a few newly banked HR samples must not resurrect dismissed exercise")
+        XCTAssertEqual(Repository.selectAutoDetectCandidate([original, shifted, separate],
+            autoDismissedTokens: ["3000:3900"], detectedDismissedTokens: []), separate,
+            "a different workout after the dismissed one must remain suggestible")
+    }
+
+    func testAcceptedSuggestionReportsSuccessfulPersistence() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let suggestion = DetectedWorkout(startSec: now - 1500, endSec: now - 300,
+                                         avgBpm: 140, peakBpm: 165, durationMin: 20)
+        let saved = await repo.saveDetectedWorkout(suggestion)
+        XCTAssertTrue(saved)
+        let rows = try await store.workouts(deviceId: deviceId, from: now - 3600, to: now, limit: 20)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.startTs, suggestion.startSec)
+        XCTAssertEqual(rows.first?.sport, "Workout")
+    }
+
     func testLegacyRowsAreRemovedFromTheirArchivedComputedOwner() async throws {
         try await withPreferences {
             let store = try await WhoopStore.inMemory()
