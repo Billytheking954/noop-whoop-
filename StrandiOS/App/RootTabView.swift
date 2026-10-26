@@ -88,7 +88,7 @@ struct RootTabView: View {
 
     private func reselectTab(_ tag: Int) {
         // A tap on an already-selected tab should only pop/scroll to top.
-        // The eager repo.refresh() kicked off a whole dashboard/store read
+        // The old eager full refresh kicked off a whole dashboard/store read
         // while the user was still interacting; pull-to-refresh remains available.
         if !tabPaths[tag].isEmpty {
             tabPaths[tag] = NavigationPath()
