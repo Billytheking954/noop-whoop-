@@ -39,9 +39,20 @@ public enum SQLiteWALIntegrity {
             }
 
             var sawResetTail = false
+            var resetTailSalt: (UInt32, UInt32)?
+            var resetTailFrameCount = 0
+            var resetTailPreviousChecksum: (UInt32, UInt32)?
             while true {
                 let frame = try read(file, count: 24)
-                if frame.isEmpty { return nil }
+                if frame.isEmpty {
+                    // A one-frame stale tail is indistinguishable from a final current-epoch frame
+                    // whose salt and checksum were both damaged. Fail closed rather than silently
+                    // accepting a backup that SQLite may open while omitting committed rows.
+                    if sawResetTail && resetTailFrameCount < 2 {
+                        return "The backup WAL ends with an ambiguous single-frame reset tail."
+                    }
+                    return nil
+                }
                 guard frame.count == 24 else { return "The backup WAL frame header is truncated." }
                 let page = try read(file, count: pageSize)
                 guard page.count == pageSize else { return "The backup WAL page is truncated." }
@@ -49,11 +60,44 @@ public enum SQLiteWALIntegrity {
                 let frameMatchesEpoch = word(frame, at: 8) == word(header, at: 16)
                     && word(frame, at: 12) == word(header, at: 20)
                 if sawResetTail {
-                    // A valid reset leaves only old-epoch frames after the first old-epoch frame.
-                    // Seeing a current-epoch frame later means an earlier frame's salt was damaged.
+                    // The active epoch must be a prefix. A current-epoch frame after the tail begins
+                    // proves that an earlier current frame was damaged.
                     guard !frameMatchesEpoch else {
                         return "The backup WAL contains a current-epoch frame after its reset tail."
                     }
+
+                    let salt = (word(frame, at: 8), word(frame, at: 12))
+                    let stored = (word(frame, at: 16), word(frame, at: 20))
+                    if let previousSalt = resetTailSalt {
+                        if salt.0 == previousSalt.0 && salt.1 == previousSalt.1 {
+                            // Once a stale epoch's first frame is seen, each following frame in that
+                            // same epoch must continue its checksum chain. The first stale frame can
+                            // depend on overwritten history and cannot be independently anchored.
+                            guard let previous = resetTailPreviousChecksum else {
+                                return "The backup WAL reset-tail checksum chain is unavailable."
+                            }
+                            var candidate = checksum(frame, count: 8, seed: previous,
+                                                     littleEndian: littleEndian)
+                            candidate = checksum(page, count: pageSize, seed: candidate,
+                                                 littleEndian: littleEndian)
+                            guard candidate.0 == stored.0 && candidate.1 == stored.1 else {
+                                return "The backup WAL reset-tail checksum chain is invalid."
+                            }
+                            resetTailFrameCount += 1
+                        } else {
+                            // A one-frame epoch cannot corroborate that this is a legitimate reset
+                            // tail rather than a damaged final current frame.
+                            guard resetTailFrameCount >= 2 else {
+                                return "The backup WAL contains an ambiguous single-frame reset tail."
+                            }
+                            resetTailSalt = salt
+                            resetTailFrameCount = 1
+                        }
+                    } else {
+                        resetTailSalt = salt
+                        resetTailFrameCount = 1
+                    }
+                    resetTailPreviousChecksum = stored
                     continue
                 }
                 if !frameMatchesEpoch {
@@ -66,6 +110,9 @@ public enum SQLiteWALIntegrity {
                         return "The backup WAL frame salt is invalid for the current checksum chain."
                     }
                     sawResetTail = true
+                    resetTailSalt = (word(frame, at: 8), word(frame, at: 12))
+                    resetTailFrameCount = 1
+                    resetTailPreviousChecksum = (word(frame, at: 16), word(frame, at: 20))
                     continue
                 }
 
