@@ -100,7 +100,7 @@ public struct ReferenceStressGauge: View {
 /// Original, static vector illustration of a woven optical fitness band.
 /// Not a WHOOP product render. The cut-out strap, fabric and raised optical
 /// module are drawn without image assets, animations or live-data subscriptions.
-public struct ReferenceBandIllustration: View {
+public struct ReferenceBandIllustration: View, Equatable {
     public init() {}
 
     public var body: some View {

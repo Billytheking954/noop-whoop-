@@ -69,6 +69,7 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
     func testDeviceArtworkHasDepthAndWovenDetailRatherThanTubePlaceholder() throws {
         let source = try sourceText(
             "Packages/StrandDesign/Sources/StrandDesign/ReferenceComponents.swift")
+        let deviceSource = try sourceText("Strand/Screens/DevicesView.swift")
         guard let start = source.range(of: "public struct ReferenceBandIllustration: View") else {
             return XCTFail("Device illustration missing")
         }
@@ -76,6 +77,9 @@ final class Phase5DeviceUXRegressionTests: XCTestCase {
         XCTAssertTrue(illustration.contains("FillStyle(eoFill: true)"))
         XCTAssertTrue(illustration.contains("Canvas { context"))
         XCTAssertTrue(illustration.contains("sensor surface"))
+        XCTAssertTrue(source.contains("ReferenceBandIllustration: View, Equatable"))
+        XCTAssertTrue(deviceSource.contains("ReferenceBandIllustration()"))
+        XCTAssertTrue(deviceSource.contains(".equatable()"))
         XCTAssertFalse(illustration.contains("Ellipse().stroke"))
         XCTAssertFalse(illustration.contains("Color(white:"))
     }

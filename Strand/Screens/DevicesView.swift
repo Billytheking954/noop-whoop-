@@ -138,6 +138,10 @@ private struct ConceptDeviceView: View {
                     // the WHOOP itself. Keep it static while live readings update below it.
                     VStack(spacing: 12) {
                         ReferenceBandIllustration()
+                            // This vector is static. The surrounding device screen receives live
+                            // strap updates, so retain the rendered subtree instead of rebuilding
+                            // its Canvas for unrelated HR, R-R or battery publications.
+                            .equatable()
                             .frame(maxWidth: .infinity)
                             .accessibilityHidden(true)
                         VStack(spacing: 6) {
