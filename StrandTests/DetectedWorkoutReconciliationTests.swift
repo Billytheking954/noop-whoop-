@@ -114,6 +114,44 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
         XCTAssertEqual(spansOnly.first?.sport, "Running")
     }
 
+    func testManualWorkoutSaveAcknowledgesDurableWrite() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let row = WorkoutRow(startTs: now - 3600, endTs: now - 300,
+                             sport: "Cycling", source: "manual", durationS: 3300,
+                             energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                             distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        let saved = await repo.saveManualWorkout(row)
+        XCTAssertTrue(saved, "the editor must only retire its suggestion after a durable write")
+        let rows = try await store.workouts(deviceId: deviceId, from: now - 7200, to: now, limit: 10)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.startTs, row.startTs)
+    }
+
+    func testFutureImportedWorkoutStaysStoredButOutOfCompletedHistory() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let valid = WorkoutRow(startTs: now - 3600, endTs: now - 2400,
+                               sport: "Running", source: "whoop", durationS: 1200,
+                               energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                               distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        let future = WorkoutRow(startTs: now + 120, endTs: now + 1320,
+                                sport: "Cycling", source: "whoop", durationS: 1200,
+                                energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                                distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        _ = try await store.upsertWorkouts([valid, future], deviceId: deviceId)
+        let completed = await repo.workoutRows(days: 7, reconcileHeartRate: false)
+        XCTAssertEqual(completed.map(\\.startTs), [valid.startTs])
+        // Quarantine is intentionally read-only: the source record is still available
+        // for diagnosis or when the clock becomes correct, not silently deleted.
+        let raw = try await store.workouts(deviceId: deviceId, from: now - 7200, to: now + 7200, limit: 20)
+        XCTAssertEqual(raw.count, 2)
+    }
+
     func testAcceptedSuggestionReportsSuccessfulPersistence() async throws {
         let store = try await WhoopStore.inMemory()
         let repo = Repository(deviceId: deviceId)
