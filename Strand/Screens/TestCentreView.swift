@@ -21,6 +21,9 @@ struct TestCentreView: View {
 
     /// The Report orchestrator: assembles the redacted bundle, runs the mandatory review gate, shares.
     @StateObject private var report = TestCentreReport()
+    @State private var localSelfTestRunning = false
+    @State private var localSelfTestReport: String?
+    @State private var localSelfTestStatus: String?
 
     /// Re-read activation on appear so a toggle flip elsewhere reflects here.
     @State private var refreshToken = 0
@@ -202,6 +205,20 @@ struct TestCentreView: View {
         }
     }
 
+    /// Runs only local read operations. No sync, schema change or clearing existing records.
+    private func runLocalSelfTest() {
+        guard !localSelfTestRunning else { return }
+        localSelfTestRunning = true
+        Task { @MainActor in
+            let result = await LocalSelfTest.run(repo: model.repo)
+            localSelfTestReport = result.text
+            localSelfTestStatus = result.needsAttention
+                ? "Completed. Some results need investigation."
+                : "Completed. Local daily-history checks were consistent."
+            localSelfTestRunning = false
+        }
+    }
+
     // MARK: - Section 1: Domain test modes (rendered from the registry projection)
 
     @ViewBuilder private var domainModesCard: some View {
@@ -328,6 +345,35 @@ struct TestCentreView: View {
                 NavigationLink(destination: NightLabView()) {
                     Label("Night Lab", systemImage: "moon.stars")
                 }
+                Divider().overlay(StrandPalette.hairline)
+
+                NoopButton("Run local self-test", systemImage: "checkmark.shield", kind: .secondary) {
+                    runLocalSelfTest()
+                }
+                .disabled(localSelfTestRunning)
+                .accessibilityIdentifier("noop.testcentre.run-local-selftest")
+                Text("Checks recent saved daily records against loaded dashboard history, offline. Also reports the last cold-start local loading time. Never resets data or contacts WHOOP.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if localSelfTestRunning {
+                    ProgressView("Checking local history")
+                }
+                if let status = localSelfTestStatus {
+                    Text(status)
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        .accessibilityIdentifier("noop.testcentre.local-selftest-status")
+                }
+                if let result = localSelfTestReport {
+                    DisclosureGroup("View local self-test details") {
+                        Text(result)
+                            .font(StrandFont.caption)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Button("Copy local self-test report") { PlatformPasteboard.copy(result) }
+                        .buttonStyle(.bordered)
+                }
+
                 Divider().overlay(StrandPalette.hairline)
 
                 // Strap log, the same exportableLogText the Settings + Live strap-log cards share.
