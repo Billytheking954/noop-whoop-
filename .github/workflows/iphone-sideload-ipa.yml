@@ -134,6 +134,8 @@ jobs:
             assert any(n.startswith('Payload/NOOP.app/_CodeSignature/') for n in entries)
             assert any(n.startswith('Payload/NOOP.app/PlugIns/NOOPWidgets.appex/_CodeSignature/') for n in entries)
             assert not any('/Watch/' in n or '/MacOS/' in n for n in entries)
+            assert not any(n.endswith('embedded.mobileprovision') or n.endswith('.provisionprofile')
+                           for n in entries), 'Unsigned sideload archive must not contain provisioning'
           PY
           IPA_SHA="$(shasum -a 256 "release-out/$NAME" | awk '{print $1}')"
           printf '%s  %s\n' "$IPA_SHA" "$NAME" > "release-out/$NAME.sha256.txt"
