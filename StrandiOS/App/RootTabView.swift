@@ -125,9 +125,6 @@ struct RootTabView: View {
             // every tab. Today retains its own intentionally horizontal day navigation.
         .task {
             await repo.refresh()
-            // Record the initial local-store refresh independently of BLE or HealthKit.
-            // Single-use: subsequent tab remounts never replace the cold-start observation.
-            ColdLaunchTrace.finish(cacheLoaded: repo.loaded, cachedDays: repo.days.count)
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
             // 100MB+ whole-DB ZIP never blocks startup; gated on the auto toggle (default OFF). (Must-fix #4.)
             let backupRepo = repo
