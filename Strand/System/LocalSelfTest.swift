@@ -9,13 +9,31 @@ enum ColdLaunchTrace {
         let seconds: Double
         let cacheLoaded: Bool
         let cachedDays: Int
+        let todayDataLoadSeconds: Double?
     }
 
     private static var processStartUptime: TimeInterval?
+    private static var firstTodayStartUptime: TimeInterval?
     private static let prefix = "noop.diagnostics.coldRootLoad."
 
     static func begin() {
-        processStartUptime = ProcessInfo.processInfo.systemUptime
+        let start = ProcessInfo.processInfo.systemUptime
+        processStartUptime = start
+        firstTodayStartUptime = start
+        // A failed new launch must not display an older launch's timing as current.
+        for suffix in ["seconds", "cacheLoaded", "cachedDays", "todayDataLoadSeconds"] {
+            UserDefaults.standard.removeObject(forKey: prefix + suffix)
+        }
+    }
+
+    /// First completed Today data computation, not the first drawn frame or
+    /// a promise that every card is populated. One value per app process.
+    static func finishTodayDataLoad() {
+        guard let started = firstTodayStartUptime else { return }
+        firstTodayStartUptime = nil
+        let seconds = ProcessInfo.processInfo.systemUptime - started
+        guard seconds.isFinite, seconds >= 0 else { return }
+        UserDefaults.standard.set(seconds, forKey: prefix + "todayDataLoadSeconds")
     }
 
     static func finish(cacheLoaded: Bool, cachedDays: Int) {
@@ -34,9 +52,12 @@ enum ColdLaunchTrace {
         guard defaults.object(forKey: prefix + "seconds") != nil else { return nil }
         let seconds = defaults.double(forKey: prefix + "seconds")
         guard seconds.isFinite, seconds >= 0 else { return nil }
+        let todaySeconds = defaults.object(forKey: prefix + "todayDataLoadSeconds") == nil
+            ? nil : defaults.double(forKey: prefix + "todayDataLoadSeconds")
         return Snapshot(seconds: seconds,
                         cacheLoaded: defaults.bool(forKey: prefix + "cacheLoaded"),
-                        cachedDays: defaults.integer(forKey: prefix + "cachedDays"))
+                        cachedDays: defaults.integer(forKey: prefix + "cachedDays"),
+                        todayDataLoadSeconds: todaySeconds)
     }
 }
 
@@ -84,7 +105,12 @@ enum LocalSelfTest {
             lines.append(String(format: "Time to first successful local cache publication: %.2fs", trace.seconds))
             lines.append("First cache publication completed with cache loaded: \(trace.cacheLoaded ? "yes" : "no")")
             lines.append("First cache publication cached days (all available history): \(trace.cachedDays)")
-            lines.append("Note: cache publication timing does not measure per-card rendering.")
+            if let today = trace.todayDataLoadSeconds {
+                lines.append(String(format: "Time to first completed Today data calculation: %.2fs", today))
+            } else {
+                lines.append("Time to first completed Today data calculation: not recorded yet")
+            }
+            lines.append("Note: these times do not measure first frame paint or prove every card is populated.")
         } else {
             lines.append("Time to first local cache publication: not recorded")
         }
