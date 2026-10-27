@@ -60,6 +60,75 @@ final class BackupSyncRoundTripTests: XCTestCase {
                        "Restored DB should hold exactly the backed-up rows")
     }
 
+    func testV49IdentityLedgersSurviveNoopbakRestore() throws {
+        // Regression for clean-branch compatibility with a database that Aura
+        // already upgraded. All file paths below are disposable test fixtures.
+        let sourceDB = tmp.appendingPathComponent("v49-source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["my-whoop"])
+        var db: OpaquePointer?
+        guard sqlite3_open(sourceDB.path, &db) == SQLITE_OK else { throw TestError("open v49 fixture") }
+        do {
+            try exec(db, "INSERT INTO grdb_migrations (identifier) VALUES ('v48-apple-health-workout-identity')")
+            try exec(db, "INSERT INTO grdb_migrations (identifier) VALUES ('v49-apple-health-sample-identity')")
+            try exec(db, """
+                CREATE TABLE appleHealthWorkoutIdentity (
+                  deviceId TEXT NOT NULL, uuid TEXT NOT NULL, startTs INTEGER NOT NULL,
+                  sport TEXT NOT NULL, day TEXT NOT NULL
+                )
+                """)
+            try exec(db, """
+                CREATE TABLE appleHealthSampleIdentity (
+                  deviceId TEXT NOT NULL, typeIdentifier TEXT NOT NULL, uuid TEXT NOT NULL,
+                  day TEXT NOT NULL, startTs INTEGER NOT NULL, value DOUBLE,
+                  PRIMARY KEY (deviceId, typeIdentifier, uuid)
+                )
+                """)
+            try exec(db, """
+                INSERT INTO appleHealthWorkoutIdentity (deviceId, uuid, startTs, sport, day)
+                VALUES ('apple-health', 'v49-workout', 1000, 'walking', '2026-10-25')
+                """)
+            try exec(db, """
+                INSERT INTO appleHealthSampleIdentity (deviceId, typeIdentifier, uuid, day, startTs, value)
+                VALUES ('apple-health', 'dietaryWater', 'v49-water', '2026-10-25', 1100, 250)
+                """)
+        } catch {
+            sqlite3_close(db)
+            throw error
+        }
+        sqlite3_close(db)
+        let backup = tmp.appendingPathComponent("v49-backup.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup)
+        let restoredDB = tmp.appendingPathComponent("v49-restored.sqlite")
+        guard case .imported = DataBackup.restore(from: backup, toDatabaseAt: restoredDB.path) else {
+            return XCTFail("v49 snapshot must restore to an isolated location")
+        }
+        XCTAssertEqual(try deviceRows(in: restoredDB), ["my-whoop"])
+        XCTAssertEqual(try singleText(in: restoredDB,
+            query: "SELECT uuid FROM appleHealthWorkoutIdentity"), "v49-workout")
+        XCTAssertEqual(try singleText(in: restoredDB,
+            query: "SELECT uuid FROM appleHealthSampleIdentity"), "v49-water")
+        XCTAssertEqual(try singleText(in: restoredDB,
+            query: "SELECT identifier FROM grdb_migrations WHERE identifier = 'v49-apple-health-sample-identity'"),
+                           "v49-apple-health-sample-identity")
+    }
+
+    private func singleText(in url: URL, query: String) throws -> String? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            throw TestError("read failed: \(url.path)")
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+            throw TestError("prepare failed: \(query)")
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: text)
+    }
+
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
 
     func testBackupWithSettingsRestoresSettingsAfterDbSwap() throws {
