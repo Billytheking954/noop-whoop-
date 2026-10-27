@@ -353,7 +353,7 @@ struct TestCentreView: View {
                 }
                 .disabled(localSelfTestRunning)
                 .accessibilityIdentifier("noop.testcentre.run-local-selftest")
-                Text("LOCAL ONLY. Checks recent stored WHOOP days against dashboard cache.")
+                Text("LOCAL ONLY")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
