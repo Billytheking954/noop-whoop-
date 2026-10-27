@@ -4812,6 +4812,7 @@ struct TodayView: View {
             await reloadRRUnitPolicy()
             loadedHistoryWideOnce = true
             announceNewDaysIfNeeded()
+            if repo.loaded && !Task.isCancelled { ColdLaunchTrace.finishTodayDataLoad() }
             return
         }
         // Defer the heavy history-wide reads ONLY on a re-load while a backfill is actively writing, so they
@@ -4827,6 +4828,9 @@ struct TodayView: View {
             repo.todayHistoryWideLoadedSeq = currentSeq
         }
         announceNewDaysIfNeeded()
+        // Only record the FIRST data-complete Today pass that had a published
+        // repository cache. A pre-hydration placeholder is not a loaded screen.
+        if repo.loaded && !Task.isCancelled { ColdLaunchTrace.finishTodayDataLoad() }
     }
 
     /// #today-hosted-cards: build the shared SleepModel backing the hosted sleep cards, ONLY when a
