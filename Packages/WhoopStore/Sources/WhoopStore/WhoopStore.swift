@@ -71,6 +71,22 @@ private actor StoreOpenGate {
 /// data or the query results.
 public actor WhoopStore {
 
+    /// Validate a disposable restore candidate without migrating or writing to it.
+    /// A future schema must be rejected before it can replace the current database.
+    public static func validateBackupSchema(at path: String) throws {
+        var configuration = Configuration()
+        configuration.readonly = true
+        let queue = try DatabaseQueue(path: path, configuration: configuration)
+        let superseded = try queue.read { db in
+            try makeMigrator().hasBeenSuperseded(db)
+        }
+        if superseded {
+            throw NSError(domain: "WhoopStore", code: 49,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "Local database was created by a newer NOOP build. Refusing an unsafe downgrade; your data has not been reset."])
+        }
+    }
+
     /// PPG waveform rows banked since its retention sweep last ran, PER DEVICE, for the same reason as
     /// `v18AuxRowsSincePrune` below: the sweep is per device, so a shared counter would let one strap
     /// spend another's budget. Separate counter from the v18 aux one because the two caps differ and a
@@ -181,7 +197,9 @@ public actor WhoopStore {
 
     @inline(__always)
     func syncWrite<T>(_ block: (Database) throws -> T) throws -> T {
-        try dbWriter.write(block)
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.write(block)
+        }
     }
 
     // MARK: - Maintenance
@@ -208,8 +226,10 @@ public actor WhoopStore {
     /// Non-async so GRDB's synchronous `writeWithoutTransaction` overload is chosen (mirrors the
     /// syncRead/syncWrite pattern). Runs on the actor's executor, off the main thread.
     private func checkpointWALImpl() throws {
-        try dbWriter.writeWithoutTransaction { db in
-            try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.writeWithoutTransaction { db in
+                try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+            }
         }
     }
 
