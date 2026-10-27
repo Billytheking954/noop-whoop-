@@ -803,6 +803,10 @@ final class Repository: ObservableObject {
     /// Expose the shared store handle (used by the importer to persist mapped rows).
     func storeHandle() async -> WhoopStore? { await ensureStore() }
 
+    /// Read-only diagnostics reuse the existing handle. They must NOT open a
+    /// store solely to investigate loading because opening can mutate schema.
+    func existingStoreForDiagnostics() -> WhoopStore? { store }
+
     /// CAPTURE-D (#797): the on-device DATA VOLUME read FRESH from the STORE (never the `@Published`
     /// dashboard caches), for the Display & Performance test mode's `dataVolume` line. dbRows is the raw
     /// decoded-stream footprint; importedDays is the count of imported daily-metric rows under the active
@@ -1044,6 +1048,8 @@ final class Repository: ObservableObject {
         // and an appended line after the bump is how that invariant quietly stops being true.
         self.exploreAllCache = nil
         self.refreshSeq += 1
+        // First successful dashboard cache, not the time all cards have drawn.
+        ColdLaunchTrace.finish(cacheLoaded: true, cachedDays: self.days.count)
     }
 
     /// Per-source coverage counts for the Freshness Pipeline card. Pure over the rows already read.
