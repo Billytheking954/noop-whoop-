@@ -98,4 +98,40 @@ final class Schema49CompatibilityTests: XCTestCase {
                            "v50-future-schema")
         }
     }
+    func testV49SnapshotRoundTripKeepsWALCommittedIdentityHistory() async throws {
+        let sourcePath = tempPath()
+        let copyPath = tempPath()
+        defer { cleanup(sourcePath); cleanup(copyPath) }
+        do {
+            let source = try DatabaseQueue(path: sourcePath)
+            try WhoopStore.makeMigrator().migrate(source)
+            try source.write { db in
+                try db.execute(sql: "INSERT INTO device (id, name) VALUES ('snapshot-device', 'WHOOP')")
+                try db.execute(sql: """
+                    INSERT INTO appleHealthWorkoutIdentity (deviceId, uuid, startTs, sport, day)
+                    VALUES ('apple-health', 'snapshot-workout', 2000, 'walking', '2026-10-26')
+                    """)
+                try db.execute(sql: """
+                    INSERT INTO appleHealthSampleIdentity (deviceId, typeIdentifier, uuid, day, startTs, value)
+                    VALUES ('apple-health', 'dietaryWater', 'snapshot-water', '2026-10-26', 2100, 300)
+                    """)
+            }
+            // SQLite's online backup includes committed WAL pages. Never simulate
+            // a real backup by copying only the main .sqlite file while it is live.
+            let copy = try DatabaseQueue(path: copyPath)
+            try source.backup(to: copy)
+        }
+        _ = try await WhoopStore(path: copyPath)
+        let copy = try DatabaseQueue(path: copyPath)
+        try copy.read { db in
+            XCTAssertEqual(try String.fetchOne(db,
+                sql: "SELECT name FROM device WHERE id = 'snapshot-device'"), "WHOOP")
+            XCTAssertEqual(try String.fetchOne(db,
+                sql: "SELECT uuid FROM appleHealthWorkoutIdentity WHERE uuid = 'snapshot-workout'"),
+                "snapshot-workout")
+            XCTAssertEqual(try Double.fetchOne(db,
+                sql: "SELECT value FROM appleHealthSampleIdentity WHERE uuid = 'snapshot-water'"), 300)
+        }
+    }
+
 }
