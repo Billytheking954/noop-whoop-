@@ -1,0 +1,182 @@
+name: Publish verified IPA builds to GitHub Releases
+
+# A completed IPA build is the source of truth for the actual binary.
+# The privileged workflow does not execute code or scripts from PR artifacts.
+on:
+  workflow_run:
+    workflows: ["Unsigned iPhone sideload IPA"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-ipa-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_repository.full_name == github.repository &&
+          (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify CI and published artifact, then write change notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SHA"
+          test -n "$BUILD_RUN_ID"
+
+          # A same-repository PR only qualifies after every companion CI run
+          # for this exact commit succeeds. No physical-iPhone claims.
+          if [[ "$BUILD_EVENT" == "pull_request" ]]; then
+            names='["Source Hygiene","Tools Python CI","Swift Packages CI","iPhone i18n Coverage","App build (iPhone)"]'
+            passed=false
+            for i in {1..40}; do
+              runs="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/runs" -f head_sha="$SHA" -f per_page=100)"
+              if jq -e --arg sha "$SHA" --argjson names "$names" '
+                .workflow_runs as $runs |
+                all($names[]; . as $n |
+                  any($runs[]; .head_sha == $sha and .name == $n and .conclusion == "success")
+                )' <<< "$runs" >/dev/null; then
+                passed=true
+                break
+              fi
+              sleep 15
+            done
+            if [[ "$passed" != true ]]; then
+              echo "::error::Required companion CI workflows have not all passed for $SHA; no release created."
+              exit 1
+            fi
+          fi
+
+          # Download only the artifact emitted by the successful source workflow.
+          mkdir -p release-out
+          gh run download "$BUILD_RUN_ID" \
+            --name "noop-v2-iphone-sideload-${SHA}" --dir release-out
+          SOURCE_SHA="$SHA" python3 - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+          p=pathlib.Path('release-out')
+          ipas=list(p.glob('*.ipa'))
+          assert len(ipas)==1, 'Expected exactly one unsigned IPA'
+          ipa=ipas[0]
+          manifest=json.loads((p/'sideload-manifest.json').read_text())
+          sha256=hashlib.sha256(ipa.read_bytes()).hexdigest()
+          assert manifest['source_sha']==os.environ['SOURCE_SHA']
+          assert manifest['artifact']==ipa.name
+          assert manifest['sha256']==sha256
+          assert (p/(ipa.name+'.sha256.txt')).read_text().split()[0]==sha256
+          with zipfile.ZipFile(ipa) as z:
+              assert z.testzip() is None
+              provenance=json.loads(z.read('Payload/NOOP.app/NOOPReleaseProvenance.json'))
+              assert provenance['git_sha']==os.environ['SOURCE_SHA']
+              assert provenance['platform']=='iOS'
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('IPA_NAME='+ipa.name+'\n')
+          PY
+
+          # The original main-branch build workflow already publishes a release.
+          # Enrich that same release rather than duplicating it.
+          if [[ "$BUILD_EVENT" == "push" ]]; then
+            tag="noop-v2-iphone-sideload-${SHA:0:12}"
+            gh release view "$tag" --json assets --jq '.assets[].name' |
+              grep -Fx "$IPA_NAME" >/dev/null
+          else
+            tag="noop-v2-test-${SHA:0:12}"
+          fi
+
+          releases="$(gh api -X GET "repos/$GITHUB_REPOSITORY/releases" -f per_page=100)"
+          # If an IPA for this exact source commit is already published under
+          # another tag (e.g. a manual prerelease), do not create a duplicate.
+          same_source="$(jq -r --arg sha "$SHA" '
+            [.[] | select(.target_commitish == $sha and
+              any(.assets[]?; .name | endswith(".ipa")))] |
+            first | .tag_name // empty' <<< "$releases")"
+          if [[ -n "$same_source" && "$BUILD_EVENT" == "pull_request" ]]; then
+            echo "Existing verified IPA release: $same_source"
+            echo "SKIP_EXISTING=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          previous_tag="$(jq -r --arg sha "$SHA" '
+            [.[] | select(.draft==false and .target_commitish != $sha)] |
+            sort_by(.published_at) | last | .tag_name // empty' <<< "$releases")"
+
+          # Fetch source commit without checking out or executing development code.
+          git cat-file -e "${SHA}^{commit}" 2>/dev/null || git fetch origin "$SHA"
+          range=""
+          divergence=""
+          if [[ -n "$previous_tag" ]] &&
+             git rev-parse -q --verify "refs/tags/${previous_tag}^{commit}" >/dev/null; then
+            if git merge-base --is-ancestor "$previous_tag" "$SHA"; then
+              range="${previous_tag}..$SHA"
+            else
+              base="$(git merge-base "$previous_tag" "$SHA")"
+              range="${base}..$SHA"
+              divergence="The last published release and this test branch diverge; these are changes on this branch since their common ancestor, not a guaranteed linear upgrade."
+            fi
+          fi
+
+          direct="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$IPA_NAME"
+          {
+            echo "## Download unsigned IPA"
+            echo
+            echo "**[Download IPA directly]($direct)**"
+            echo
+            echo "iPhone arm64, NOOP V2 12.0.0 (435). SideStore/AltStore must re-sign this IPA; it is not Apple-signed."
+            echo
+            echo "## Changes since the preceding published release"
+            echo
+            if [[ -n "$previous_tag" ]]; then
+              echo "Previous release: \`$previous_tag\`."
+            else
+              echo "No preceding published release could be identified."
+            fi
+            if [[ -n "$divergence" ]]; then echo; echo "**Branch note:** $divergence"; fi
+            echo
+            if [[ -n "$range" ]]; then
+              echo "Recent non-merge commits in the relevant source range:"
+              echo
+              git log --no-merges -n 25 --format='- %s (\`%h\`)' "$range" || true
+            else
+              echo "No reliable linear source range available; compare source commits before assuming a feature was added."
+            fi
+            echo
+            echo "## Verification and safety"
+            echo
+            echo "- Build source: [\`$SHA\`](https://github.com/$GITHUB_REPOSITORY/commit/$SHA)"
+            echo "- Branch: \`$SOURCE_BRANCH\` | GitHub Actions build run: #$BUILD_RUN_ID"
+            echo "- IPA archive, embedded source provenance, manifest and SHA-256 checksum verified."
+            if [[ "$BUILD_EVENT" == "pull_request" ]]; then
+              echo "- Five companion CI workflows and the unsigned IPA build passed at the exact commit."
+            else
+              echo "- Unsigned IPA build passed. Other CI checks are not asserted by this publishing workflow for main pushes."
+            fi
+            echo "- Physical iPhone, WHOOP BLE, SideStore re-signing, saved health-data completeness and clinical accuracy remain unverified."
+            echo "- Known investigation: slow cold-start data loading and blank/missing history. This release does not prove a fix."
+            echo
+            echo "Previous builds remain available on the Releases page. No pull requests are merged by publication."
+          } > release-notes.md
+
+          if [[ "$BUILD_EVENT" == "push" ]]; then
+            gh release edit "$tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" release-out/* --target "$SHA" \
+              --title "NOOP V2 test IPA • ${SOURCE_BRANCH} • ${SHA:0:12}" \
+              --prerelease --notes-file release-notes.md
+          fi
+          gh release view "$tag" --json assets,body,tagName --jq '
+            {tag: .tagName, assets: [.assets[].name], has_download: (.body | contains("Download IPA directly"))}'
