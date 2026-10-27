@@ -45,6 +45,15 @@ final class ColdStartHistoryLoadingTests: XCTestCase {
         XCTAssertTrue(source.contains("ColdLaunchTrace.latest()"))
     }
 
+    func testColdLaunchDiagnosticsDoNotCountAnEmptyPreHydrationTodayPass() throws {
+        let source = try text("Strand/Screens/TodayView.swift")
+        let diagnostics = try text("Strand/System/LocalSelfTest.swift")
+        XCTAssertTrue(source.contains("if repo.loaded && !Task.isCancelled { ColdLaunchTrace.finishTodayDataLoad() }"))
+        XCTAssertTrue(diagnostics.contains("Time to first completed Today data calculation"))
+        XCTAssertTrue(diagnostics.contains("first frame paint"))
+        XCTAssertTrue(diagnostics.contains("UserDefaults.standard.removeObject(forKey: prefix + suffix)"))
+    }
+
     private func text(_ file: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
