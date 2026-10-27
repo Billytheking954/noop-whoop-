@@ -469,7 +469,10 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
-            await self.repo.refresh()                          // surface any imported data at once
+            // Prioritise recent saved history before the expensive all-time scan. This
+            // is a READ-ONLY first paint, never a replacement for the full history:
+            // the complete 4000-day refresh runs below after the startup settle.
+            await self.repo.refresh(days: 120)
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
@@ -489,6 +492,12 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)  // 1 s, re-check; ~3 min cap then proceed
                 importWaited += 1
             }
+            // Restore the complete history after the recent snapshot has already been
+            // published, and after the first offload/import has had a chance to settle.
+            // Existing source rows stay untouched; this only widens the dashboard cache.
+            // Run before upgrade heal/rescore, preserving the original full-history
+            // visibility on launch once background catch-up completes.
+            await self.repo.refresh()
             // One-shot on-upgrade heal (#547): purge rows a bad-clock strap dated to scattered garbage
             // (far-past / bogus-2027 / FUTURE) from an older build, then rescore the real days. Runs
             // BEFORE the Effort rescore + analyzeRecent loop so both operate on a cleaned DB. Persisted
