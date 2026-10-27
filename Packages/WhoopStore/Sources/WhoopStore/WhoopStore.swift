@@ -32,6 +32,12 @@ private actor StoreOpenGate {
     static let shared = StoreOpenGate()
 
     func openAndMigrate(path: String, configuration config: Configuration) throws -> DatabasePool {
+        try StoreWriteBarrier.withWritePermit {
+            try openAndMigrateImpl(path: path, configuration: config)
+        }
+    }
+
+    private func openAndMigrateImpl(path: String, configuration config: Configuration) throws -> DatabasePool {
         try WhoopStore.refuseUnrecognizedDatabase(at: path)
         let pool = try DatabasePool(path: path, configuration: config)
         let migrator = WhoopStore.makeMigrator()

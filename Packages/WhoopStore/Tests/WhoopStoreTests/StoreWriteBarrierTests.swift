@@ -41,6 +41,24 @@ final class StoreWriteBarrierTests: XCTestCase {
         try await store.recordEvent(deviceId: "test", ts: 2, kind: "WRITE", payloadJSON: "{}")
     }
 
+    func testSuspendedRestoreAlsoRejectsOpeningAnotherFileStore() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("blocked-open-\(UUID().uuidString).sqlite").path
+        defer {
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(atPath: path + suffix)
+            }
+        }
+        StoreWriteBarrier.suspendAndDrainForRestore()
+        do {
+            _ = try await WhoopStore(path: path)
+            XCTFail("Store opening and migration must participate in the restore barrier")
+        } catch {
+            XCTAssertTrue(error is StoreWriteBarrier.WritesSuspendedError)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
     func testAtomicRestoreReservationRejectsSecondAttemptUntilGateResumes() {
         XCTAssertTrue(StoreWriteBarrier.trySuspendAndDrainForRestore(),
                       "The first restore must be able to reserve the write barrier")
