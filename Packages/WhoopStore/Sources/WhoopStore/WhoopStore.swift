@@ -40,7 +40,19 @@ private actor StoreOpenGate {
         // looping forever. (A normal GRDB backup carries grdb_migrations and is left untouched.)
         WhoopStore.quarantineIncompatibleDatabase(at: path)
         let pool = try DatabasePool(path: path, configuration: config)
-        try WhoopStore.makeMigrator().migrate(pool)
+        let migrator = WhoopStore.makeMigrator()
+        // Forward-only safety: a future app may have applied migrations we do
+        // not understand. Fail closed instead of writing with an older schema.
+        // Do not quarantine/reset an otherwise valid GRDB database to downgrade.
+        let hasFutureMigrations = try pool.read { db in
+            try migrator.hasBeenSuperseded(db)
+        }
+        guard !hasFutureMigrations else {
+            throw NSError(domain: "WhoopStore", code: 49,
+                          userInfo: [NSLocalizedDescriptionKey:
+                              "Local database was created by a newer NOOP build. Refusing an unsafe downgrade; your data has not been reset."])
+        }
+        try migrator.migrate(pool)
         return pool
     }
 }
