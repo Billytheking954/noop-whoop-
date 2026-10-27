@@ -32,13 +32,7 @@ private actor StoreOpenGate {
     static let shared = StoreOpenGate()
 
     func openAndMigrate(path: String, configuration config: Configuration) throws -> DatabasePool {
-        // Self-heal a foreign DB left in place by a bad cross-platform restore (#222): an Android
-        // (Room) backup that slipped past the import guard replaces our file with one that has our
-        // data tables but NO `grdb_migrations` bookkeeping. The migrator then thinks nothing is
-        // applied, re-runs v1, and crashes with `table "device" already exists` on every open — the
-        // store never bootstraps. Quarantine such a file BEFORE opening so we start fresh instead of
-        // looping forever. (A normal GRDB backup carries grdb_migrations and is left untouched.)
-        WhoopStore.quarantineIncompatibleDatabase(at: path)
+        try WhoopStore.refuseUnrecognizedDatabase(at: path)
         let pool = try DatabasePool(path: path, configuration: config)
         let migrator = WhoopStore.makeMigrator()
         // Forward-only safety: a future app may have applied migrations we do
@@ -143,35 +137,22 @@ public actor WhoopStore {
         self.init(preMigrated: pool)
     }
 
-    /// Move aside a database file that has our data tables but no GRDB migration bookkeeping — the
-    /// signature of a foreign (Android/Room) DB dropped over ours by a bad restore (#222). Opening it
-    /// would make the migrator re-run v1 and throw `table "device" already exists` forever. Moving it
-    /// to a `.incompatible-<ts>` sidecar lets the next open create a clean store. A valid GRDB DB
-    /// (has `grdb_migrations`) and a fresh/empty file are both left untouched. Best-effort + silent.
-    static func quarantineIncompatibleDatabase(at path: String) {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: path) else { return }
-        let names: Set<String>
-        do {
-            // Read-only probe of sqlite_master; a raw queue does NOT run migrations.
-            let probe = try DatabaseQueue(path: path)
-            names = try probe.read { db in
-                try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
-            }
-        } catch {
-            return // unreadable/locked → let the real open + migrator deal with it
+    /// Refuse a populated database without GRDB bookkeeping in place. Missing
+    /// metadata is not permission to move health data or discard WAL sidecars.
+    static func refuseUnrecognizedDatabase(at path: String) throws {
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        var configuration = Configuration()
+        configuration.readonly = true
+        let probe = try DatabaseQueue(path: path, configuration: configuration)
+        let names = try probe.read { db in
+            try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        let isForeign = !names.contains("grdb_migrations")
-            && (names.contains("device") || names.contains("hrSample"))
-        guard isForeign else { return }
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        let quarantine = "\(path).incompatible-\(stamp)"
-        try? fm.removeItem(atPath: quarantine)
-        do { try fm.moveItem(atPath: path, toPath: quarantine) } catch { return }
-        // Drop the now-orphaned WAL/SHM sidecars so the fresh DB starts clean.
-        for suffix in ["-wal", "-shm"] { try? fm.removeItem(atPath: path + suffix) }
+        let userTables = names.filter { !$0.hasPrefix("sqlite_") }
+        guard !userTables.isEmpty && !userTables.contains("grdb_migrations") else { return }
+        throw NSError(domain: "WhoopStore", code: 48,
+                      userInfo: [NSLocalizedDescriptionKey:
+                        "Local database migration metadata is missing. Your database has been preserved in place; automatic reset is disabled."])
     }
-
     /// An in-memory store (migrations applied). For tests.
     ///
     /// Backed by a `DatabaseQueue`, not a `DatabasePool`: GRDB has no in-memory `DatabasePool`

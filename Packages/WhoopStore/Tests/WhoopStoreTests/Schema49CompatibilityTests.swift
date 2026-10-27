@@ -26,6 +26,8 @@ final class Schema49CompatibilityTests: XCTestCase {
             try await queue.write { db in
                 try db.execute(sql: "INSERT INTO device (id, name) VALUES (?, ?)",
                                arguments: ["strap-keep", "WHOOP"])
+                try db.execute(sql: "INSERT INTO hrSample (deviceId, ts, bpm) VALUES ('strap-keep', 1000, 65)")
+                try db.execute(sql: "INSERT INTO rrInterval (deviceId, ts, rrMs, seq) VALUES ('strap-keep', 1000, 900, 0)")
             }
         }
         let upgraded = try await WhoopStore(path: path)
@@ -36,6 +38,9 @@ final class Schema49CompatibilityTests: XCTestCase {
         try await queue.read { db in
             XCTAssertEqual(try String.fetchOne(db,
                 sql: "SELECT name FROM device WHERE id = 'strap-keep'"), "WHOOP")
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT bpm FROM hrSample WHERE deviceId = 'strap-keep'"), 65)
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT rrMs FROM rrInterval WHERE deviceId = 'strap-keep'"), 900)
+            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA quick_check"), "ok")
             XCTAssertEqual(try Int.fetchOne(db,
                 sql: "SELECT count(*) FROM grdb_migrations WHERE identifier IN (?, ?)",
                 arguments: ["v48-apple-health-workout-identity", "v49-apple-health-sample-identity"]), 2)
