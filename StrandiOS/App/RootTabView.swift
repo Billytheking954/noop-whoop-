@@ -124,7 +124,9 @@ struct RootTabView: View {
             // competed with vertical scrolling, chart inspection and navigation gestures on
             // every tab. Today retains its own intentionally horizontal day navigation.
         .task {
-            await repo.refresh()
+            // AppModel owns the one cold-launch repository refresh. A second full-history
+            // refresh here raced its initial read, wasted disk work and could invalidate
+            // the quicker cache publication through Repository's generation guard.
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
             // 100MB+ whole-DB ZIP never blocks startup; gated on the auto toggle (default OFF). (Must-fix #4.)
             let backupRepo = repo
