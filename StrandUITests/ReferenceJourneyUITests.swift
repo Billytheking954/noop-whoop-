@@ -17,6 +17,23 @@ final class ReferenceJourneyUITests: XCTestCase {
             let app = launch()
             let ring = app.buttons["noop.today.ring." + key]
             XCTAssertTrue(ring.waitForExistence(timeout: 30), key)
+            // Startup replaces the pending-score banners after the stored fixtures load.
+            // Existence alone can leave XCTest tapping the ring's previous screen position.
+            var lastFrame = CGRect.zero
+            var stableSince = Date()
+            let settled = NSPredicate { _, _ in
+                let frame = ring.frame
+                let hasScore = ring.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*[0-9].*"))
+                    .firstMatch.exists
+                guard ring.isHittable, hasScore, !frame.isEmpty, frame == lastFrame else {
+                    lastFrame = frame
+                    stableSince = Date()
+                    return false
+                }
+                return Date().timeIntervalSince(stableSince) >= 2
+            }
+            expectation(for: settled, evaluatedWith: ring)
+            waitForExpectations(timeout: 30)
             ring.tap()
             XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 20), title)
             app.terminate()
@@ -152,17 +169,31 @@ final class ReferenceJourneyUITests: XCTestCase {
         XCTAssertTrue(more.waitForExistence(timeout: 30))
         more.tap()
 
+        let appSection = app.buttons["App"]
+        scrollTo(appSection, in: app)
+        if appSection.value as? String == "Collapsed" { appSection.tap() }
+
         let testCentre = app.buttons["Test Centre"]
+        scrollTo(testCentre, in: app)
         XCTAssertTrue(testCentre.waitForExistence(timeout: 15))
         testCentre.tap()
 
         let run = app.buttons["noop.testcentre.run-local-selftest"]
+        scrollTo(run, in: app)
         XCTAssertTrue(run.waitForExistence(timeout: 15))
         run.tap()
 
         XCTAssertTrue(app.staticTexts["noop.testcentre.local-selftest-status"]
             .waitForExistence(timeout: 90), "local diagnostics must finish without a strap")
         XCTAssertTrue(app.buttons["noop.testcentre.copy-local-selftest"].exists)
+    }
+
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<12 {
+            if element.exists && element.isHittable { return }
+            app.swipeUp()
+        }
+        XCTAssertTrue(element.exists && element.isHittable, "Could not scroll to \(element)")
     }
 
     func testSetUpLaterRetainsRequirementsAndSkipsPairing() {
