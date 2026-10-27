@@ -7,7 +7,10 @@ import XCTest
 final class ColdStartHistoryLoadingTests: XCTestCase {
     func testRecentSavedHistoryIsPublishedBeforeFullHistoryCatchUp() throws {
         let source = try sourceText("Strand/App/AppModel.swift")
+        let activeDevice = try XCTUnwrap(source.range(of: "await self.wireSourceCoordinator()"))
         let recent = try XCTUnwrap(source.range(of: "await self.repo.refresh(days: 120)"))
+        XCTAssertLessThan(activeDevice.lowerBound, recent.lowerBound)
+        XCTAssertTrue(source.contains("_ = repo.adoptActiveDeviceId(registry.activeDeviceId)"))
         let full = try XCTUnwrap(source.range(
             of: "await self.repo.refresh()", range: recent.upperBound..<source.endIndex))
         let importGate = try XCTUnwrap(source.range(
