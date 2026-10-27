@@ -472,8 +472,10 @@ final class AppModel: ObservableObject {
             // Prioritise recent saved history before the expensive all-time scan. This
             // is a READ-ONLY first paint, never a replacement for the full history:
             // the complete 4000-day refresh runs below after the startup settle.
+            // Resolve the currently active strap BEFORE the recent cache read; its
+            // initial registry emission must not trigger a competing deep refresh.
+            await self.wireSourceCoordinator()
             await self.repo.refresh(days: 120)
-            await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -666,6 +668,10 @@ final class AppModel: ObservableObject {
             registry?.setActive(serialId)
         }
         self.sourceCoordinator = coordinator
+        // Seed the read-side active id now, before the first cache refresh.
+        // The registry publisher's initial emission will then be a no-op in
+        // adoptActiveDevice; real subsequent device switches still refresh/rescore.
+        _ = repo.adoptActiveDeviceId(registry.activeDeviceId)
         bindOuraFeatureStatusMirror()
         // #814 READ SPINE (HIGH-1): drive the read side off the registry's `activeDeviceId` for the WHOLE
         // session, exactly as SourceCoordinator drives the WRITE side off the SAME publisher. A Devices-
