@@ -90,7 +90,7 @@ jobs:
 
           # The original main-branch build workflow already publishes a release.
           # Enrich that same release rather than duplicating it.
-          IPA_NAME="$(find release-out -maxdepth 1 -type f -name '*.ipa' -printf '%f\\n')"
+          IPA_NAME="$(basename "$(find release-out -maxdepth 1 -type f -name '*.ipa' -print -quit)")"
           test -n "$IPA_NAME"
           if [[ "$BUILD_EVENT" == "push" ]]; then
             tag="noop-v2-iphone-sideload-${SHA:0:12}"
