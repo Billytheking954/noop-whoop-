@@ -471,10 +471,13 @@ final class AppModel: ObservableObject {
             #endif
             // Resolve the active strap before the first dashboard read, so the
             // recent data includes both the active and canonical WHOOP sources.
-            await self.wireSourceCoordinator()
+            await self.wireSourceCoordinator(activateLiveSources: false)
             // Publish recent saved data without waiting for full multi-year history.
             // This is a cache-only read; no records are deleted or rewritten.
             await self.repo.refresh(days: 120)
+            // Local history is visible before the coordinator can start a BLE
+            // source. This read has no HealthKit or network dependency.
+            self.sourceCoordinator?.start()
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -627,7 +630,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func wireSourceCoordinator() async {
+    private func wireSourceCoordinator(activateLiveSources: Bool = true) async {
         guard sourceCoordinator == nil, let store = await repo.storeHandle() else { return }
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
         registry.reload()
@@ -656,7 +659,7 @@ final class AppModel: ObservableObject {
                 self?.live.append(log: "[\(AppModel.logTimeFormatter.string(from: Date()))] \(line)")
             },
             ouraNightBand: { [weak self] in self?.ouraNightBand() })   // item 27
-        coordinator.start()
+        if activateLiveSources { coordinator.start() }
         self.deviceRegistry = registry
         // #1303: adoption re-points the strap onto its stable `whoop-<serial>` id inside BLEManager (which
         // holds only the non-observable store), so mirror it onto the OBSERVABLE registry here or the

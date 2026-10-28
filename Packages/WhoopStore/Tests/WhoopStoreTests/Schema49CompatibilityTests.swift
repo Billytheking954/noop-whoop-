@@ -108,7 +108,10 @@ final class Schema49CompatibilityTests: XCTestCase {
         let copyPath = tempPath()
         defer { cleanup(sourcePath); cleanup(copyPath) }
         do {
-            let source = try DatabasePool(path: sourcePath)
+            let source = try DatabaseQueue(path: sourcePath)
+            _ = try await source.writeWithoutTransaction { db in
+                try String.fetchOne(db, sql: "PRAGMA journal_mode=WAL")
+            }
             try WhoopStore.makeMigrator().migrate(source)
             try await source.write { db in
                 try db.execute(sql: "INSERT INTO device (id, name) VALUES ('snapshot-device', 'WHOOP')")

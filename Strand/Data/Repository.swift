@@ -344,10 +344,10 @@ final class Repository: ObservableObject {
     /// Daily-metric rows across the imported union for a day range, DEDUPED per day with the ACTIVE STRAP
     /// winning over the canonical import (a live/measured row beats an imported one for the same day). The
     /// single returned row per day feeds the existing imported-vs-computed `mergeDaily` unchanged.
-    private func unionDailyMetrics(store: WhoopStore, from: String, to: String) async -> [DailyMetric] {
+    private func unionDailyMetrics(store: WhoopStore, from: String, to: String) async throws -> [DailyMetric] {
         var byDay: [String: DailyMetric] = [:]
         for id in importedReadIds {   // active strap FIRST → it claims each column, canonical fills its gaps
-            for m in (try? await store.dailyMetrics(deviceId: id, from: from, to: to)) ?? [] {
+            for m in try await store.dailyMetrics(deviceId: id, from: from, to: to) {
                 byDay[m.day] = byDay[m.day].map { Self.coalesceDay($0, m) } ?? m
             }
         }
@@ -461,10 +461,10 @@ final class Repository: ObservableObject {
 
     /// metricSeries points across the imported union for a key + day range, DEDUPED per day with the active
     /// strap winning (same precedence as `unionDailyMetrics`).
-    private func unionMetricSeries(store: WhoopStore, key: String, from: String, to: String) async -> [MetricPoint] {
+    private func unionMetricSeries(store: WhoopStore, key: String, from: String, to: String) async throws -> [MetricPoint] {
         var byDay: [String: MetricPoint] = [:]
         for id in importedReadIds {
-            for p in (try? await store.metricSeries(deviceId: id, key: key, from: from, to: to)) ?? [] where byDay[p.day] == nil {
+            for p in try await store.metricSeries(deviceId: id, key: key, from: from, to: to) where byDay[p.day] == nil {
                 byDay[p.day] = p
             }
         }
@@ -474,16 +474,16 @@ final class Repository: ObservableObject {
     /// Sleep sessions across every registered WHOOP source for a ts range, keeping ALL sessions per day (a nap + a main
     /// night both survive) and collapsing near-identical nights recorded under different union ids.
     /// The downstream `mergeSleep`/`userEditedDays` do the per-day collapse, exactly as before.
-    private func unionSleepSessions(store: WhoopStore, from: Int, to: Int, limit: Int = 4000) async -> [CachedSleepSession] {
-        Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: rawPhysiologyReadIds(store: store), from: from, to: to, limit: limit))
+    private func unionSleepSessions(store: WhoopStore, from: Int, to: Int, limit: Int = 4000) async throws -> [CachedSleepSession] {
+        Self.dedupBlocks(try await unionRawSleepBlocks(store: store, ids: rawPhysiologyReadIds(store: store), from: from, to: to, limit: limit))
     }
 
     /// Computed ("-noop") daily-metric rows across the computed union, DEDUPED per day (active strap's
     /// computed sibling wins over the canonical computed sibling).
-    private func unionComputedDailyMetrics(store: WhoopStore, from: String, to: String) async -> [DailyMetric] {
+    private func unionComputedDailyMetrics(store: WhoopStore, from: String, to: String) async throws -> [DailyMetric] {
         var byDay: [String: DailyMetric] = [:]
         for id in computedReadIds {
-            for m in (try? await store.dailyMetrics(deviceId: id, from: from, to: to)) ?? [] {
+            for m in try await store.dailyMetrics(deviceId: id, from: from, to: to) {
                 byDay[m.day] = byDay[m.day].map { Self.coalesceDay($0, m) } ?? m
             }
         }
@@ -492,16 +492,16 @@ final class Repository: ObservableObject {
 
     /// Computed ("-noop") sleep sessions across every registered WHOOP source, keeping ALL sessions per day
     /// and collapsing near-identical nights recorded under different computed siblings.
-    private func unionComputedSleepSessions(store: WhoopStore, from: Int, to: Int, limit: Int = 4000) async -> [CachedSleepSession] {
-        Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: rawComputedReadIds(store: store), from: from, to: to, limit: limit))
+    private func unionComputedSleepSessions(store: WhoopStore, from: Int, to: Int, limit: Int = 4000) async throws -> [CachedSleepSession] {
+        Self.dedupBlocks(try await unionRawSleepBlocks(store: store, ids: rawComputedReadIds(store: store), from: from, to: to, limit: limit))
     }
 
     /// ALL sleep blocks across `ids` for a ts range, concatenated (NOT collapsed to one per day, used by
     /// `allSleepSessions`, which expands split sleeps). Active strap first.
-    private func unionRawSleepBlocks(store: WhoopStore, ids: [String], from: Int, to: Int, limit: Int = 4000) async -> [CachedSleepSession] {
+    private func unionRawSleepBlocks(store: WhoopStore, ids: [String], from: Int, to: Int, limit: Int = 4000) async throws -> [CachedSleepSession] {
         var blocks: [CachedSleepSession] = []
         for id in ids {
-            blocks += (try? await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)) ?? []
+            blocks += try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
         }
         return blocks
     }
@@ -821,7 +821,7 @@ final class Repository: ObservableObject {
         // Imported daily-metric rows live under the UNION of the active strap + the canonical "my-whoop"
         // (computed scores are merged UNDER them from the computed siblings). A wide day range covers the
         // full local-history span an import can carry. Union-deduped per day so a re-add's history still counts.
-        let imported = await unionDailyMetrics(store: store, from: "0000-01-01", to: "9999-12-31")
+        guard let imported = try? await unionDailyMetrics(store: store, from: "0000-01-01", to: "9999-12-31") else { return nil }
         // Whole recordable epoch in unix seconds [0, ~2^31) so every recorded workout row is counted.
         var workouts: [WorkoutRow] = []
         for id in importedReadIds { workouts += (try? await store.workouts(deviceId: id, from: 0, to: 4_102_444_800, limit: 1_000_000)) ?? [] }
@@ -830,7 +830,7 @@ final class Repository: ObservableObject {
         // union of distinct days across the three daily sources (imported strap + on-device computed + Apple)
         // over the full local-history window. This is the read-set whose size drives the post-import list/
         // chart lag (#797) - so the trace pairs frame stats with "how many rows it was rendering over".
-        let computed = await unionComputedDailyMetrics(store: store, from: "0000-01-01", to: "9999-12-31")
+        guard let computed = try? await unionComputedDailyMetrics(store: store, from: "0000-01-01", to: "9999-12-31") else { return nil }
         let apple = (try? await store.dailyMetrics(deviceId: Self.appleHealthSource, from: "0000-01-01", to: "9999-12-31")) ?? []
         var renderDays = Set<String>()
         for m in imported { renderDays.insert(m.day) }
@@ -950,20 +950,35 @@ final class Repository: ObservableObject {
         refreshGen &+= 1
         let myGen = refreshGen
         let now = Date()
-        let fromDay = Self.dayString(now.addingTimeInterval(-Double(nDays) * 86_400))
-        let toDay = Self.dayString(now.addingTimeInterval(86_400))
+        let calendar = Calendar.current
+        let fromDay = Self.dayString(calendar.date(byAdding: .day, value: -nDays, to: now) ?? now)
+        let toDay = Self.dayString(calendar.date(byAdding: .day, value: 1, to: now) ?? now)
         let nowTs = Int(now.timeIntervalSince1970)
         let lo = nowTs - nDays * 86_400, hi = nowTs + 86_400
 
         // UNION the active strap (live raw, #814) with the canonical "my-whoop" import so a re-added strap's
         // live data AND the canonical history both surface, deduped per day (active strap wins). Collapses to
         // a single id on a single-device install (byte-identical to before).
-        let imported = await unionDailyMetrics(store: store, from: fromDay, to: toDay)
-        let computed = await unionComputedDailyMetrics(store: store, from: fromDay, to: toDay)
-        let apple = (try? await store.dailyMetrics(deviceId: Self.appleHealthSource, from: fromDay, to: toDay)) ?? []
-        let activityFile = (try? await store.dailyMetrics(deviceId: Self.activityFileSource, from: fromDay, to: toDay)) ?? []
-        let impSleep = await unionSleepSessions(store: store, from: lo, to: hi)
-        let compSleep = await unionComputedSleepSessions(store: store, from: lo, to: hi)
+        let imported: [DailyMetric], computed: [DailyMetric], apple: [DailyMetric], activityFile: [DailyMetric]
+        let impSleep: [CachedSleepSession], compSleep: [CachedSleepSession]
+        let perf: [MetricPoint], cons: [MetricPoint], need: [MetricPoint], debt: [MetricPoint]
+        do {
+            imported = try await unionDailyMetrics(store: store, from: fromDay, to: toDay)
+            computed = try await unionComputedDailyMetrics(store: store, from: fromDay, to: toDay)
+            apple = try await store.dailyMetrics(deviceId: Self.appleHealthSource, from: fromDay, to: toDay)
+            activityFile = try await store.dailyMetrics(deviceId: Self.activityFileSource, from: fromDay, to: toDay)
+            impSleep = try await unionSleepSessions(store: store, from: lo, to: hi)
+            compSleep = try await unionComputedSleepSessions(store: store, from: lo, to: hi)
+            perf = try await unionMetricSeries(store: store, key: "sleep_performance", from: fromDay, to: toDay)
+            cons = try await unionMetricSeries(store: store, key: "sleep_consistency", from: fromDay, to: toDay)
+            need = try await unionMetricSeries(store: store, key: "sleep_need_min", from: fromDay, to: toDay)
+            debt = try await unionMetricSeries(store: store, key: "sleep_debt_min", from: fromDay, to: toDay)
+        } catch {
+            // A transient locked/unavailable read is not evidence that saved
+            // history vanished. Keep the last complete publication intact.
+            NSLog("WhoopStore: dashboard refresh read failed; retaining cache: \(error)")
+            return
+        }
 
         // #2525: the Charge baselines' inputs, read on the main actor before detaching: today's local day
         // (the same local-calendar key the engine anchors its fold on) and the two recalibration epochs the
@@ -974,10 +989,6 @@ final class Repository: ObservableObject {
 
         // Export-verbatim sleep figures (long-format metricSeries rows from WhoopImporter).
         // SleepView prefers these per day over its APPROXIMATE recomputations.
-        let perf = await unionMetricSeries(store: store, key: "sleep_performance", from: fromDay, to: toDay)
-        let cons = await unionMetricSeries(store: store, key: "sleep_consistency", from: fromDay, to: toDay)
-        let need = await unionMetricSeries(store: store, key: "sleep_need_min", from: fromDay, to: toDay)
-        let debt = await unionMetricSeries(store: store, key: "sleep_debt_min", from: fromDay, to: toDay)
 
         // Merge + sort OFF the main actor (FIX 3): the figures build, the two O(n log n) daily/sleep merges,
         // the source-row sort, and the freshness counts are all pure over the rows just read, so they run in
@@ -1186,7 +1197,7 @@ final class Repository: ObservableObject {
 
     func dailyMetrics(fromDay: String, toDay: String) async -> [DailyMetric] {
         guard let store = await ensureStore() else { return [] }
-        return await unionDailyMetrics(store: store, from: fromDay, to: toDay)
+        return (try? await unionDailyMetrics(store: store, from: fromDay, to: toDay)) ?? []
     }
 
     /// #856: the same dedup over an EXPLICIT id list, so a workout's zone minutes bin the rows its own
@@ -1383,7 +1394,7 @@ final class Repository: ObservableObject {
 
     func sleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
         guard let store = await ensureStore() else { return [] }
-        return await unionSleepSessions(store: store, from: from, to: to, limit: limit)
+        return (try? await unionSleepSessions(store: store, from: from, to: to, limit: limit)) ?? []
     }
 
     /// Computed ("-noop") sleep sessions for a ts range, oldest→newest by onset — the funnel/diagnostic
@@ -1395,7 +1406,7 @@ final class Repository: ObservableObject {
     /// Mirrors Android `WhoopRepository.computedSleepSessionsUnion`.
     func computedSleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
         guard let store = await ensureStore() else { return [] }
-        return (await unionComputedSleepSessions(store: store, from: from, to: to, limit: limit))
+        return ((try? await unionComputedSleepSessions(store: store, from: from, to: to, limit: limit)) ?? [])
             .sorted { $0.startTs < $1.startTs }
     }
 
@@ -1419,8 +1430,8 @@ final class Repository: ObservableObject {
         // UNION the active strap + canonical (imported) and their computed siblings, keeping ALL blocks (not
         // one per day, this view expands split sleeps), but collapsing a night recorded under BOTH union
         // ids even when the recorded bounds differ slightly.
-        let imported = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: rawIds, from: lo, to: hi))
-        let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: rawComputedIds, from: lo, to: hi))
+        let imported = Self.dedupBlocks((try? await unionRawSleepBlocks(store: store, ids: rawIds, from: lo, to: hi)) ?? [])
+        let computed = Self.dedupBlocks((try? await unionRawSleepBlocks(store: store, ids: rawComputedIds, from: lo, to: hi)) ?? [])
         let cal = Calendar.current
         func endDay(_ s: CachedSleepSession) -> Date {
             cal.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(s.endTs)))
@@ -1537,8 +1548,8 @@ final class Repository: ObservableObject {
         // strap's visible retained nights would not teach the selector that chooses their main block.
         let rawIds = rawPhysiologyReadIds(store: store)
         let rawComputedIds = rawComputedReadIds(store: store)
-        let imported = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: rawIds, from: lo, to: hi))
-        let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: rawComputedIds, from: lo, to: hi))
+        let imported = Self.dedupBlocks((try? await unionRawSleepBlocks(store: store, ids: rawIds, from: lo, to: hi)) ?? [])
+        let computed = Self.dedupBlocks((try? await unionRawSleepBlocks(store: store, ids: rawComputedIds, from: lo, to: hi)) ?? [])
         let offsetSec = TimeZone.current.secondsFromGMT()
         let blocks = (imported + computed).compactMap { s -> SleepStageTotals.HistoryBlock? in
             let start = s.effectiveStartTs, end = s.endTs
@@ -1871,7 +1882,7 @@ final class Repository: ObservableObject {
         let to = fullHistory ? "9999-12-31" : Self.dayString(now.addingTimeInterval(86_400))
         let pts: [MetricPoint]
         if source == canonicalDeviceId {
-            pts = await unionMetricSeries(store: store, key: key, from: from, to: to)
+            pts = (try? await unionMetricSeries(store: store, key: key, from: from, to: to)) ?? []
         } else {
             pts = (try? await store.metricSeries(deviceId: source, key: key, from: from, to: to)) ?? []
         }

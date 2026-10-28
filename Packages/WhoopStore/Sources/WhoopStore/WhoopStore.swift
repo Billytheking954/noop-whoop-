@@ -149,6 +149,10 @@ public actor WhoopStore {
         guard FileManager.default.fileExists(atPath: path) else { return }
         var configuration = Configuration()
         configuration.readonly = true
+        // Another handle may be finishing a WAL checkpoint or closing while a
+        // second store opens. The preflight must wait for that transient lock;
+        // treating it as an invalid database hides otherwise intact history.
+        configuration.busyMode = .timeout(5)
         let probe = try DatabaseQueue(path: path, configuration: configuration)
         let names = try probe.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
