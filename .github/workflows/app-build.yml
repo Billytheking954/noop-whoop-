@@ -71,6 +71,7 @@ jobs:
           build
 
       - name: Run iPhone-hosted unit tests
+        id: iphone_tests
         shell: bash
         run: |
           set -euo pipefail
@@ -87,7 +88,7 @@ jobs:
 
       - name: Capture seeded iPhone design review screens
         id: capture
-        if: always() && steps.simulator-build.outcome == 'success'
+        if: always() && steps.simulator-build.outcome == 'success' && steps.iphone_tests.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
