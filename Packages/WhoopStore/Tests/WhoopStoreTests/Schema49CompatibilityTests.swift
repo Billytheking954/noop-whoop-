@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import SQLite3
 import XCTest
 @testable import WhoopStore
 
@@ -131,12 +132,11 @@ final class Schema49CompatibilityTests: XCTestCase {
             let walSize = try FileManager.default.attributesOfItem(atPath: sourcePath + "-wal")[.size] as? NSNumber
             XCTAssertGreaterThan(try XCTUnwrap(walSize).intValue, 32,
                                  "Snapshot fixture must contain committed WAL pages")
-            // SQLite's online backup includes committed WAL pages. Never simulate
-            // a real backup by copying only the main .sqlite file while it is live.
-            let copy = try DatabaseQueue(path: copyPath)
-            try source.backup(to: copy)
+            // Match production's sqlite3_backup snapshot. Opening a second GRDB
+            // writer for the destination while the WAL fixture is live can race
+            // its -shm cleanup and fail before the snapshot is even checked.
+            try snapshotWithSQLite(from: sourcePath, to: copyPath)
         }
-        _ = try await WhoopStore(path: copyPath)
         let copy = try DatabaseQueue(path: copyPath)
         try await copy.read { db in
             XCTAssertEqual(try String.fetchOne(db,
@@ -147,6 +147,25 @@ final class Schema49CompatibilityTests: XCTestCase {
             XCTAssertEqual(try Double.fetchOne(db,
                 sql: "SELECT value FROM appleHealthSampleIdentity WHERE uuid = 'snapshot-water'"), 300)
         }
+    }
+
+    private func snapshotWithSQLite(from sourcePath: String, to copyPath: String) throws {
+        var source: OpaquePointer?
+        var destination: OpaquePointer?
+        guard sqlite3_open_v2(sourcePath, &source, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let source else { throw NSError(domain: "Schema49CompatibilityTests", code: 1) }
+        defer { sqlite3_close(source) }
+        guard sqlite3_open_v2(copyPath, &destination,
+                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+              let destination else { throw NSError(domain: "Schema49CompatibilityTests", code: 2) }
+        defer { sqlite3_close(destination) }
+        guard let backup = sqlite3_backup_init(destination, "main", source, "main") else {
+            throw NSError(domain: "Schema49CompatibilityTests", code: 3)
+        }
+        let step = sqlite3_backup_step(backup, -1)
+        let finish = sqlite3_backup_finish(backup)
+        XCTAssertEqual(step, SQLITE_DONE)
+        XCTAssertEqual(finish, SQLITE_OK)
     }
 
 }
