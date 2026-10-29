@@ -1,0 +1,90 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Adds a one-time, redacted snapshot of the real inputs and experimental estimates to this Recovery report. Missing data stays missing; no health history is changed." : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Fügt diesem Erholungsbericht einmalig einen redigierten Schnappschuss der echten Eingaben und experimentellen Schätzwerte hinzu. Fehlende Daten bleiben fehlend; der Gesundheitsverlauf wird nicht verändert." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Adds a one-time, redacted snapshot of the real inputs and experimental estimates to this Recovery report. Missing data stays missing; no health history is changed." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Añade a este informe de recuperación una instantánea puntual y redactada de los datos reales y las estimaciones experimentales. Los datos ausentes siguen ausentes; no se modifica el historial de salud." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Ajoute à ce rapport de récupération un instantané ponctuel et expurgé des données réelles et des estimations expérimentales. Les données manquantes le restent ; aucun historique de santé n’est modifié." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Aggiunge a questo rapporto di recupero un'istantanea singola e oscurata degli input reali e delle stime sperimentali. I dati mancanti restano tali; la cronologia sanitaria non viene modificata." } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Dodaje do raportu regeneracji jednorazowy, zredagowany zapis rzeczywistych danych wejściowych i eksperymentalnych szacunków. Brakujące dane pozostają brakujące; historia zdrowia nie jest zmieniana." } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Adiciona a este relatório de recuperação um instantâneo único e editado dos dados reais e das estimativas experimentais. Os dados em falta continuam em falta; o histórico de saúde não é alterado." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Добавляет в отчёт о восстановлении разовый отредактированный снимок реальных входных данных и экспериментальных оценок. Отсутствующие данные не подменяются; история здоровья не изменяется." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "向此恢复报告添加一次经过编辑的真实输入和实验性估算快照。缺失数据仍保持缺失；健康历史不会更改。" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "向此恢復報告加入一次經過編輯的真實輸入和實驗性估算快照。缺失資料仍保持缺失；健康記錄不會更改。" } }
+      }
+    },
+    "Capture Energy & Readiness evidence" : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Nachweise für Energie und Trainingsbereitschaft erfassen" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Capture Energy & Readiness evidence" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Capturar pruebas de energía y preparación" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Capturer les preuves d’énergie et de préparation" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Acquisisci prove di energia e preparazione" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Zarejestruj dane energii i gotowości" } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Capturar evidências de energia e prontidão" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Собрать данные об энергии и готовности" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "采集能量与训练准备度证据" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "擷取能量與訓練準備度證據" } }
+      }
+    },
+    "Energy Reserve" : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Energiereserve" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Energy Reserve" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Reserva de energía" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Réserve d’énergie" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Riserva di energia" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Rezerwa energii" } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Reserva de energia" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Запас энергии" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "能量储备" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "能量儲備" } }
+      }
+    },
+    "Evidence captured. Tap Share to review and export." : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Nachweise erfasst. Tippe zum Prüfen und Exportieren auf „Teilen“." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Evidence captured. Tap Share to review and export." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Pruebas capturadas. Pulsa Compartir para revisarlas y exportarlas." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Preuves capturées. Touchez Partager pour les vérifier et les exporter." } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Prove acquisite. Tocca Condividi per controllarle ed esportarle." } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Dane zarejestrowane. Stuknij Udostępnij, aby je sprawdzić i wyeksportować." } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Evidências capturadas. Toque em Partilhar para rever e exportar." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Данные собраны. Нажмите «Поделиться», чтобы проверить и экспортировать их." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "证据已采集。轻点“共享”以查看并导出。" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "證據已擷取。點一下「分享」以檢視並匯出。" } }
+      }
+    },
+    "Reading on-device history…" : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Geräteverlauf wird gelesen…" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reading on-device history…" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Leyendo el historial del dispositivo…" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Lecture de l’historique sur l’appareil…" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Lettura della cronologia sul dispositivo…" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Odczytywanie historii na urządzeniu…" } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "A ler o histórico no dispositivo…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Чтение истории на устройстве…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在读取设备上的历史记录…" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "正在讀取裝置上的歷史記錄…" } }
+      }
+    },
+    "Training Readiness" : {
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Trainingsbereitschaft" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Training Readiness" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Preparación para entrenar" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Préparation à l’entraînement" } },
+        "it" : { "stringUnit" : { "state" : "translated", "value" : "Prontezza all'allenamento" } },
+        "pl" : { "stringUnit" : { "state" : "translated", "value" : "Gotowość treningowa" } },
+        "pt-PT" : { "stringUnit" : { "state" : "translated", "value" : "Prontidão para o treino" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Готовность к тренировке" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "训练准备度" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "訓練準備度" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

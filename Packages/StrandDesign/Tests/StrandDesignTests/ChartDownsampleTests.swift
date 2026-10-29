@@ -82,6 +82,23 @@ final class ChartDownsampleTests: XCTestCase {
         XCTAssertEqual(viaConcreteOverload.map(\.value), viaGenericOverload.map(\.value))
     }
 
+    // The chart must never submit 86,400 raw second points as separate Swift
+    // Charts marks on an iPhone-sized plot. Timed on the hosted test runner.
+    func testDenseDayDownsamplePerformanceAndVertexBudget() {
+        let raw = (0..<86_400).map { index in
+            TrendPoint(date: Date(timeIntervalSince1970: TimeInterval(index)),
+                       value: Double(45 + index % 60))
+        }
+        measure {
+            let rendered = ChartDownsample.minMaxBucketed(raw,
+                threshold: ChartDownsample.markThreshold,
+                targetCount: ChartDownsample.targetVertices)
+            XCTAssertLessThan(rendered.count, raw.count / 10)
+            XCTAssertEqual(rendered.first?.date, raw.first?.date)
+            XCTAssertEqual(rendered.last?.date, raw.last?.date)
+        }
+    }
+
     func testNearestPointKeepsFullResolutionAndEarlierTie() {
         let pts = [0, 10, 20].map { TrendPoint(date: Date(timeIntervalSince1970: Double($0)), value: Double($0)) }
         XCTAssertNil(nearestTrendPoint(to: Date(), in: []))

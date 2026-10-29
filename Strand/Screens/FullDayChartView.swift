@@ -45,9 +45,8 @@ struct FullDayChartView: View {
         let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
         return UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
     }
-    /// "Owned only" hides empty non-strap rows; "All sources" surfaces the disclosure (#574). The active
-    /// device is always the owned source, so this currently scopes the empty-state copy rather than swapping reads.
-    @State private var ownedOnly = true
+    // Timeline reads the active device only. The former Owned/All control never
+    // switched the data query and misleadingly promised other sources.
     /// What the source row calls the owned source: the active device's registry display name (nickname,
     /// else "Brand Model"), so an active Oura ring reads "Oura …" over the ring's own series instead of
     /// the strap label this row shipped with. `nil` (no registry row) keeps the legacy "My WHOOP".
@@ -68,16 +67,27 @@ struct FullDayChartView: View {
     @State private var loading = true
 
     /// The full clamp the zoom window can never escape — the selected calendar day.
-    private var dayBounds: ClosedRange<Date> {
-        dayStart...dayStart.addingTimeInterval(86_400)
+    // Real calendar days can be 23/25 hours across daylight-saving changes.
+    static func localDayBounds(start: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
+        let start = calendar.startOfDay(for: start)
+        let end = calendar.date(byAdding: .day, value: 1, to: start)
+            ?? start.addingTimeInterval(86_400)
+        return start...end
     }
+
+    static func shiftedDay(_ day: Date, by count: Int, calendar: Calendar = .current) -> Date {
+        calendar.date(byAdding: .day, value: count, to: day)
+            ?? day.addingTimeInterval(Double(count) * 86_400)
+    }
+
+    private var dayBounds: ClosedRange<Date> { Self.localDayBounds(start: dayStart) }
 
     /// #986: a continuous left-drag can scroll back to the shown day plus the two before it (a rolling
     /// 3-day window), so older HR is reachable by dragging, not only the day-stepper. Deliberately bounded
     /// so one drag can't fling through weeks. The default view is still exactly one day (xRange: dayBounds);
     /// this only widens the pan clamp, and the data reload keys on the visible window so panned-to days load.
     private var panBounds: ClosedRange<Date> {
-        dayStart.addingTimeInterval(-2 * 86_400)...dayBounds.upperBound
+        Self.shiftedDay(dayStart, by: -2)...dayBounds.upperBound
     }
 
     /// The currently-visible window (zoomed or the whole day).
@@ -85,8 +95,8 @@ struct FullDayChartView: View {
 
     var body: some View {
         ScreenScaffold(title: "Deep Timeline", subtitle: "Every second of your day, zoomable.") {
-            metricPills
             dayNav
+            metricPills
             sourcePill
             chartCard
             zoomHint
@@ -125,34 +135,43 @@ struct FullDayChartView: View {
     private var taskKey: String {
         let lo = Int(visibleWindow.lowerBound.timeIntervalSince1970)
         let hi = Int(visibleWindow.upperBound.timeIntervalSince1970)
-        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(lo)|\(hi)|\(repo.refreshSeq)"
+        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(lo)|\(hi)|\(repo.refreshSeq)"
     }
 
     // MARK: Controls
 
+    // A native menu removes the horizontally scrolling row of signal buttons.
     private var metricPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            SegmentedPillControl(Repository.TimelineMetric.allCases, selection: $metric) { $0.title }
-                .padding(.vertical, NoopMetrics.space1 / 2)
+        HStack(spacing: NoopMetrics.space2) {
+            Text("Metric")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Spacer()
+            Picker("Metric", selection: $metric) {
+                ForEach(Repository.TimelineMetric.allCases, id: \.self) { candidate in
+                    Text(candidate.title).tag(candidate)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("noop.timeline.signal")
         }
+        .padding(.horizontal, NoopMetrics.space1)
     }
 
-    @ViewBuilder private var sourcePill: some View {
-        HStack(spacing: NoopMetrics.rowSpacing) {
+    private var sourcePill: some View {
+        HStack(spacing: NoopMetrics.space2) {
             Image(systemName: "dot.radiowaves.left.and.right")
-                .font(StrandFont.footnote.weight(.medium))
                 .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityHidden(true)
             Group {
-                if let sourceName { Text(verbatim: sourceName) } else { Text("My WHOOP") }
+                if let sourceName { Text(verbatim: sourceName) } else { Text("Device") }
             }
-            .font(StrandFont.footnote)
-            .foregroundStyle(StrandPalette.textSecondary)
-            Spacer()
-            // #574 — owned-source scope. The active device is the owned source; "All sources" reveals the honest
-            // disclosure that other sources' raw per-second streams aren't offloaded on-device.
-            SegmentedPillControl([true, false], selection: $ownedOnly) { $0 ? String(localized: "Owned") : String(localized: "All") }
-                .fixedSize()
+            Spacer(minLength: NoopMetrics.space2)
+            Text("Recorded on device")
+                .foregroundStyle(StrandPalette.textTertiary)
         }
+        .font(StrandFont.footnote)
+        .foregroundStyle(StrandPalette.textSecondary)
         .padding(.horizontal, NoopMetrics.space1)
     }
 
@@ -190,7 +209,7 @@ struct FullDayChartView: View {
     /// Step the shown day by `delta` days, clamped so you can never go past today, and drop any zoom so the
     /// new day opens at full-day scale.
     private func stepDay(_ delta: Int) {
-        let next = dayStart.addingTimeInterval(Double(delta) * 86_400)
+        let next = Self.shiftedDay(dayStart, by: delta)
         if delta > 0 && next > Repository.logicalDayStart(Date()) { return }
         withAnimation(StrandMotion.interactive) {
             dayStart = next
@@ -201,7 +220,7 @@ struct FullDayChartView: View {
     private var dayLabel: String {
         let today = Repository.logicalDayStart(Date())
         if Calendar.current.isDate(dayStart, inSameDayAs: today) { return String(localized: "Today") }
-        if Calendar.current.isDate(dayStart, inSameDayAs: today.addingTimeInterval(-86_400)) { return String(localized: "Yesterday") }
+        if Calendar.current.isDate(dayStart, inSameDayAs: Self.shiftedDay(today, by: -1)) { return String(localized: "Yesterday") }
         return Self.dayFmt.string(from: dayStart)
     }
 
@@ -262,7 +281,7 @@ struct FullDayChartView: View {
             zoomDomain: $zoomDomain,
             zoomBounds: panBounds,   // #986: pan/scroll clamp is the rolling 3-day window, not one day
             valueFormat: { format($0) },
-            dateFormat: { Self.timeFmt.string(from: $0) }
+            dateFormat: { Self.timelineTimeLabel($0, raw: series.isRaw, bucketSeconds: series.bucketSeconds) }
         )
         #if os(macOS)
         // macOS has no pinch here, so wheel/trackpad scroll zooms about the cursor-agnostic centre.
@@ -311,15 +330,13 @@ struct FullDayChartView: View {
     /// the Health screen where the R-R/RSA estimate surfaces. Strap view only (ownedOnly). Twin of Android
     /// FullDayChartScreen.EmptyTimelineState.
     private var emptyReason: String {
-        if ownedOnly, metricUnsupported, metric == .spo2 {
+        if metricUnsupported, metric == .spo2 {
             return String(localized: "This strap doesn’t send SpO₂ over Bluetooth. Import a WHOOP export or Health Connect to see it.")
         }
-        if ownedOnly, metricUnsupported, metric == .respiration {
+        if metricUnsupported, metric == .respiration {
             return String(localized: "This strap sends no raw respiration stream. Your estimated respiratory rate appears on the Health screen.")
         }
-        return ownedOnly
-            ? String(localized: "Nothing offloaded for this window yet.")
-            : String(localized: "Other sources don’t offload raw per-second data on-device.")
+        return String(localized: "Nothing offloaded for this window yet.")
     }
 
     @ViewBuilder private var zoomHint: some View {
@@ -500,9 +517,16 @@ struct FullDayChartView: View {
         }
     }
 
-    private static let timeFmt: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; f.locale = Locale(identifier: "en_US_POSIX"); return f
-    }()
+    // Show seconds only when a raw/sub-minute sample exists. Include the zone
+    // to distinguish duplicated clock hours when DST ends.
+    static func timelineTimeLabel(_ date: Date, raw: Bool, bucketSeconds: Int,
+                                  timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = (raw || bucketSeconds < 60) ? "d MMM HH:mm:ss z" : "d MMM HH:mm z"
+        return formatter.string(from: date)
+    }
 }
 
 #if os(macOS)
