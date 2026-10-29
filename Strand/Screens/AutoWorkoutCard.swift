@@ -69,10 +69,18 @@ struct AutoWorkoutCard: View {
                    avgHr: candidate.avgBpm, energyKcal: nil) {
                 ManualWorkoutSheet(editing: draft) { row, _ in
                     Task {
-                        await repo.saveManualWorkout(row)
-                        repo.dismissDetectedSuggestion(candidate)
-                        handledThisSession = true
-                        await repo.refresh()
+                        let saved = await repo.saveManualWorkout(row)
+                        // The editor closes on Save, so keep the original suggestion visible
+                        // and show its existing error if the database rejected the write.
+                        // Never dismiss a genuine activity merely because the user tapped Save.
+                        if saved {
+                            repo.dismissDetectedSuggestion(candidate)
+                            handledThisSession = true
+                            saveError = false
+                            await repo.refresh()
+                        } else {
+                            saveError = true
+                        }
                     }
                 }
             }
@@ -185,6 +193,7 @@ struct AutoWorkoutCard: View {
     }
 
     private func save(_ w: DetectedWorkout) {
+        guard !saving && !handledThisSession else { return }
         saving = true
         saveError = false
         Task {

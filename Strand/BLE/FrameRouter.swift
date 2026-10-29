@@ -3,6 +3,21 @@ import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
 
+/// Pure charging evidence classification. A connected power pack is NOT proof
+/// that the WHOOP is charging; only the device's gauge or CHARGING_ON edge is.
+enum StrapChargingEvidence {
+    static func statusUpdate(event: String, gaugeBit: Int?) -> Bool? {
+        if event.hasPrefix("BATTERY_LEVEL") {
+            return gaugeBit.map { $0 != 0 }
+        }
+        if event.hasPrefix("CHARGING_ON") { return true }
+        if event.hasPrefix("CHARGING_OFF") || event.hasPrefix("BATTERY_PACK_REMOVED") {
+            return false
+        }
+        return nil
+    }
+}
+
 /// Pure decode→state router. Takes a COMPLETE (already reassembled) frame, decodes it with
 /// WhoopProtocol.parseFrame, and updates LiveState. No CoreBluetooth — fully unit-testable.
 @MainActor
@@ -468,13 +483,14 @@ public final class FrameRouter {
                 if ev.hasPrefix("BLE_BONDED") {
                     state.bonded = true
                 }
-                // BATTERY_LEVEL events carry the only charging flag the strap reports (wire
-                // observation: u8 bit0, ~every 8 min on captured links). Flag only — battery %
-                // keeps its family-specific source (#77). No freshness gate needed here: this
-                // path never sees historical replay (backfill skips handle(frame:), see below).
-                if ev.hasPrefix("BATTERY_LEVEL"),
-                   let ch = parsed.parsed["battery_charging"]?.intValue {
-                    state.charging = (ch != 0)
+                // Only actual charging evidence may set the pill to true: a strap's
+                // BATTERY_LEVEL gauge bit or its CHARGING_ON edge. Pack CONNECTED
+                // proves physical attachment only; a flat pack/poor contact can
+                // attach without supplying charge. Pack REMOVED proves no charge.
+                // This is live-only; historical backfill does not reach this router.
+                if let update = StrapChargingEvidence.statusUpdate(
+                    event: ev, gaugeBit: parsed.parsed["battery_charging"]?.intValue) {
+                    state.charging = update
                 }
                 // #592: the same battery event carries pack voltage (mv@21) — surface it on the Devices card.
                 if ev.hasPrefix("BATTERY_LEVEL"), let mv = parsed.parsed["battery_mV"]?.intValue {
@@ -489,31 +505,7 @@ public final class FrameRouter {
                 if ev.hasPrefix("BATTERY_LEVEL"), let pct = parsed.parsed["battery_pct"]?.doubleValue {
                     state.setBattery(pct)
                 }
-                // The strap raises CHARGING_ON(7)/CHARGING_OFF(8) the instant a pack goes on or comes off —
-                // flip the pill directly instead of waiting on the ~8-min BATTERY_LEVEL cadence above. Live-
-                // only like those blocks (backfill skips this router), so no replay guard is needed. Ported
-                // from tanarchytan/noop @72ac14d9. Twin of the Kotlin WhoopBleClient handler.
-                if ev.hasPrefix("CHARGING_ON") {
-                    state.charging = true
-                } else if ev.hasPrefix("CHARGING_OFF") {
-                    state.charging = false
-                }
-                // #1826: BATTERY_PACK_CONNECTED(21) / BATTERY_PACK_REMOVED(22), declared in the shared
-                // schema and handled on neither platform until @Zebsi235 measured them. On a 5/MG they
-                // fire on every attach and detach and LEAD the 7/8 edges above, so the pill responds when
-                // a pack goes on instead of waiting to catch a later edge. A WHOOP 4.0 never sends them.
-                //
-                // NO replay guard here, unlike the Kotlin twin. That is deliberate and not an omission:
-                // this router is live-only — the Backfiller holds no reference to it, so a replayed
-                // offload event never reaches this code, which is the same reason the CHARGING_ON/OFF
-                // branch above carries none. Android's EVENT routing does see replays, and its capture
-                // showed the strap re-sending these edges with byte-identical payloads, so the gate is
-                // load-bearing THERE. Copying it here would guard against something that cannot happen.
-                if ev.hasPrefix("BATTERY_PACK_CONNECTED") {
-                    state.charging = true
-                } else if ev.hasPrefix("BATTERY_PACK_REMOVED") {
-                    state.charging = false
-                }
+
                 // The other physical inputs the strap exposes — live only, as above. The double-tap
                 // was handled before the sync kick.
                 if ev.hasPrefix("WRIST_ON") {

@@ -1,4 +1,51 @@
 import SwiftUI
+
+// Keep user-facing device percentages integral and reject corrupt source values.
+// The estimator retains its original floating-point precision in LiveState.
+enum DeviceBatteryDisplay {
+    static func percent(_ value: Double?) -> String {
+        guard let value, value.isFinite, (0...100).contains(value) else { return "—" }
+        return "\(Int(value.rounded()))%"
+    }
+    // The small Phase3 catalog is already bundled with the iPhone app.
+    // Keep new Phase 5 copy translated without rewriting the huge legacy table.
+    private static func localized(_ key: String) -> String {
+        NSLocalizedString(key, tableName: "Phase3", bundle: .main,
+                          value: key, comment: "WHOOP battery and connection status")
+    }
+
+    static var notCharging: String { localized("Not charging") }
+    static var chargingUnavailable: String { localized("Charging status unavailable") }
+    static var disconnected: String { localized("Device not connected") }
+    static var openDeviceSettings: String { localized("Open device settings") }
+
+    static func systemImage(connected: Bool, charging: Bool?, battery: Double?) -> String {
+        guard connected else { return "circle.dotted" }
+        if charging == true { return "bolt.fill" }
+        guard let battery, battery.isFinite, (0...100).contains(battery) else {
+            return "questionmark.circle"
+        }
+        // Bucket the same rounded value shown beside the symbol, avoiding a
+        // "13%" label paired with the below-13% empty-battery glyph.
+        switch Int(battery.rounded()) {
+        case ..<13: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
+        }
+    }
+
+    static func voiceOverLabel(connected: Bool, charging: Bool?, battery: Double?) -> String {
+        guard connected else { return localized("WHOOP disconnected") }
+        if charging == true {
+            return String(format: localized("WHOOP charging, %@"), percent(battery))
+        }
+        let device = String(format: localized("WHOOP device, %@"), percent(battery))
+        let status = charging == false ? notCharging : chargingUnavailable
+        return "\(device). \(status)"
+    }
+}
 import StrandDesign
 import StrandAnalytics   // ConnectionReadout - the #987 clock-latch / RTC-epoch readout parsers
 import WhoopStore
@@ -104,28 +151,47 @@ private struct ConceptDeviceView: View {
                     }
                     .padding(.top, 8)
 
-                    HStack(spacing: 16) {
-                        Spacer()
-                        // Drawn in SwiftUI: an original neutral band silhouette, never a brand render.
+                    // An original strap illustration, not a generic tube/bar standing in for
+                    // the WHOOP itself. Keep it static while live readings update below it.
+                    VStack(spacing: 12) {
                         ReferenceBandIllustration()
-                        Spacer()
-                        VStack(spacing: 4) {
-                            ZStack(alignment: .bottom) {
-                                RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.border)
-                                if live.connected, let battery = live.batteryPct {
-                                    RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.green)
-                                        .frame(height: 110 * Double(min(100, max(0, battery))) / 100)
-                                }
-                            }.frame(width: 24, height: 110)
-                            Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
+                            // This vector is static. The surrounding device screen receives live
+                            // strap updates, so retain the rendered subtree instead of rebuilding
+                            // its Canvas for unrelated HR, R-R or battery publications.
+                            .equatable()
+                            .frame(maxWidth: .infinity)
+                            .accessibilityHidden(true)
+                        VStack(spacing: 6) {
+                            Text(DeviceBatteryDisplay.percent(
+                                live.connected && SourceCoordinator.isWhoop(device) ? live.batteryPct : nil))
                                 .font(ReferenceStyle.value)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Battery").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                                .monospacedDigit()
+                            if live.connected && SourceCoordinator.isWhoop(device) {
+                                if live.charging == true {
+                                    Label("Charging", systemImage: "bolt.fill")
+                                        .foregroundStyle(ReferenceStyle.green)
+                                } else if live.charging == false {
+                                    Label(DeviceBatteryDisplay.notCharging,
+                                          systemImage: DeviceBatteryDisplay.systemImage(
+                                            connected: true,
+                                            charging: false,
+                                            battery: live.batteryPct))
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                } else {
+                                    Label(DeviceBatteryDisplay.chargingUnavailable, systemImage: "questionmark.circle")
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                }
+                            } else {
+                                Label(DeviceBatteryDisplay.disconnected, systemImage: "circle.dotted")
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                            }
                         }
+                        .font(ReferenceStyle.caption)
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
                     }
-                    .frame(height: 210)
+                    .frame(maxWidth: .infinity, minHeight: 210)
+                    .padding(.vertical, 10)
 
                     deviceActionCard {
                         Toggle(isOn: $broadcastRequested) {

@@ -469,8 +469,13 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
-            await self.repo.refresh()                          // surface any imported data at once
-            await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
+            // Prioritise recent saved history before the expensive all-time scan. This
+            // is a READ-ONLY first paint, never a replacement for the full history:
+            // the complete 4000-day refresh runs below after the startup settle.
+            // Resolve the currently active strap BEFORE the recent cache read; its
+            // initial registry emission must not trigger a competing deep refresh.
+            await self.wireSourceCoordinator()
+            await self.repo.refresh(days: 120)
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -489,6 +494,12 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)  // 1 s, re-check; ~3 min cap then proceed
                 importWaited += 1
             }
+            // Restore the complete history after the recent snapshot has already been
+            // published, and after the first offload/import has had a chance to settle.
+            // Existing source rows stay untouched; this only widens the dashboard cache.
+            // Run before upgrade heal/rescore, preserving the original full-history
+            // visibility on launch once background catch-up completes.
+            await self.repo.refresh()
             // One-shot on-upgrade heal (#547): purge rows a bad-clock strap dated to scattered garbage
             // (far-past / bogus-2027 / FUTURE) from an older build, then rescore the real days. Runs
             // BEFORE the Effort rescore + analyzeRecent loop so both operate on a cleaned DB. Persisted
@@ -657,6 +668,10 @@ final class AppModel: ObservableObject {
             registry?.setActive(serialId)
         }
         self.sourceCoordinator = coordinator
+        // Seed the read-side active id now, before the first cache refresh.
+        // The registry publisher's initial emission will then be a no-op in
+        // adoptActiveDevice; real subsequent device switches still refresh/rescore.
+        _ = repo.adoptActiveDeviceId(registry.activeDeviceId)
         bindOuraFeatureStatusMirror()
         // #814 READ SPINE (HIGH-1): drive the read side off the registry's `activeDeviceId` for the WHOLE
         // session, exactly as SourceCoordinator drives the WRITE side off the SAME publisher. A Devices-

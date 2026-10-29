@@ -77,6 +77,20 @@ final class WorkoutSourceTests: XCTestCase {
         XCTAssertTrue(WorkoutSource.isDismissed(r, spans: spans))
     }
 
+    func testFutureAndInvalidCompletedWorkoutsAreQuarantinedWithoutMutation() {
+        let now = 1_700_000_000
+        let valid = row(start: now - 3600, end: now - 60, sport: "Running", source: "whoop")
+        let futureEnd = row(start: now - 600, end: now + 600, sport: "Running", source: "whoop")
+        let futureStart = row(start: now + 60, end: now + 600, sport: "Running", source: "whoop")
+        let inverted = row(start: now - 60, end: now - 600, sport: "Running", source: "whoop")
+        XCTAssertTrue(WorkoutSource.isPlausibleCompletedWorkout(valid, now: now))
+        XCTAssertFalse(WorkoutSource.isPlausibleCompletedWorkout(futureEnd, now: now))
+        XCTAssertFalse(WorkoutSource.isPlausibleCompletedWorkout(futureStart, now: now))
+        XCTAssertFalse(WorkoutSource.isPlausibleCompletedWorkout(inverted, now: now))
+        XCTAssertTrue(WorkoutSource.isPlausibleCompletedWorkout(futureEnd, now: now + 601),
+                      "the original row can become visible once its clock is plausible")
+    }
+
     // MARK: - cross-source dedup (#687)
 
     private func richRow(start: Int, end: Int, sport: String, source: String) -> WorkoutRow {
