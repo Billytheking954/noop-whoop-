@@ -2050,7 +2050,8 @@ struct SleepView: View {
                                  habitualMidsleepSec: Int? = nil) -> CachedSleepSession? {
         SleepStageTotals.mainNightIndex(
             sessions.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) },
-            offsetSec: tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec).map { sessions[$0] }
+            offsetSec: tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec,
+            timeZone: .autoupdatingCurrent).map { sessions[$0] }
     }
 
     /// The day's MAIN-night GROUP — the winning block PLUS any adjacent fragments bridged into it (a wake
@@ -2064,7 +2065,8 @@ struct SleepView: View {
                                habitualMidsleepSec: Int? = nil) -> [CachedSleepSession] {
         guard let idx = SleepStageTotals.mainNightGroupIndices(
             sessions.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) },
-            offsetSec: tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec) else { return [] }
+            offsetSec: tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec,
+            timeZone: .autoupdatingCurrent) else { return [] }
         return idx.map { sessions[$0] }.sorted { $0.effectiveStartTs < $1.effectiveStartTs }
     }
 
@@ -2114,7 +2116,8 @@ struct SleepView: View {
     private func mainSleepReasonText(_ night: Night) -> String? {
         guard let sel = SleepStageTotals.mainNightSelection(
             night.sourceBlocks.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) },
-            offsetSec: SleepView.tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec) else { return nil }
+            offsetSec: SleepView.tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec,
+            timeZone: .autoupdatingCurrent) else { return nil }
         let dur = durationText(sel.asleepMinutes)
         switch sel.reason {
         case .onlyBlock:

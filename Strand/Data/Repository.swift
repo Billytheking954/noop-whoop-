@@ -725,38 +725,41 @@ final class Repository: ObservableObject {
     /// daily metrics under the strap source, but a sideloaded/standalone HC source id is covered too).
     static let wearableImportSources = ["oura-import", "fitbit-import", "garmin-import", "oura-api", healthConnectSource]
 
-    /// `yyyy-MM-dd` in the device's local zone, matching how `DailyMetric.day` is stored.
-    // `nonisolated` so pure callers off the main actor (e.g. the extracted `SleepModel.build`) can key a
-    // day the SAME way `DailyMetric.day` is stored. Pure date→string; no actor state is touched.
-    private nonisolated static let dayKeyFormatter: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX"); return f
-    }()
-    nonisolated static func localDayKey(_ date: Date) -> String { dayKeyFormatter.string(from: date) }
+    /// `yyyy-MM-dd` in the live device-local zone, matching how `DailyMetric.day` is stored.
+    /// Resolve the zone on every call: a process-static DateFormatter captures the zone from first access
+    /// and keeps using it after the phone changes time zone.
+    nonisolated static func localDayKey(_ date: Date,
+                                        timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        LocalDayWindows(timeZone: timeZone, referenceInstant: date).dayKey(for: date)
+    }
 
     /// The hour the LOGICAL day rolls (04:00 local). Between midnight and this hour, "Today" stays put.
     nonisolated static let logicalDayRolloverHour = 4
 
-    /// The LOGICAL local day for `now` , the calendar date of `now - rolloverHour hours`. Rolls at
-    /// 04:00 local rather than midnight, so the small hours after midnight still resolve to the prior
-    /// calendar date's row instead of an empty new-calendar-day row (#144). Pure + injectable so the
-    /// boundary is testable (23:59 → same day, 01:00 → previous day, 04:01 → new day). Presentation-only:
-    /// used solely to pick which stored row is Today and to anchor the Today HR-trend window start; stored
-    /// row keys are never rewritten.
-    static func logicalDay(_ now: Date, rolloverHour: Int = logicalDayRolloverHour) -> Date {
-        now.addingTimeInterval(-Double(rolloverHour) * 3_600)
+    /// The LOGICAL local day for `now`. This is calendar arithmetic, not "subtract N × 3600 seconds":
+    /// on the spring-forward morning four elapsed hours before 04:00 local spans five wall-clock labels,
+    /// so fixed-second subtraction can leave Today on yesterday for an extra hour.
+    static func logicalDay(_ now: Date, calendar: Calendar = .autoupdatingCurrent,
+                           rolloverHour: Int = logicalDayRolloverHour) -> Date {
+        let start = calendar.startOfDay(for: now)
+        let hour = calendar.component(.hour, from: now)
+        guard hour < rolloverHour else { return start }
+        return calendar.date(byAdding: .day, value: -1, to: start) ?? start
     }
 
     /// `yyyy-MM-dd` key for the logical day of `now` (see `logicalDay`).
-    static func logicalDayKey(_ now: Date, rolloverHour: Int = logicalDayRolloverHour) -> String {
-        localDayKey(logicalDay(now, rolloverHour: rolloverHour))
+    static func logicalDayKey(_ now: Date, calendar: Calendar = .autoupdatingCurrent,
+                              rolloverHour: Int = logicalDayRolloverHour) -> String {
+        let day = logicalDay(now, calendar: calendar, rolloverHour: rolloverHour)
+        return localDayKey(day, timeZone: calendar.timeZone)
     }
 
     /// Start of the logical day (its real calendar midnight) for `now`, in `calendar`'s zone , the anchor
     /// for the Today HR-trend window so it spans from the logical day's 00:00 rather than restarting at the
     /// new calendar midnight while we're still showing yesterday's logical day in the small hours (#144).
-    static func logicalDayStart(_ now: Date, calendar: Calendar = .current,
+    static func logicalDayStart(_ now: Date, calendar: Calendar = .autoupdatingCurrent,
                                 rolloverHour: Int = logicalDayRolloverHour) -> Date {
-        calendar.startOfDay(for: logicalDay(now, rolloverHour: rolloverHour))
+        logicalDay(now, calendar: calendar, rolloverHour: rolloverHour)
     }
 
     /// In-flight open, so concurrent first-callers share ONE open instead of each opening their own.
@@ -3003,21 +3006,22 @@ final class Repository: ObservableObject {
     ///    then retires the stale strap row. A failed write therefore preserves the original;
     ///  - an IMPORTED row is never passed here as `replacing` (duplicating one is a pure add), so its
     ///    history is never touched.
-    func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async {
-        guard let store = await ensureStore() else { return }
+    @discardableResult
+    func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async -> Bool {
+        guard let store = await ensureStore() else { return false }
         if let old, WorkoutSource.classify(old.source) == .detected {
             // Write the replacement first. If that insert fails, the grandfathered source row and its
             // visibility remain untouched; a failed explicit edit must not turn into data loss.
             do { _ = try await store.upsertWorkouts([row], deviceId: deviceId) }
-            catch { return }
+            catch { return false }
             await dismissDetected(old)
-            return
+            return true
         } else if let old, old.startTs != row.startTs || old.sport != row.sport {
             // Write the replacement before deleting anything. If SQLite rejects the insert, leave both the
             // original row and its route untouched; if the later delete fails, the recoverable result is two
             // rows rather than lost history.
             do { _ = try await store.upsertWorkouts([row], deviceId: deviceId) }
-            catch { return }
+            catch { return false }
             // #10: the GPS route lives in RouteStore keyed by the natural key (startTs + sport), NOT in the
             // DB row. Copy it only after the replacement row is durable. Keep the old copy until the old
             // DB row is successfully retired, so a delete failure preserves both complete versions.
@@ -3036,9 +3040,14 @@ final class Repository: ObservableObject {
             } catch {
                 // Replacement and both route keys remain available; retrying the edit is safe.
             }
-            return
+            return true
         }
-        _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
+        do {
+            _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Re-label a legacy detected bout: copy it to a manual strap row with the chosen sport, then delete
@@ -3328,8 +3337,7 @@ final class Repository: ObservableObject {
         guard let row = WorkoutSource.buildManualRow(start: start, durationMin: durationMin,
                                                      sport: "Workout", avgHr: w.avgBpm,
                                                      energyKcal: nil) else { return false }
-        await saveManualWorkout(row)
-        return true
+        return await saveManualWorkout(row)
     }
 
     /// DISMISS a suggested window: record its span durably so it never re-prompts. Idempotent.
@@ -3485,27 +3493,28 @@ final class Repository: ObservableObject {
         return snapshot
     }
 
-    /// Shared formatter , created once. Hot read path (called per series window / refresh);
-    /// allocating a DateFormatter per call was a measurable waste. Read-only use is thread-safe.
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static func dayString(_ d: Date) -> String { dayFormatter.string(from: d) }
+    static func dayString(_ d: Date) -> String { localDayKey(d) }
 
     /// The "yyyy-MM-dd" day one calendar day AFTER `day`, or `day` verbatim when it isn't a parseable
-    /// ISO date (e.g. a wide-open sentinel already past every real day, so no buffer is needed). Backs the
-    /// +1-day daily read buffer in `resolvedRows` so a wake-day-keyed night that sorts just past the
-    /// requested upper bound still resolves the selected day (#614). Mirrors Android
-    /// WhoopRepository.bufferDayAfter.
+    /// ISO date. Day-key arithmetic is intentionally zone-independent: the input is already a civil date,
+    /// so parse it in UTC and add one Gregorian calendar day rather than involving the device's live zone.
     static func dayAfter(_ day: String) -> String {
-        guard let d = dayFormatter.date(from: day),
-              let next = Calendar(identifier: .gregorian).date(byAdding: .day, value: 1, to: d)
-        else { return day }
-        return dayFormatter.string(from: next)
+        let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]), let month = Int(parts[1]), let dayOfMonth = Int(parts[2]) else {
+            return day
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth)) else {
+            return day
+        }
+        let parsed = calendar.dateComponents([.year, .month, .day], from: date)
+        guard parsed.year == year, parsed.month == month, parsed.day == dayOfMonth,
+              let next = calendar.date(byAdding: .day, value: 1, to: date) else { return day }
+        let comps = calendar.dateComponents([.year, .month, .day], from: next)
+        guard let y = comps.year, let m = comps.month, let d = comps.day else { return day }
+        return String(format: "%04d-%02d-%02d", y, m, d)
     }
 }
 
