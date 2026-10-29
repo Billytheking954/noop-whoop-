@@ -52,8 +52,22 @@ struct DevicesView: View {
 }
 
 #if os(iOS)
-/// The connected-device landing page from the reference. All values come from the registry or
-/// current live connection. The full manager remains available for multi-device operations.
+/// A focused iPhone device overview using NOOP's existing mineral/mint visual tokens.
+/// All device management and the type-specific BLE pairing wizard remain unchanged.
+/// Keep device values source-scoped: WHOOP's cached battery must not appear under an Oura ring.
+enum DeviceBatteryPresentation {
+    static func percent(connected: Bool, activeIsWhoop: Bool,
+                        whoopPct: Double?, ringPct: Int?) -> Int? {
+        guard connected else { return nil }
+        if activeIsWhoop {
+            guard let pct = whoopPct, pct.isFinite, (0...100).contains(pct) else { return nil }
+            return LiveConsoleReadout.batteryPercent(activeIsWhoop: true, whoopPct: pct, ringPct: nil)
+        }
+        guard let pct = ringPct, (0...100).contains(pct) else { return nil }
+        return LiveConsoleReadout.batteryPercent(activeIsWhoop: false, whoopPct: nil, ringPct: pct)
+    }
+}
+
 private struct ConceptDeviceView: View {
     @ObservedObject var registry: DeviceRegistry
     @EnvironmentObject private var model: AppModel
@@ -61,6 +75,7 @@ private struct ConceptDeviceView: View {
     @EnvironmentObject private var ble: BLEManager
     @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastRequested = false
     @State private var showManager = false
+    @State private var showAddWizard = false
     @State private var showRename = false
     @State private var nameDraft = ""
     @State private var syncFeedback: String?
@@ -69,134 +84,103 @@ private struct ConceptDeviceView: View {
         registry.devices.first { $0.status == .active && !$0.isImportSource }
     }
 
+    private var batteryPercent: Int? {
+        guard let device = active else { return nil }
+        return DeviceBatteryPresentation.percent(
+            connected: live.connected,
+            activeIsWhoop: SourceCoordinator.isWhoop(device),
+            whoopPct: live.batteryPct,
+            ringPct: device.sourceKind == .oura ? live.ouraBatteryPct : nil
+        )
+    }
+
+    private var canSync: Bool {
+        live.connected && live.bonded && live.historyReady && !live.backfilling
+    }
+
+    private var connectionLabel: String {
+        if live.connected && live.pairingHint != nil { return String(localized: "Pairing needs attention") }
+        return live.connected ? String(localized: "Connected") : String(localized: "Disconnected")
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
-                if let device = active {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(live.connected ? "CONNECTED TO" : "DISCONNECTED",
-                                  systemImage: "circle.fill")
-                                .font(ReferenceStyle.caption)
-                                .foregroundStyle(live.connected ? StrandPalette.statusPositive : StrandPalette.textSecondary)
-                            Button {
-                                nameDraft = device.nickname ?? device.displayName
-                                showRename = true
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text(device.displayName)
-                                        .font(ReferenceStyle.title)
-                                        .foregroundStyle(StrandPalette.textPrimary)
-                                    Image(systemName: "pencil")
-                                        .font(.system(size: 13))
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Rename \(device.displayName)")
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("Last sync").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                            Text(live.lastSyncedAt.map { Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
-                                .font(ReferenceStyle.caption)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                        }
-                    }
-                    .padding(.top, 8)
-
-                    HStack(spacing: 16) {
-                        Spacer()
-                        // Drawn in SwiftUI: an original neutral band silhouette, never a brand render.
-                        ReferenceBandIllustration()
-                        Spacer()
-                        VStack(spacing: 4) {
-                            ZStack(alignment: .bottom) {
-                                RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.border)
-                                if live.connected, let battery = live.batteryPct {
-                                    RoundedRectangle(cornerRadius: 4).fill(ReferenceStyle.green)
-                                        .frame(height: 110 * Double(min(100, max(0, battery))) / 100)
-                                }
-                            }.frame(width: 24, height: 110)
-                            Text(live.connected ? (live.batteryPct.map { "\($0)%" } ?? "—") : "—")
-                                .font(ReferenceStyle.value)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Battery").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(live.connected ? "Battery \(live.batteryPct.map { "\($0) percent" } ?? "unavailable")" : "Battery unavailable while disconnected")
-                    }
-                    .frame(height: 210)
-
-                    deviceActionCard {
-                        Toggle(isOn: $broadcastRequested) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Broadcast Heart Rate").font(ReferenceStyle.headline)
-                                Text(broadcastFeedback)
-                                    .font(ReferenceStyle.caption)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                            }
-                        }
-                        .tint(.blue)
-                        .disabled(!live.encryptedBond || !SourceCoordinator.isWhoop(device) || ble.broadcastHRStatus == .pending)
-                        .onChange(of: broadcastRequested) { _, on in
-                            ble.setBroadcastHr(on)
-                        }
-                    }
-                    Button {
-                        model.ble.syncNow()
-                        syncFeedback = "Sync requested. Waiting for strap history."
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(live.backfilling ? "Syncing…" : "Sync Now").font(ReferenceStyle.headline)
-                                Text(syncFeedback ?? (live.lastSyncedAt.map {
-                                    "Last synced \(Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened))"
-                                } ?? "No completed sync yet"))
-                                    .font(ReferenceStyle.caption)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                        }
-                        .padding(ReferenceStyle.padding)
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .background(Color.blue.opacity(0.23), in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!live.connected || !live.bonded || !live.historyReady || live.backfilling)
-                    .onChange(of: live.lastSyncedAt) { _, date in
-                        if let date { syncFeedback = "Synced \(Date(timeIntervalSince1970: date).formatted(date: .abbreviated, time: .shortened))" }
-                    }
-                    if !live.connected || !live.historyReady {
-                        Text("Sync needs a connected, bonded strap.")
-                            .font(ReferenceStyle.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    deviceActionCard {
-                        VStack(spacing: 0) {
-                            infoRow("Model", value: String(describing: device.model))
-                            Divider()
-                            infoRow("Firmware", value: live.connected ? (live.strapFirmware ?? "Unavailable") : "Unavailable")
-                            Divider()
-                            infoRow("Device identifier", value: "Hidden")
-                        }
-                    }
-                } else {
-                    Text("No active device")
-                        .font(.system(size: 20, weight: .semibold))
-                    Text("Pair a strap to see connection, battery and sync details.")
-                        .foregroundStyle(StrandPalette.textSecondary)
+            VStack(alignment: .leading, spacing: NoopVisualStyle.sectionGap) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YOUR DEVICE")
+                        .font(StrandFont.overlineScaled(11))
+                        .tracking(1.1)
+                        .foregroundStyle(NoopVisualStyle.secondaryText)
+                    Text("Connected gear")
+                        .font(StrandFont.title2)
+                        .foregroundStyle(NoopVisualStyle.primaryText)
                 }
-                Button("Manage paired devices") { showManager = true }
-                    .font(ReferenceStyle.headline)
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let device = active {
+                    deviceOverview(device)
+
+                    if let guide = live.reconnectGuide {
+                        pairingNotice(title: "Reconnect your device", message: guide)
+                    }
+                    if let hint = live.pairingHint, live.connected {
+                        pairingNotice(title: "Pairing needs attention", message: hint)
+                    }
+
+                    if SourceCoordinator.isWhoop(device) {
+                        syncControls
+                        broadcastControls
+                    }
+
+                    deviceInformation(device)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "sensor.tag.radiowaves.forward")
+                            .font(.system(size: 28, weight: .light))
+                            .foregroundStyle(NoopVisualStyle.mint)
+                            .accessibilityHidden(true)
+                        Text("No active device")
+                            .font(StrandFont.title2)
+                            .foregroundStyle(NoopVisualStyle.primaryText)
+                        Text("Pair a WHOOP or another compatible device to see its status, battery and sync history.")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(NoopVisualStyle.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+                    .noopPanel()
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    NoopButton(active == nil ? "Pair a device" : "Pair another device",
+                               systemImage: "plus", kind: active == nil ? .primary : .secondary,
+                               fullWidth: true) {
+                        showAddWizard = true
+                    }
+                    .accessibilityIdentifier("noop.device.pair")
+                    NoopButton("Manage paired devices", systemImage: "square.stack.3d.up",
+                               kind: .secondary, fullWidth: true) {
+                        showManager = true
+                    }
+                    .accessibilityIdentifier("noop.device.manage")
+                }
             }
-            .padding(.horizontal, ReferenceStyle.page)
+            .padding(.horizontal, NoopVisualStyle.pagePadding)
+            .padding(.top, 12)
+            .padding(.bottom, NoopMetrics.tabBarClearance)
+            .frame(maxWidth: 700)
+            .frame(maxWidth: .infinity)
         }
-        .background(ReferenceStyle.canvas)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .background(NoopVisualStyle.canvas)
         .navigationTitle("Device")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showAddWizard) {
+            AddDeviceWizard(live: live) { showAddWizard = false }
+                .environmentObject(model)
+                .environmentObject(live)
+        }
         .sheet(isPresented: $showManager) {
             NavigationStack {
                 ScreenScaffold(title: "Devices", subtitle: "Pair and manage the bands NOOP reads from.") {
@@ -218,6 +202,205 @@ private struct ConceptDeviceView: View {
         } message: {
             Text("Choose a name for this device.")
         }
+        .onChange(of: registry.activeDeviceId) { _, _ in
+            syncFeedback = nil
+        }
+        .onChange(of: live.lastSyncedAt) { _, date in
+            if let date {
+                syncFeedback = "Synced " + Date(timeIntervalSince1970: date)
+                    .formatted(date: .abbreviated, time: .shortened)
+            }
+        }
+    }
+
+    private func pairingNotice(title: String, message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(StrandPalette.statusWarning)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(StrandFont.headline)
+                    .foregroundStyle(NoopVisualStyle.primaryText)
+                Text(message).font(StrandFont.footnote)
+                    .foregroundStyle(NoopVisualStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .noopPanel(tint: StrandPalette.statusWarning)
+    }
+
+    private func deviceOverview(_ device: PairedDevice) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(live.connected && live.pairingHint == nil
+                                         ? NoopVisualStyle.mint : StrandPalette.statusWarning)
+                        .accessibilityHidden(true)
+                    Text(connectionLabel)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(NoopVisualStyle.secondaryText)
+                    Spacer(minLength: 0)
+                }
+
+                Button {
+                    nameDraft = device.nickname ?? device.displayName
+                    showRename = true
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(device.displayName)
+                            .font(StrandFont.title2)
+                            .foregroundStyle(NoopVisualStyle.primaryText)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(NoopVisualStyle.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Rename " + device.displayName)
+                .accessibilityIdentifier("noop.device.rename")
+
+                Text(device.model)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(NoopVisualStyle.secondaryText)
+            }
+
+            // Centred vector artwork; nothing shares its horizontal row on a narrow iPhone.
+            ReferenceBandIllustration()
+                .frame(maxWidth: .infinity)
+                .frame(height: 195)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("BATTERY")
+                        .font(StrandFont.overlineScaled(11))
+                        .tracking(1.1)
+                        .foregroundStyle(NoopVisualStyle.secondaryText)
+                    Spacer()
+                    Text(batteryPercent.map { "\($0)%" } ?? "—")
+                        .font(StrandFont.title2)
+                        .monospacedDigit()
+                        .foregroundStyle(NoopVisualStyle.primaryText)
+                        .accessibilityIdentifier("noop.device.battery")
+                }
+                ProgressView(value: Double(batteryPercent ?? 0), total: 100)
+                    .tint(NoopVisualStyle.mint)
+                    .accessibilityHidden(true)
+                if batteryPercent == nil {
+                    Text(live.connected ? "Battery reading not yet available" : "Battery unavailable while disconnected")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(NoopVisualStyle.tertiaryText)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(batteryPercent.map { "Battery \($0) percent" } ?? "Battery unavailable")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .noopPanel(tint: live.connected ? NoopVisualStyle.mint : nil)
+    }
+
+    private var syncControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("SYNC")
+                    .font(StrandFont.overlineScaled(11))
+                    .tracking(1.1)
+                    .foregroundStyle(NoopVisualStyle.secondaryText)
+                Spacer()
+                if live.backfilling {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            Text(syncFeedback ?? (live.lastSyncedAt.map {
+                "Last synced " + Date(timeIntervalSince1970: $0)
+                    .formatted(date: .abbreviated, time: .shortened)
+            } ?? "No completed sync yet"))
+                .font(StrandFont.subhead)
+                .foregroundStyle(NoopVisualStyle.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            NoopButton(live.backfilling ? "Syncing…" : "Sync now",
+                       systemImage: "arrow.triangle.2.circlepath", kind: .primary, fullWidth: true) {
+                model.ble.syncNow()
+                syncFeedback = "Sync requested. Waiting for strap history."
+            }
+            .disabled(!canSync)
+            .accessibilityIdentifier("noop.device.sync")
+
+            if !canSync && !live.backfilling {
+                Text("Sync requires a connected, bonded device with history ready.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(NoopVisualStyle.tertiaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .noopPanel()
+    }
+
+    private var broadcastControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $broadcastRequested) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Broadcast heart rate")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(NoopVisualStyle.primaryText)
+                    Text(broadcastFeedback)
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(NoopVisualStyle.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(NoopVisualStyle.mint)
+            .disabled(!live.encryptedBond || ble.broadcastHRStatus == .pending)
+            .onChange(of: broadcastRequested) { _, on in
+                ble.setBroadcastHr(on)
+            }
+            .accessibilityIdentifier("noop.device.broadcast")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .noopPanel()
+    }
+
+    private func deviceInformation(_ device: PairedDevice) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("DEVICE DETAILS")
+                .font(StrandFont.overlineScaled(11))
+                .tracking(1.1)
+                .foregroundStyle(NoopVisualStyle.secondaryText)
+            detailRow("Model", value: device.model)
+            Rectangle().fill(NoopVisualStyle.divider).frame(height: 0.5)
+            detailRow("Firmware", value: live.connected && SourceCoordinator.isWhoop(device)
+                      ? (live.strapFirmware ?? "Unavailable") : "Unavailable")
+            Rectangle().fill(NoopVisualStyle.divider).frame(height: 0.5)
+            detailRow("Device identifier", value: "Hidden")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .noopPanel()
+    }
+
+    private func detailRow(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(StrandFont.footnote)
+                .foregroundStyle(NoopVisualStyle.tertiaryText)
+            Text(value)
+                .font(StrandFont.subhead)
+                .foregroundStyle(NoopVisualStyle.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var broadcastFeedback: String {
@@ -235,22 +418,6 @@ private struct ConceptDeviceView: View {
             default: return String(localized: "Could not confirm the strap setting. Try again.")
             }
         }
-    }
-
-    private func deviceActionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .padding(ReferenceStyle.padding)
-            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
-    }
-
-    private func infoRow(_ label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(value).foregroundStyle(StrandPalette.textSecondary)
-        }
-        .font(ReferenceStyle.caption)
-        .frame(minHeight: 32)
     }
 }
 #endif
