@@ -36,6 +36,10 @@ permissions:
 
 jobs:
   build:
+    # Phase 2 changes charts, not the release binary. Keep macOS runners
+    # for hosted simulator build/tests rather than archiving a draft IPA.
+    # Manual dispatch and unrelated PRs are unaffected.
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/noop-v2-enhanced-phase2-') }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
@@ -130,6 +134,8 @@ jobs:
             assert any(n.startswith('Payload/NOOP.app/_CodeSignature/') for n in entries)
             assert any(n.startswith('Payload/NOOP.app/PlugIns/NOOPWidgets.appex/_CodeSignature/') for n in entries)
             assert not any('/Watch/' in n or '/MacOS/' in n for n in entries)
+            assert not any(n.endswith('embedded.mobileprovision') or n.endswith('.provisionprofile')
+                           for n in entries), 'Unsigned sideload archive must not contain provisioning'
           PY
           IPA_SHA="$(shasum -a 256 "release-out/$NAME" | awk '{print $1}')"
           printf '%s  %s\n' "$IPA_SHA" "$NAME" > "release-out/$NAME.sha256.txt"

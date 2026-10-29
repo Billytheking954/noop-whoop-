@@ -102,6 +102,13 @@ enum WorkoutSource: Equatable {
             && spans.contains { row.startTs < $0.end && $0.start < row.endTs }
     }
 
+    /// Only completed, chronologically plausible sessions belong in ordinary workout history.
+    /// A bad RTC or importer can persist a future-dated row; hide it at read time without
+    /// deleting or rewriting the original record. A later trustworthy time can reveal it.
+    static func isPlausibleCompletedWorkout(_ row: WorkoutRow, now: Int) -> Bool {
+        row.startTs > 0 && row.endTs > row.startTs && row.endTs <= now
+    }
+
     // MARK: - Cross-source dedup (#687)
     //
     // The SAME activity can land twice: once live, Bluetooth-tracked under the strap (rich — real HR

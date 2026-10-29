@@ -81,6 +81,92 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             "a candidate dismissed through either historical contract must never reappear")
     }
 
+    func testShiftedDismissalDoesNotResurfaceAndNeighbouringActivitySurvives() {
+        let original = DetectedWorkout(startSec: 3_000, endSec: 3_900,
+                                       avgBpm: 135, peakBpm: 160, durationMin: 15)
+        let shifted = DetectedWorkout(startSec: 3_030, endSec: 3_930,
+                                      avgBpm: 136, peakBpm: 161, durationMin: 15)
+        let separate = DetectedWorkout(startSec: 4_350, endSec: 5_250,
+                                       avgBpm: 140, peakBpm: 170, durationMin: 15)
+        let ignored = Repository.selectAutoDetectCandidate([shifted],
+            autoDismissedTokens: ["3000:3900"], detectedDismissedTokens: [])
+        XCTAssertNil(ignored, "a few newly banked HR samples must not resurrect dismissed exercise")
+        XCTAssertEqual(Repository.selectAutoDetectCandidate([original, shifted, separate],
+            autoDismissedTokens: ["3000:3900"], detectedDismissedTokens: []), separate,
+            "a different workout after the dismissed one must remain suggestible")
+    }
+
+    func testOverlapOnlyWorkoutReadPreservesSavedIntervalsAndRows() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let row = WorkoutRow(startTs: now - 3600, endTs: now - 1800,
+                             sport: "Running", source: "manual", durationS: 1800,
+                             energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                             distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+        let full = await repo.workoutRows(days: 7)
+        let spansOnly = await repo.workoutRows(days: 7, reconcileHeartRate: false)
+        XCTAssertEqual(full.map { [$0.startTs, $0.endTs] },
+                       spansOnly.map { [$0.startTs, $0.endTs] },
+                       "cheap candidate-overlap reads must preserve the display read's intervals")
+        XCTAssertEqual(spansOnly.first?.sport, "Running")
+    }
+
+    func testManualWorkoutSaveAcknowledgesDurableWrite() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let row = WorkoutRow(startTs: now - 3600, endTs: now - 300,
+                             sport: "Cycling", source: "manual", durationS: 3300,
+                             energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                             distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        let saved = await repo.saveManualWorkout(row)
+        XCTAssertTrue(saved, "the editor must only retire its suggestion after a durable write")
+        let rows = try await store.workouts(deviceId: deviceId, from: now - 7200, to: now, limit: 10)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.startTs, row.startTs)
+    }
+
+    func testFutureImportedWorkoutStaysStoredButOutOfCompletedHistory() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let valid = WorkoutRow(startTs: now - 3600, endTs: now - 2400,
+                               sport: "Running", source: "whoop", durationS: 1200,
+                               energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                               distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        let future = WorkoutRow(startTs: now + 120, endTs: now + 1320,
+                                sport: "Cycling", source: "whoop", durationS: 1200,
+                                energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                                distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        _ = try await store.upsertWorkouts([valid, future], deviceId: deviceId)
+        let completed = await repo.workoutRows(days: 7, reconcileHeartRate: false)
+        XCTAssertEqual(completed.map { $0.startTs }, [valid.startTs])
+        // Quarantine is intentionally read-only: the source record is still available
+        // for diagnosis or when the clock becomes correct, not silently deleted.
+        let raw = try await store.workouts(deviceId: deviceId, from: now - 7200, to: now + 7200, limit: 20)
+        XCTAssertEqual(raw.count, 2)
+    }
+
+    func testAcceptedSuggestionReportsSuccessfulPersistence() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: deviceId)
+        repo.setStoreForTesting(store)
+        let now = Int(Date().timeIntervalSince1970)
+        let suggestion = DetectedWorkout(startSec: now - 1500, endSec: now - 300,
+                                         avgBpm: 140, peakBpm: 165, durationMin: 20)
+        let saved = await repo.saveDetectedWorkout(suggestion)
+        XCTAssertTrue(saved)
+        let rows = try await store.workouts(deviceId: deviceId, from: now - 3600, to: now, limit: 20)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.startTs, suggestion.startSec)
+        XCTAssertEqual(rows.first?.sport, "Workout")
+    }
+
     func testLegacyRowsAreRemovedFromTheirArchivedComputedOwner() async throws {
         try await withPreferences {
             let store = try await WhoopStore.inMemory()

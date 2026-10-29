@@ -110,6 +110,19 @@ public enum StrandPalette {
     public static let onDarkSecondary = Color(hex: "#C8CFD8")
     public static let onDarkTertiary  = Color(hex: "#8A94A4")
 
+    // MARK: Neutral device illustration
+    // Fixed material colors belong here rather than in the vector view. The band is intentionally
+    // neutral and remains dark in both schemes, while all surrounding card chrome stays theme-aware.
+    public static let deviceBandFabricLight = Color(hex: "#474747")
+    public static let deviceBandFabricDark  = Color(hex: "#171717")
+    public static let deviceBandMount       = Color(hex: "#121212")
+    public static let deviceBandMetalLight  = Color(hex: "#7A7A7A")
+    public static let deviceBandMetalMid    = Color(hex: "#3B3B3B")
+    public static let deviceBandMetalDark   = Color(hex: "#1A1A1A")
+    public static let deviceBandSensor      = Color(hex: "#1F1F1F")
+    public static let deviceBandDetail      = Color(hex: "#595959")
+    public static let deviceBandShadow      = Color(hex: "#000000")
+
     // MARK: Liquid hero card surface (#1160/#1161)
     // Was pinned near-black in BOTH themes, which read as a broken dark block in Light mode (#1160) and
     // never honoured card transparency (#1161). Now THEME-AWARE: near-black in Dark, frosted white in

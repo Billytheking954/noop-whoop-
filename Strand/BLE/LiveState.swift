@@ -93,38 +93,21 @@ public final class LiveState: ObservableObject {
     /// GET_EXTENDED_BATTERY_INFO response (#592). Shown on the Devices card as a "x.xx V" readout beside the
     /// percent; nil until the first battery event lands. Twin of the Android LiveState.batteryMv.
     @Published public var batteryMv: Int? = nil
-    /// Charging flag. Two sources, and they mean different things (#1935).
+    /// Charging flag from confirmed WHOOP wire observations (#1935).
     ///
-    /// The authority is the strap's BATTERY_LEVEL event — wire observation: u8 bit0 in the payload
-    /// (4.0 @26 / 5.0 @30), pushed ~every 8 min on captured links. That is a LEVEL signal from the
-    /// strap's own gauge: every live battery event rewrites this flag, whatever it was.
+    /// The strap's BATTERY_LEVEL event carries a gauge charging bit
+    /// (4.0 @26 / 5.0 @30) and is authoritative when it arrives.
+    /// CHARGING_ON(7) and CHARGING_OFF(8) are faster explicit edges;
+    /// BATTERY_PACK_REMOVED(22) is also evidence that charge stopped.
     ///
-    /// On a 5/MG it is ALSO set by `BATTERY_PACK_CONNECTED(21)` and cleared by
-    /// `BATTERY_PACK_REMOVED(22)`, which is a latency win — 21 leads `CHARGING_ON(7)` by up to ~17 s in
-    /// captures, so the pill responds when the pack goes on. But 21 means A PACK WAS ATTACHED, not that
-    /// charging began. They diverge on a depleted pack or a poor contact: 21 fires, 7 never does, and
-    /// this reads true while nothing charges.
+    /// BATTERY_PACK_CONNECTED(21) reports only physical attachment.
+    /// A depleted battery pack or poor contact can trigger 21 without
+    /// CHARGING_ON, so attachment must NEVER set charging=true.
     ///
-    /// THAT STATE IS BOUNDED, which is why it is documented rather than split. It does not last until 22:
-    /// the next live BATTERY_LEVEL overwrites it from the strap's own GAUGE, so the window is about one
-    /// battery cadence, and the gauge always gets the last word.
-    ///
-    /// It gets the last word only because nothing else repeats, which is a real constraint rather than an
-    /// observation (#1935). The pack record reaches this platform LOG-ONLY (`FrameRouter`, Test Centre
-    /// gated) and writes nothing here. Android learned the same rule the hard way: its pushed pack-info
-    /// event (109) once wrote `charging = true` on pack PRESENCE every couple of minutes, outran the
-    /// gauge, and held a flat pack at "charging" for its whole attachment. An EDGE may set this flag
-    /// (7, 21, 22); a repeating presence signal must not, or the gauge cannot correct it.
-    ///
-    /// It matters beyond the pill. `BLEManager.lowPowerThrottleActive` reads it and gates THREE levers, not
-    /// one: the low-battery offload cadence, the connection-priority throttle, and the continuous-capture
-    /// pause behind the user's own "Pause HRV capture" percentage. So a pack attached but not charging can
-    /// keep background capture running at low battery after the user asked for it to stop, for that
-    /// window. `BLEManager.batteryPollDue` also reads it, polling every tick instead of every
-    /// other, which is harmless and arguably wanted with a pack on.
-    ///
-    /// nil until the first event of a session; cleared on disconnect so a stale flag can't outlive the
-    /// link. Flag ONLY — the battery % keeps its family-specific source (#77).
+    /// BLEManager uses this state to gate low-power capture and offloads.
+    /// Misreporting pack attachment as charging may defeat battery-saving
+    /// safeguards, not just display a misleading green pill. Keep nil
+    /// until evidence appears; reset nil on link disconnect.
     @Published public var charging: Bool? = nil
 
     /// The Oura ring's current wear/charge state (nil for non-Oura straps or before any evidence this
@@ -622,10 +605,13 @@ public final class LiveState: ObservableObject {
 
     public init() {}
 
-    /// Single funnel for battery readings — updates the published value AND notifies the hook,
-    /// so both write sites (FrameRouter, BLEManager) drive the alert monitor identically.
+    /// Single funnel for battery readings from both the 4.0 command and 5/MG 0x2A19.
+    /// Reject invalid/placeholder SoC, never clamp garbage into a misleading healthy battery.
+    /// Repeated polls at an unchanged percentage are still banked at their normal interval
+    /// and delivered to the alert hook, but do not re-publish the same SwiftUI value.
     public func setBattery(_ pct: Double) {
-        batteryPct = pct
+        guard pct.isFinite, (0...100).contains(pct) else { return }
+        if batteryPct != pct { batteryPct = pct }
         bankBatterySample(pct)
         onBatteryUpdate?(pct)
     }
@@ -636,6 +622,7 @@ public final class LiveState: ObservableObject {
     /// any change in %, or enough elapsed time, banks a fresh point. The oldest readings fall off once the
     /// buffer is full. `now` is injectable so the estimate is unit-testable without a live clock.
     func bankBatterySample(_ pct: Double, now: Int = Int(Date().timeIntervalSince1970)) {
+        guard pct.isFinite, (0...100).contains(pct) else { return }
         if let last = batterySamples.last, last.soc == pct, now - last.ts < 600 { return }
         batterySamples.append((ts: now, soc: pct))
         if batterySamples.count > Self.maxBatterySamples {
@@ -664,8 +651,13 @@ public final class LiveState: ObservableObject {
     /// Only banks the historical points that aren't already present, so calling it twice is idempotent.
     public func seedBatterySamples(_ seed: [(ts: Int, soc: Double)]) {
         guard !seed.isEmpty else { return }
-        let existing = Set(batterySamples.map { $0.ts })
-        let fresh = seed.filter { !existing.contains($0.ts) }
+        var seen = Set(batterySamples.map { $0.ts })
+        // Persisted rows can contain malformed readings from interrupted/older syncs.
+        // Keep the first valid reading per timestamp, even if the seed repeats a row.
+        let fresh = seed.filter { reading in
+            guard reading.soc.isFinite, (0...100).contains(reading.soc) else { return false }
+            return seen.insert(reading.ts).inserted
+        }
         guard !fresh.isEmpty else { return }
         batterySamples.append(contentsOf: fresh)
         batterySamples.sort { $0.ts < $1.ts }

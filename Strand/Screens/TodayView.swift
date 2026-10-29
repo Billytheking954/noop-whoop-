@@ -1113,10 +1113,19 @@ struct TodayView: View {
         return computeReadiness()
     }
 
+    private var energyReserve: EnergyReserveEngine.Estimate {
+        if derivedKey == todayInputKey, let d = derived { return d.energyReserve }
+        return computeEnergyReserve()
+    }
+
     // MARK: Memoization plumbing (absorbs the 1 Hz live-HR body flood)
 
     /// Cached expensive derivations and the inputs they were built from.
-    private struct TodayDerived { let readiness: ReadinessEngine.Readiness; let calibration: Int? }
+    private struct TodayDerived {
+        let readiness: ReadinessEngine.Readiness
+        let energyReserve: EnergyReserveEngine.Estimate
+        let calibration: Int?
+    }
 
     /// A cheap, O(1) fingerprint of the inputs `derived` depends on. Recomputed every render
     /// (and per accessor call), but it only holds counts + the identity of the first/last and
@@ -1129,6 +1138,10 @@ struct TodayView: View {
         let today: DailyMetric?   // covers repo.today?.recovery (calibration) and day rollover
         let offset: Int
         let refreshSeq: Int
+        let workoutCount: Int
+        let latestWorkoutEnd: Int?
+        let sleepEnd: Int?
+        let liveStrain: Double?
     }
 
     private var todayInputKey: TodayInputKey {
@@ -1139,7 +1152,11 @@ struct TodayView: View {
             lastDay: repo.days.last,
             today: repo.today,
             offset: selectedDayOffset,
-            refreshSeq: repo.refreshSeq)
+            refreshSeq: repo.refreshSeq,
+            workoutCount: workouts.count,
+            latestWorkoutEnd: workouts.first?.endTs,
+            sleepEnd: sleepToday?.endTs,
+            liveStrain: liveTodayStrain)
     }
 
     private func computeReadiness() -> ReadinessEngine.Readiness {
@@ -1160,8 +1177,34 @@ struct TodayView: View {
                                                 hasRecovery: repo.today?.recovery != nil)
     }
 
+    private func computeEnergyReserve() -> EnergyReserveEngine.Estimate {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: selectedLogicalDay)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        let now = selectedDayOffset == 0 ? min(Date(), end.addingTimeInterval(-0.001))
+            : end.addingTimeInterval(-0.001)
+        let events = workouts.map { workout in
+            EnergyReserveEngine.ActivityEvent(
+                id: "\(workout.startTs)|\(workout.sport)",
+                start: Date(timeIntervalSince1970: TimeInterval(workout.startTs)),
+                end: Date(timeIntervalSince1970: TimeInterval(workout.endTs)),
+                strain: workout.strain,
+                activeKilocalories: workout.energyKcal)
+        }
+        let wake = sleepToday.map { Date(timeIntervalSince1970: TimeInterval($0.endTs)) }
+        return EnergyReserveEngine.estimate(
+            days: repo.days,
+            targetDay: displayDay?.day ?? selectedDayKey,
+            dayInterval: start..<end,
+            wakeTime: wake,
+            activities: events,
+            currentStrain: selectedDayOffset == 0 ? (liveTodayStrain ?? displayDay?.strain) : displayDay?.strain,
+            evaluatedAt: now)
+    }
+
     private func buildDerived() -> TodayDerived {
-        TodayDerived(readiness: computeReadiness(), calibration: computeCalibration())
+        TodayDerived(readiness: computeReadiness(), energyReserve: computeEnergyReserve(),
+                     calibration: computeCalibration())
     }
 
     /// Synthesis-card copy while the recovery baseline calibrates; nil otherwise. Built as
@@ -1354,6 +1397,8 @@ struct TodayView: View {
                     .datePickerStyle(.graphical).labelsHidden().padding(12)
                     .frame(minWidth: 320, minHeight: 360)
             }
+            // A small trailing device shortcut; its own view observes live state.
+            TodayDeviceBatteryShortcut()
         }
         .frame(minHeight: 46)
         .task {
@@ -1429,10 +1474,8 @@ struct TodayView: View {
 
     var body: some View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() },
-                       // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
-                       // Today supplies its own inner eager VStack (below), so the staggered section reveal is
-                       // unchanged, this only defers building the single inner stack until it scrolls in.
-                       // Byte-identical layout (LazyVStack == eager VStack alignment/spacing/header).
+                       // PERF (scroll): lazy outer column plus a lazy inner section stack,
+                       // so expensive charts and card groups are built when scrolled into view.
                        lazy: true,
                        // PERF (scroll stutter): the day-cycle scene is a static masked Image. CoreAnimation
                        // already caches it as a stable image layer, so it does NOT re-rasterize on body
@@ -1442,7 +1485,8 @@ struct TodayView: View {
                        // lag regression; removing the flatten restores native layer caching.
                        topBackground: showDayCycleBackground && !usesEditorialToday
                            ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+            // Lazy-load the expensive chart/card sections as they enter the viewport.
+            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 #if os(iOS)
                 // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
                 // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).
@@ -1716,6 +1760,18 @@ struct TodayView: View {
                                 .foregroundStyle(StrandPalette.textPrimary)
                                 .accessibilityLabel("Readiness: \(levelWord(r.level)). \(headline)")
                             Spacer()
+                            if let score = r.score {
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text(scoreReadout(score))
+                                        .font(StrandFont.captionNumber)
+                                        .foregroundStyle(StrandPalette.textPrimary)
+                                    Text(r.dataCompleteness < 0.75
+                                         ? String(localized: "Estimate (partial data)")
+                                         : String(localized: "Estimate"))
+                                        .font(StrandFont.footnote)
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                }
+                            }
                             if let acwr = r.acwr {
                                 Text("load \(String(format: "%.2f", locale: AppLanguage.activeLocale, acwr))")
                                     .font(StrandFont.captionNumber)
@@ -1807,6 +1863,9 @@ struct TodayView: View {
         case "respRate": return String(localized: "Respiratory rate")
         case "acwr": return String(localized: "Training load")
         case "monotony": return String(localized: "Training variety")
+        case "sleepDuration": return String(localized: "Sleep duration")
+        case "sleepConsistency": return String(localized: "Sleep Consistency")
+        case "recovery": return String(localized: "Recovery")
         default: return key
         }
     }
@@ -1818,6 +1877,8 @@ struct TodayView: View {
             let valueText = readinessNumber(value, decimals: decimals)
             let baselineText = readinessNumber(baseline, decimals: decimals)
             return String(localized: "\(valueText) vs \(baselineText) \(unit)")
+        case .value(let value, let unit, let decimals):
+            return "\(readinessNumber(value, decimals: decimals)) \(unit)"
         case .trainingLoad(let acute, let chronic):
             let acuteText = readinessNumber(acute, decimals: 1)
             let chronicText = readinessNumber(chronic, decimals: 1)
@@ -1851,6 +1912,7 @@ struct TodayView: View {
         case ("respRate", .bad): return String(localized: "up vs baseline - sometimes an early sign of getting sick")
         case ("respRate", .watch): return String(localized: "slightly raised vs baseline")
         case ("monotony", _): return String(localized: "low - similar strain every day raises strain/illness risk")
+        case ("sleepDuration", _), ("sleepConsistency", _), ("recovery", _): return signal.detail
         default: return String(localized: "in your normal range")
         }
     }
@@ -2527,6 +2589,120 @@ struct TodayView: View {
         }
     }
 
+    /// Two compact, explicitly estimated planning aids. Energy uses only discrete wake/workout/current
+    /// checkpoints; the row never draws an invented minute-by-minute trace between absent observations.
+    private func energyReadinessSummary(
+        energy: EnergyReserveEngine.Estimate,
+        readiness: ReadinessEngine.Readiness
+    ) -> some View {
+        NoopCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    estimatedMetric(title: phase3Title("Energy Reserve"), value: energy.value,
+                                    completeness: energy.completeness,
+                                    tint: StrandPalette.accent)
+                    Divider().overlay(StrandPalette.hairline)
+                    estimatedMetric(title: phase3Title("Training Readiness"), value: readiness.score,
+                                    completeness: readiness.dataCompleteness,
+                                    tint: readinessColor(readiness.level))
+                }
+
+                let directional = energy.factors.filter { $0.direction != .neutral }.prefix(3)
+                if !directional.isEmpty {
+                    Divider().overlay(StrandPalette.hairline)
+                    HStack(spacing: 10) {
+                        ForEach(Array(directional), id: \.key) { factor in
+                            Label {
+                                Text(energyFactorLabel(factor.key))
+                                    .font(StrandFont.footnote)
+                                    .lineLimit(1)
+                            } icon: {
+                                Image(systemName: factor.direction == .restores
+                                      ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                                    .foregroundStyle(factor.direction == .restores
+                                                     ? StrandPalette.statusPositive : StrandPalette.statusWarning)
+                            }
+                        }
+                    }
+                }
+
+                let checkpoints = Array(energy.trend.suffix(4))
+                if checkpoints.count >= 2 {
+                    Divider().overlay(StrandPalette.hairline)
+                    HStack(spacing: 8) {
+                        ForEach(Array(checkpoints.enumerated()), id: \.offset) { _, point in
+                            VStack(spacing: 2) {
+                                Text(verbatim: "\(point.value)")
+                                    .font(StrandFont.captionNumber)
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Text(point.timestamp.formatted(date: .omitted, time: .shortened))
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+
+                Text("On-device estimate (approximate), not a diagnosis.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func estimatedMetric(title: String, value: Int?,
+                                 completeness: Double, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(verbatim: title)
+                .font(StrandFont.overline)
+                .tracking(StrandFont.overlineTracking)
+                .foregroundStyle(StrandPalette.textSecondary)
+            if let value {
+                Text(scoreReadout(value))
+                    .font(StrandFont.number(24))
+                    .foregroundStyle(tint)
+                Text(completeness < 0.75
+                     ? String(localized: "Estimate (partial data)")
+                     : String(localized: "Estimate"))
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                ProgressView(value: completeness)
+                    .tint(tint)
+                    .accessibilityLabel("Confidence")
+            } else {
+                Text("Not enough data")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Text("Estimate")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func energyFactorLabel(_ key: String) -> LocalizedStringKey {
+        switch key {
+        case "sleep": return "Sleep duration"
+        case "sleepEfficiency": return "Sleep Efficiency"
+        case "sleepStages": return "Sleep stages"
+        case "recovery": return "Recovery"
+        case "hrv": return "HRV"
+        case "restingHr": return "Resting HR"
+        case "activity": return "Activity"
+        default: return "Estimate"
+        }
+    }
+
+    private func scoreReadout(_ value: Int) -> String { "\(value)/100" }
+
+    private func phase3Title(_ key: String) -> String {
+        NSLocalizedString(key, tableName: "Phase3", bundle: .main, value: key, comment: "")
+    }
+
     /// Design Reset: the greeting + gold Synthesis read-out + vitals, lifted OUT of the hero so Today
     /// reads rings -> Heart rate -> Your cards (the flat mockup order). Same content + behaviour, it just
     /// sits below the HR card and the pinned cards now instead of crowding directly under the rings.
@@ -2552,6 +2728,8 @@ struct TodayView: View {
                     .layoutPriority(1)
             }
             .accessibilityElement(children: .combine)
+
+            energyReadinessSummary(energy: energyReserve, readiness: readiness)
 
             // S4: the Synthesis card collapses to a single one-liner that EXPANDS on tap. Default collapsed
             // so the home screen stays tight; the live content (#506) is unchanged, only the chrome folds.
@@ -6379,6 +6557,48 @@ private struct ReferenceHealthSnapshot: View {
             let flags = await repo.exploreSeries(key: "hrv_rr_overcount", source: "my-whoop", days: 4000)
             overCounts = Dictionary(flags.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
             flagsLoaded = true
+        }
+    }
+}
+
+
+// Keep the 1 Hz live-strap state confined to this tiny header leaf.
+// TodayView itself deliberately does NOT observe LiveState, avoiding full-chart redraws.
+private struct TodayDeviceBatteryShortcut: View {
+    @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var router: NavRouter
+
+    var body: some View {
+        if live.activeIsWhoop {
+            Button { router.openDevices() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: DeviceBatteryDisplay.systemImage(
+                        connected: live.connected,
+                        charging: live.charging,
+                        battery: live.batteryPct))
+                        .foregroundStyle(live.connected && live.charging == true
+                                         ? StrandPalette.statusPositive : StrandPalette.textSecondary)
+                    Text(live.connected
+                         ? DeviceBatteryDisplay.percent(live.batteryPct)
+                         : "—")
+                        .monospacedDigit()
+                }
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 36)
+                .background(.ultraThinMaterial, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                Text(DeviceBatteryDisplay.voiceOverLabel(
+                    connected: live.connected,
+                    charging: live.charging,
+                    battery: live.batteryPct))
+            )
+            .accessibilityHint(Text(DeviceBatteryDisplay.openDeviceSettings))
+            .accessibilityIdentifier("noop.today.device-battery")
         }
     }
 }

@@ -97,22 +97,113 @@ public struct ReferenceStressGauge: View {
 }
 
 
-/// Original vector artwork shared by connection and device screens.
-public struct ReferenceBandIllustration: View {
+/// Original, static vector illustration of a woven optical fitness band.
+/// Not a WHOOP product render. The cut-out strap, fabric and raised optical
+/// module are drawn without image assets, animations or live-data subscriptions.
+public struct ReferenceBandIllustration: View, Equatable {
     public init() {}
+
     public var body: some View {
         ZStack {
-            Ellipse().stroke(Color(white: 0.17), lineWidth: 24)
-                .frame(width: 104, height: 150)
-            Ellipse().stroke(Color(white: 0.35), lineWidth: 1)
-                .frame(width: 104, height: 150)
-            RoundedRectangle(cornerRadius: 10)
-                .fill(LinearGradient(colors: [Color(white: 0.43), Color(white: 0.12)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(white: 0.42), lineWidth: 1))
-                .frame(width: 46, height: 80).offset(x: 47, y: 6)
+            // A real opening through the loop: the negative space stays transparent
+            // on both light and dark device cards.
+            Path { path in
+                path.move(to: CGPoint(x: 73, y: 12))
+                path.addCurve(to: CGPoint(x: 148, y: 66),
+                              control1: CGPoint(x: 116, y: 5), control2: CGPoint(x: 147, y: 28))
+                path.addCurve(to: CGPoint(x: 120, y: 165),
+                              control1: CGPoint(x: 160, y: 111), control2: CGPoint(x: 150, y: 153))
+                path.addCurve(to: CGPoint(x: 44, y: 148),
+                              control1: CGPoint(x: 96, y: 179), control2: CGPoint(x: 45, y: 178))
+                path.addCurve(to: CGPoint(x: 73, y: 12),
+                              control1: CGPoint(x: 13, y: 109), control2: CGPoint(x: 32, y: 28))
+                path.closeSubpath()
+
+                path.move(to: CGPoint(x: 77, y: 36))
+                path.addCurve(to: CGPoint(x: 122, y: 73),
+                              control1: CGPoint(x: 99, y: 31), control2: CGPoint(x: 124, y: 49))
+                path.addCurve(to: CGPoint(x: 104, y: 144),
+                              control1: CGPoint(x: 130, y: 101), control2: CGPoint(x: 128, y: 139))
+                path.addCurve(to: CGPoint(x: 62, y: 133),
+                              control1: CGPoint(x: 84, y: 150), control2: CGPoint(x: 59, y: 148))
+                path.addCurve(to: CGPoint(x: 77, y: 36),
+                              control1: CGPoint(x: 47, y: 98), control2: CGPoint(x: 58, y: 48))
+                path.closeSubpath()
+            }
+            .fill(LinearGradient(colors: [
+                StrandPalette.deviceBandFabricLight,
+                StrandPalette.deviceBandFabricDark,
+                StrandPalette.deviceBandFabricLight.opacity(0.88)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing),
+                  style: FillStyle(eoFill: true))
+
+            // The exposed upper fabric has a subtle woven herringbone texture.
+            // A Canvas is one drawing surface, not dozens of view subscriptions.
+            Canvas { context, _ in
+                var weave = Path()
+                for row in 0..<15 {
+                    let y = CGFloat(31 + row * 8)
+                    let x = CGFloat(46 + row / 4)
+                    weave.move(to: CGPoint(x: x, y: y))
+                    weave.addLine(to: CGPoint(x: x + 14, y: y - 5))
+                    weave.move(to: CGPoint(x: x + 5, y: y + 2))
+                    weave.addLine(to: CGPoint(x: x + 17, y: y + 5))
+                }
+                context.stroke(weave,
+                               with: .color(StrandPalette.onDarkPrimary.opacity(0.13)),
+                               lineWidth: 0.8)
+            }
+            .frame(width: 180, height: 190)
+            .mask(
+                Path { path in
+                    path.move(to: CGPoint(x: 73, y: 12))
+                    path.addCurve(to: CGPoint(x: 44, y: 148),
+                                  control1: CGPoint(x: 31, y: 34), control2: CGPoint(x: 16, y: 120))
+                    path.addLine(to: CGPoint(x: 62, y: 133))
+                    path.addCurve(to: CGPoint(x: 77, y: 36),
+                                  control1: CGPoint(x: 46, y: 100), control2: CGPoint(x: 60, y: 46))
+                    path.closeSubpath()
+                }
+            )
+
+            // Slightly raised optical module and textile mounting edge.
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .fill(StrandPalette.deviceBandMount)
+                .frame(width: 61, height: 88)
+                .rotationEffect(.degrees(-13))
+                .offset(x: 31, y: 9)
+                .shadow(color: StrandPalette.deviceBandShadow.opacity(0.23), radius: 6, x: 0, y: 5)
+
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [StrandPalette.deviceBandMetalLight,
+                             StrandPalette.deviceBandMetalMid,
+                             StrandPalette.deviceBandMetalDark],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 53, height: 80)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(StrandPalette.onDarkPrimary.opacity(0.28), lineWidth: 1)
+                }
+                .rotationEffect(.degrees(-13))
+                .offset(x: 31, y: 9)
+
+            // The sensor surface uses its own dark glass, without a vendor logo.
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(StrandPalette.deviceBandSensor)
+                .frame(width: 39, height: 51)
+                .overlay {
+                    VStack(spacing: 5) {
+                        Capsule().fill(StrandPalette.onDarkPrimary.opacity(0.22)).frame(width: 15, height: 2)
+                        HStack(spacing: 8) {
+                            Circle().fill(StrandPalette.deviceBandDetail).frame(width: 8, height: 8)
+                            Circle().fill(StrandPalette.deviceBandMetalMid).frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .rotationEffect(.degrees(-13))
+                .offset(x: 31, y: 9)
         }
-        .rotationEffect(.degrees(-23))
         .frame(width: 180, height: 190)
         .accessibilityHidden(true)
     }
