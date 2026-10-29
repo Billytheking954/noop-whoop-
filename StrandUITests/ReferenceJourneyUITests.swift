@@ -35,6 +35,40 @@ final class ReferenceJourneyUITests: XCTestCase {
         }
     }
 
+    /// Root screens must scroll vertically without a second gesture attempting to move tabs.
+    /// This covers the original diagonal-drag regression on the primary iPhone screens.
+    func testVerticalScrollingKeepsTheSelectedTab() {
+        let app = launch()
+        let tabs = app.tabBars.firstMatch
+        XCTAssertTrue(tabs.waitForExistence(timeout: 30))
+
+        for name in ["Health", "Activity", "More"] {
+            let button = tabs.buttons[name]
+            button.tap()
+            XCTAssertTrue(button.isSelected, name)
+            app.swipeUp()
+            XCTAssertTrue(button.isSelected, "\(name) changed during upward scrolling")
+            app.swipeDown()
+            XCTAssertTrue(button.isSelected, "\(name) changed during downward scrolling")
+        }
+    }
+
+    /// Swipe-to-switch tabs was removed intentionally: charts, scrolling and native
+    /// navigation should handle their own horizontal gestures without a root recognizer.
+    func testHorizontalDragDoesNotSwitchPrimaryTab() {
+        let app = launch()
+        let tabs = app.tabBars.firstMatch
+        XCTAssertTrue(tabs.waitForExistence(timeout: 30))
+
+        let health = tabs.buttons["Health"]
+        health.tap()
+        XCTAssertTrue(health.isSelected)
+        app.swipeLeft()
+        XCTAssertTrue(health.isSelected, "Left drag unexpectedly changed tabs")
+        app.swipeRight()
+        XCTAssertTrue(health.isSelected, "Right drag unexpectedly changed tabs")
+    }
+
     func testCalendarOpensDateSelection() {
         let app = launch()
         let calendar = app.buttons["noop.today.calendar"]
