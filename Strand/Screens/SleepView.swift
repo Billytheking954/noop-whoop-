@@ -122,6 +122,11 @@ struct SleepView: View {
     /// Sleeping heart-rate for the displayed night (1-min buckets), for the WHOOP-style HR chart above
     /// the stage rows. Loaded once per night via `.task(id:)` on the stage card. (ryanAtriumAi #988)
     @State private var nightHR: [HRBucket] = []
+    // HRV is read independently from the same persisted timeline backend as Explore.
+    // No interpolation or fallback estimates are produced for missing overnight data.
+    @State private var nightHRV: Repository.TimelineSeries = .empty
+    /// Display-only sample inspected on the overnight HR graph. nil means no selection.
+    @State private var inspectedNightHRStamp: Int? = nil
 
     /// The transient UNDO banner shown after a suppressing delete (#65). Non-nil for ~7 seconds: carries
     /// the snapshot needed to restore the deleted night into its ORIGINAL namespace and the window text
@@ -1027,9 +1032,19 @@ struct SleepView: View {
         // WHOOP top-chart data (ryanAtriumAi #988): 1-min sleeping-HR buckets for THIS night, reloaded
         // only when the displayed night changes (same `.task(id:)` pattern the other per-night loads use).
         .task(id: night.session.startTs) {
+            // Do not display the previous night's samples during an async re-read.
+            nightHR = []
+            nightHRV = .empty
+            inspectedNightHRStamp = nil
             nightHR = await repo.hrBuckets(from: night.session.startTs,
                                            to: night.session.endTs,
                                            bucketSeconds: 60)
+            let hrv = await repo.timelineSeries(metric: .hrv,
+                                                from: night.session.startTs,
+                                                to: night.session.endTs,
+                                                targetPoints: 300)
+            guard !Task.isCancelled else { return }
+            nightHRV = hrv
         }
     }
 
@@ -1589,6 +1604,7 @@ struct SleepView: View {
                 .frame(height: 124)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 2)
+            overnightHRVChart(night: night)
             stageTimelineRow(.awake, minutes: s.awake, percent: stageSharePercent(.awake, s), intervals: smoothed, origin: origin, span: span)
             stageTimelineRow(.rem,   minutes: s.rem,   percent: stageSharePercent(.rem, s), intervals: smoothed, origin: origin, span: span)
             stageTimelineRow(.light, minutes: s.light, percent: stageSharePercent(.light, s), intervals: smoothed, origin: origin, span: span)
@@ -1791,6 +1807,87 @@ struct SleepView: View {
         .accessibilityAddTraits(.isButton)
     }
 
+    /// Split an irregular overnight series at true sampling gaps. This is
+    /// presentation-only: timestamps and values are copied without alteration.
+    static func gapSeparatedOvernightPoints(_ input: [TrendPoint],
+                                            maxGap: TimeInterval) -> [TrendPoint] {
+        let ordered = input.sorted { $0.date < $1.date }
+        var previous: Date?
+        var segment = 0
+        return ordered.map { point in
+            if let previous, point.date.timeIntervalSince(previous) > maxGap {
+                segment += 1
+            }
+            previous = point.date
+            return TrendPoint(date: point.date, value: point.value,
+                              segment: "overnight-\(segment)")
+        }
+    }
+
+    /// Optional overnight HRV trace. Reuses the existing sensor timeline facade,
+    /// so only real stored readings are shown. The label identifies aggregation.
+    @ViewBuilder
+    private func overnightHRVChart(night: Night) -> some View {
+        let points = Self.gapSeparatedOvernightPoints(
+            nightHRV.points,
+            maxGap: max(300, TimeInterval(nightHRV.bucketSeconds) * 3)
+        )
+        if points.count >= 2 {
+            let values = points.map(\.value)
+            let minimum = values.min() ?? 0
+            let maximum = values.max() ?? 100
+            let spread = max(1, maximum - minimum)
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                HStack {
+                    Text("HRV").strandOverline()
+                    Spacer()
+                    if nightHRV.isRaw {
+                        Text("Raw · per second")
+                            .font(StrandFont.footnote)
+                    } else if nightHRV.bucketSeconds >= 60 {
+                        Text("\(nightHRV.bucketSeconds / 60)-minute average")
+                            .font(StrandFont.footnote)
+                    } else {
+                        Text("\(nightHRV.bucketSeconds)-second average")
+                            .font(StrandFont.footnote)
+                    }
+                }
+                .foregroundStyle(StrandPalette.textSecondary)
+                OverviewHRChart(
+                    points: points,
+                    gradient: Gradient(colors: [StrandPalette.sleepLight.opacity(0.5),
+                                                StrandPalette.sleepLight]),
+                    valueRange: max(0, minimum - spread * 0.12)...(maximum + spread * 0.12),
+                    metricLabel: "HRV",
+                    xRange: night.onsetDate...Date(timeIntervalSince1970: TimeInterval(night.session.endTs)),
+                    height: 112,
+                    touchScrub: true,
+                    valueFormat: { String(Int($0.rounded())) + " ms" },
+                    dateFormat: { Self.stageAxisFormatter.string(from: $0) }
+                )
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 2)
+        }
+    }
+
+    /// Find the actual measured/averaged HR bucket nearest a touch, never a
+    /// fabricated interpolated value. Skip taps in gaps longer than five minutes.
+    /// Binary search keeps inspection fast if future recordings grow denser.
+    static func nearestNightSampleIndex(_ timestamps: [Int], target: Int,
+                                        maxDistance: Int = 300) -> Int? {
+        guard !timestamps.isEmpty else { return nil }
+        var low = 0, high = timestamps.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if timestamps[mid] < target { low = mid + 1 } else { high = mid }
+        }
+        let right = low < timestamps.count ? low : timestamps.count - 1
+        let left = low > 0 ? low - 1 : right
+        let best = abs(timestamps[left] - target) <= abs(timestamps[right] - target) ? left : right
+        return abs(timestamps[best] - target) <= maxDistance ? best : nil
+    }
+
     /// WHOOP's sleeping heart-rate chart: a thin HR trace across the night with dashed onset/wake
     /// rules and quiet bpm gridlines. With a stage selected, the trace re-colours inside that
     /// stage's intervals and those time columns get a faint stage-tinted wash — WHOOP's "what did
@@ -1802,7 +1899,7 @@ struct SleepView: View {
         let buckets = nightHR.filter {
             let rel = TimeInterval($0.ts) - nightStartTs
             return rel >= origin - 60 && rel <= origin + span + 60
-        }
+        }.sorted { $0.ts < $1.ts }
         if buckets.count >= 2 {
             Canvas { ctx, size in
                 let bpms = buckets.map(\.bpm)
@@ -1888,6 +1985,18 @@ struct SleepView: View {
                     ctx.stroke(overlay, with: .color(StrandPalette.sleepStageColor(sel)),
                                style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
                 }
+                // Show the exact recorded bucket, without changing the raw trace.
+                if let selected = buckets.first(where: { $0.ts == inspectedNightHRStamp }) {
+                    let selectedPoint = point(selected)
+                    var rule = Path()
+                    rule.move(to: CGPoint(x: selectedPoint.x, y: 0))
+                    rule.addLine(to: CGPoint(x: selectedPoint.x, y: size.height))
+                    ctx.stroke(rule, with: .color(StrandPalette.textPrimary.opacity(0.6)),
+                               style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    ctx.fill(Path(ellipseIn: CGRect(x: selectedPoint.x - 3, y: selectedPoint.y - 3,
+                                                    width: 6, height: 6)),
+                             with: .color(StrandPalette.textPrimary))
+                }
                 // Dashed onset/wake rules (WHOOP's sleep-window markers).
                 for x in [CGFloat(0.75), size.width - 0.75] {
                     var rule = Path()
@@ -1897,6 +2006,37 @@ struct SleepView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                GeometryReader { geometry in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(SpatialTapGesture().onEnded { tap in
+                            guard geometry.size.width > 0 else { return }
+                            let fraction = min(max(tap.location.x / geometry.size.width, 0), 1)
+                            let timestamp = Int((nightStartTs + origin + Double(fraction) * span).rounded())
+                            let index = Self.nearestNightSampleIndex(buckets.map(\.ts), target: timestamp)
+                            inspectedNightHRStamp = index.map { buckets[$0].ts }
+                        })
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let selected = buckets.first(where: { $0.ts == inspectedNightHRStamp }) {
+                    let stamp = Self.stageAxisFormatter.string(
+                        from: Date(timeIntervalSince1970: TimeInterval(selected.ts)))
+                    HStack(spacing: 4) {
+                        Text("\(Int(selected.bpm.rounded())) bpm")
+                        Text("·")
+                        Text(verbatim: stamp)
+                        Text("\(1)-minute average")
+                    }
+                        .font(StrandFont.footnote)
+                        .monospacedDigit()
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .padding(6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(4)
+                }
+            }
             .accessibilityLabel(Text("Sleeping heart rate through the night"))
         } else {
             Text("No heart-rate detail for this night")

@@ -36,6 +36,10 @@ permissions:
 
 jobs:
   build:
+    # Phase 2 changes charts, not the release binary. Keep macOS runners
+    # for hosted simulator build/tests rather than archiving a draft IPA.
+    # Manual dispatch and unrelated PRs are unaffected.
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/noop-v2-enhanced-phase2-') }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
