@@ -803,6 +803,11 @@ final class Repository: ObservableObject {
     /// Expose the shared store handle (used by the importer to persist mapped rows).
     func storeHandle() async -> WhoopStore? { await ensureStore() }
 
+    /// Diagnostic-only: borrow an already-open handle without calling ensureStore().
+    /// Opening a fresh WhoopStore can migrate schema and upsert a device; this read-only
+    /// self-test must never trigger those writes just to check whether history is present.
+    func existingStoreForDiagnostics() -> WhoopStore? { store }
+
     /// CAPTURE-D (#797): the on-device DATA VOLUME read FRESH from the STORE (never the `@Published`
     /// dashboard caches), for the Display & Performance test mode's `dataVolume` line. dbRows is the raw
     /// decoded-stream footprint; importedDays is the count of imported daily-metric rows under the active
@@ -1044,6 +1049,9 @@ final class Repository: ObservableObject {
         // and an appended line after the bump is how that invariant quietly stops being true.
         self.exploreAllCache = nil
         self.refreshSeq += 1
+        // Record the first SUCCESSFUL local-cache publication, regardless of which
+        // concurrent launch refresh won the generation guard. Not card rendering or BLE.
+        ColdLaunchTrace.finish(cacheLoaded: true, cachedDays: self.days.count)
     }
 
     /// Per-source coverage counts for the Freshness Pipeline card. Pure over the rows already read.
@@ -2782,7 +2790,7 @@ final class Repository: ObservableObject {
     /// dismissible and exportable; new scoring passes neither create nor reconcile them (#2187).
     /// Dismissed spans are still filtered HERE so every consumer (Workouts, Today, Coach) preserves the
     /// user's prior "not a workout" decisions and the confirmation card cannot resurrect those windows.
-    func workoutRows(days: Int = 4000) async -> [WorkoutRow] {
+    func workoutRows(days: Int = 4000, reconcileHeartRate: Bool = true) async -> [WorkoutRow] {
         guard let store = await ensureStore() else { return [] }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
@@ -2803,7 +2811,13 @@ final class Repository: ObservableObject {
         // #687: collapse the SAME activity tracked live under the strap AND imported from Health Connect /
         // Apple Health into one richer entry , they sit under different sources so without this they show
         // as two sessions. Dedup runs on the dismissed-filtered set, before the final newest-first sort.
-        let filtered = rows.filter { !WorkoutSource.isDismissed($0, spans: spans) }
+        // Preserve suspect source rows in the database, but never present future-ending
+        // sessions as completed workouts. The +1-day query bound above intentionally still
+        // fetches them so the read boundary, not a lossy import rewrite, owns quarantine.
+        let filtered = rows.filter {
+            WorkoutSource.isPlausibleCompletedWorkout($0, now: now)
+                && !WorkoutSource.isDismissed($0, spans: spans)
+        }
         // Workouts & GPS test mode: when on, run the dedup twin which returns the BYTE-IDENTICAL kept list
         // plus a trace line per collapsed cross-source pair, tagged `.workouts`. Zero-cost when off (the gate
         // is one UserDefaults bool read inside emitWorkouts), and the kept list equals dedupCrossSource(...)
@@ -2817,6 +2831,11 @@ final class Repository: ObservableObject {
             deduped = WorkoutSource.dedupCrossSource(filtered)
         }
         let visible = deduped.sorted { $0.startTs > $1.startTs }
+        // Callers that need only workout INTERVALS (auto-suggestion overlap) must not
+        // run up to 300 unrelated HR aggregate/strain queries on every refresh.
+        // The display path retains reconciliation by default; timestamps and dedup
+        // are identical because the enrichment changes only HR, peak and strain.
+        guard reconcileHeartRate else { return visible }
         return await reconcileWorkoutHrWithTrace(visible, store: store)
     }
 
@@ -3003,21 +3022,22 @@ final class Repository: ObservableObject {
     ///    then retires the stale strap row. A failed write therefore preserves the original;
     ///  - an IMPORTED row is never passed here as `replacing` (duplicating one is a pure add), so its
     ///    history is never touched.
-    func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async {
-        guard let store = await ensureStore() else { return }
+    @discardableResult
+    func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async -> Bool {
+        guard let store = await ensureStore() else { return false }
         if let old, WorkoutSource.classify(old.source) == .detected {
             // Write the replacement first. If that insert fails, the grandfathered source row and its
             // visibility remain untouched; a failed explicit edit must not turn into data loss.
             do { _ = try await store.upsertWorkouts([row], deviceId: deviceId) }
-            catch { return }
+            catch { return false }
             await dismissDetected(old)
-            return
+            return true
         } else if let old, old.startTs != row.startTs || old.sport != row.sport {
             // Write the replacement before deleting anything. If SQLite rejects the insert, leave both the
             // original row and its route untouched; if the later delete fails, the recoverable result is two
             // rows rather than lost history.
             do { _ = try await store.upsertWorkouts([row], deviceId: deviceId) }
-            catch { return }
+            catch { return false }
             // #10: the GPS route lives in RouteStore keyed by the natural key (startTs + sport), NOT in the
             // DB row. Copy it only after the replacement row is durable. Keep the old copy until the old
             // DB row is successfully retired, so a delete failure preserves both complete versions.
@@ -3036,9 +3056,15 @@ final class Repository: ObservableObject {
             } catch {
                 // Replacement and both route keys remain available; retrying the edit is safe.
             }
-            return
+            // The replacement row is durable even when retirement of the old row fails.
+            return true
         }
-        _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
+        do {
+            _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Re-label a legacy detected bout: copy it to a manual strap row with the chosen sport, then delete
@@ -3200,10 +3226,24 @@ final class Repository: ObservableObject {
         detectedDismissedTokens: [String]
     ) -> DetectedWorkout? {
         let exact = Set(autoDismissedTokens)
+        let priorAuto = WorkoutSource.parseDismissedSpans(autoDismissedTokens)
         let legacy = WorkoutSource.parseDismissedSpans(detectedDismissedTokens)
         return candidates
             .filter { candidate in
                 !exact.contains(autoDetectToken(candidate))
+                    // When a fresh sample shifts a window slightly, do not re-prompt for
+                    // the same dismissed activity. Bound BOTH endpoints to 3 minutes and
+                    // require >=80% of the shorter span, so a neighbouring workout survives.
+                    && !priorAuto.contains { span in
+                        let startGap = abs(Double(candidate.startSec) - Double(span.start))
+                        let endGap = abs(Double(candidate.endSec) - Double(span.end))
+                        let intersection = max(0.0, min(Double(candidate.endSec), Double(span.end))
+                                                    - max(Double(candidate.startSec), Double(span.start)))
+                        let shorter = min(Double(candidate.endSec - candidate.startSec),
+                                          Double(span.end - span.start))
+                        return shorter > 0 && startGap <= 180 && endGap <= 180
+                            && intersection >= shorter * 0.8
+                    }
                     && !legacy.contains { span in
                         candidate.startSec < span.end && span.start < candidate.endSec
                     }
@@ -3261,7 +3301,7 @@ final class Repository: ObservableObject {
         let restingBpm = days.last(where: { $0.restingHr != nil })?.restingHr
 
         // Exclude every already-saved workout window (any source , strap, manual, imported, detected).
-        let saved = await workoutRows()
+        let saved = await workoutRows(reconcileHeartRate: false)
         let savedSpans = saved.map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
 
         // Workouts & GPS test mode: the published 12-minute result remains byte-identical. Aggregate,
@@ -3328,8 +3368,15 @@ final class Repository: ObservableObject {
         guard let row = WorkoutSource.buildManualRow(start: start, durationMin: durationMin,
                                                      sport: "Workout", avgHr: w.avgBpm,
                                                      energyKcal: nil) else { return false }
-        await saveManualWorkout(row)
-        return true
+        // Unlike the old void saveManualWorkout adapter, report success only after
+        // SQLite has actually acknowledged the upsert; do not hide the card on failure.
+        guard let store = await ensureStore() else { return false }
+        do {
+            _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// DISMISS a suggested window: record its span durably so it never re-prompts. Idempotent.
