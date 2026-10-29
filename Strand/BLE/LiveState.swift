@@ -622,10 +622,13 @@ public final class LiveState: ObservableObject {
 
     public init() {}
 
-    /// Single funnel for battery readings — updates the published value AND notifies the hook,
-    /// so both write sites (FrameRouter, BLEManager) drive the alert monitor identically.
+    /// Single funnel for battery readings from both the 4.0 command and 5/MG 0x2A19.
+    /// Reject invalid/placeholder SoC, never clamp garbage into a misleading healthy battery.
+    /// Repeated polls at an unchanged percentage are still banked at their normal interval
+    /// and delivered to the alert hook, but do not re-publish the same SwiftUI value.
     public func setBattery(_ pct: Double) {
-        batteryPct = pct
+        guard pct.isFinite, (0...100).contains(pct) else { return }
+        if batteryPct != pct { batteryPct = pct }
         bankBatterySample(pct)
         onBatteryUpdate?(pct)
     }
@@ -636,6 +639,7 @@ public final class LiveState: ObservableObject {
     /// any change in %, or enough elapsed time, banks a fresh point. The oldest readings fall off once the
     /// buffer is full. `now` is injectable so the estimate is unit-testable without a live clock.
     func bankBatterySample(_ pct: Double, now: Int = Int(Date().timeIntervalSince1970)) {
+        guard pct.isFinite, (0...100).contains(pct) else { return }
         if let last = batterySamples.last, last.soc == pct, now - last.ts < 600 { return }
         batterySamples.append((ts: now, soc: pct))
         if batterySamples.count > Self.maxBatterySamples {
@@ -664,8 +668,13 @@ public final class LiveState: ObservableObject {
     /// Only banks the historical points that aren't already present, so calling it twice is idempotent.
     public func seedBatterySamples(_ seed: [(ts: Int, soc: Double)]) {
         guard !seed.isEmpty else { return }
-        let existing = Set(batterySamples.map { $0.ts })
-        let fresh = seed.filter { !existing.contains($0.ts) }
+        var seen = Set(batterySamples.map { $0.ts })
+        // Persisted rows can contain malformed readings from interrupted/older syncs.
+        // Keep the first valid reading per timestamp, even if the seed repeats a row.
+        let fresh = seed.filter { reading in
+            guard reading.soc.isFinite, (0...100).contains(reading.soc) else { return false }
+            return seen.insert(reading.ts).inserted
+        }
         guard !fresh.isEmpty else { return }
         batterySamples.append(contentsOf: fresh)
         batterySamples.sort { $0.ts < $1.ts }
