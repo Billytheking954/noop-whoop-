@@ -22,6 +22,7 @@ entitlements = {
 with (root/'widget.plist').open('wb') as f:
     plistlib.dump(entitlements, f)
 entitlements['com.apple.developer.healthkit'] = True
+entitlements['com.apple.developer.healthkit.background-delivery'] = True
 entitlements['com.apple.developer.healthkit.access'] = []
 with (root/'app.plist').open('wb') as f:
     plistlib.dump(entitlements, f)
@@ -41,5 +42,7 @@ for name in ('signed-app.plist', 'signed-widget.plist'):
         entitlements = plistlib.load(f)
     assert group in entitlements['com.apple.security.application-groups'], name
 with (root/'signed-app.plist').open('rb') as f:
-    assert plistlib.load(f)['com.apple.developer.healthkit'] is True
+    app_entitlements = plistlib.load(f)
+    assert app_entitlements['com.apple.developer.healthkit'] is True
+    assert app_entitlements['com.apple.developer.healthkit.background-delivery'] is True
 PY

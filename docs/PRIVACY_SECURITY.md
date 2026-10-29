@@ -294,6 +294,13 @@ apps cannot read it through normal filesystem access. (On Android the equivalent
 is a Room/SQLite database in the app's private storage; the rest of this section
 describes the GRDB/SQLite store shared by the macOS and iOS apps.)
 
+On iOS, NOOP leaves the database in Application Support and does not exclude it from
+the operating system's backup. Depending on your iCloud or computer-backup settings,
+those user-managed backups may contain the database and its SQLite sidecars. This is
+separate from NOOP network traffic: ordinary local use sends no health data to a NOOP
+server. NOOP preserves the platform's default backup behavior so users retain the
+recovery route provided by their device settings.
+
 The schema is defined by a versioned `DatabaseMigrator` in
 `Packages/WhoopStore/Sources/WhoopStore/Database.swift` (currently schema version 9).
 It holds exactly the kinds of data you would expect from the features:

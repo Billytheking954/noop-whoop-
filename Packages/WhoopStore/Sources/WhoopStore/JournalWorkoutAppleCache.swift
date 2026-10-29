@@ -179,6 +179,41 @@ extension WhoopStore {
         }
     }
 
+    /// Merge Apple Health workout observations without treating nil as evidence that a stored value
+    /// disappeared. HealthKit intentionally hides read authorization; a successful-but-empty HR/steps
+    /// query can therefore mean "not readable", not "the workout has no measurements". Confirmed workout
+    /// deletions go through the UUID identity ledger instead.
+    @discardableResult
+    public func mergeAppleHealthWorkoutRows(_ rows: [WorkoutRow], deviceId: String) async throws -> Int {
+        try syncWrite { db in
+            var n = 0
+            for r in rows {
+                try db.execute(sql: """
+                    INSERT INTO workout
+                        (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
+                         avgHr, maxHr, strain, distanceM, zonesJSON, notes, steps)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
+                        endTs = excluded.endTs,
+                        source = excluded.source,
+                        durationS = COALESCE(excluded.durationS, workout.durationS),
+                        energyKcal = COALESCE(excluded.energyKcal, workout.energyKcal),
+                        avgHr = COALESCE(excluded.avgHr, workout.avgHr),
+                        maxHr = COALESCE(excluded.maxHr, workout.maxHr),
+                        strain = COALESCE(excluded.strain, workout.strain),
+                        distanceM = COALESCE(excluded.distanceM, workout.distanceM),
+                        zonesJSON = COALESCE(excluded.zonesJSON, workout.zonesJSON),
+                        notes = COALESCE(excluded.notes, workout.notes),
+                        steps = COALESCE(excluded.steps, workout.steps)
+                    """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
+                                     r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
+                                     r.zonesJSON, r.notes, r.steps])
+                n += db.changesCount
+            }
+            return n
+        }
+    }
+
     /// Delete one source's workouts of a given sport whose startTs is in [from, to]. Automatic
     /// detected-workout reconciliation no longer calls this; explicit edit/dismiss paths still do.
     /// Returns rows deleted. Port of Android WhoopDao.deleteWorkoutsBySport (#78/#2187).
