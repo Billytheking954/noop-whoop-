@@ -57,6 +57,25 @@ final class ColdStartHistoryLoadingTests: XCTestCase {
         XCTAssertTrue(diagnostics.contains("UserDefaults.standard.removeObject(forKey: prefix + suffix)"))
     }
 
+    func testTodayWaitsForFirstSavedCacheBeforeStartingCardQueries() throws {
+        let today = try text("Strand/Screens/TodayView.swift")
+        let start = try XCTUnwrap(today.range(of: "private func loadAll() async {"))
+        let firstRead = try XCTUnwrap(today.range(
+            of: "await loadDayScoped()", range: start.upperBound..<today.endIndex))
+        let preRead = today[start.upperBound..<firstRead.lowerBound]
+        XCTAssertTrue(preRead.contains("guard repo.loaded, !Task.isCancelled else { return }"))
+        // A successful initial refresh must wake the previously deferred task.
+        XCTAssertTrue(today.contains(".task(id: TodayLoadKey(seq: repo.refreshSeq"))
+
+        let repository = try text("Strand/Data/Repository.swift")
+        let refresh = try XCTUnwrap(repository.range(of: "func refresh(days nDays: Int = 4000) async {"))
+        let loaded = try XCTUnwrap(repository.range(
+            of: "self.loaded = true", range: refresh.upperBound..<repository.endIndex))
+        let signal = try XCTUnwrap(repository.range(
+            of: "self.refreshSeq += 1", range: loaded.upperBound..<repository.endIndex))
+        XCTAssertLessThan(loaded.lowerBound, signal.lowerBound)
+    }
+
     private func text(_ file: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
