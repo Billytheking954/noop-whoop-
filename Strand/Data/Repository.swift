@@ -945,8 +945,15 @@ final class Repository: ObservableObject {
     var loadFireCounts: [String: Int] = [:]
     #endif
 
-    func refresh(days nDays: Int = 4000) async {
+    // A sync's recent refresh must not evict history already requested by the
+    // launch full-history pass. Track requests before suspending so overlapping
+    // refreshes also use a non-shrinking window. No persisted rows are changed.
+    private var requestedHistoryDays = 0
+
+    func refresh(days requestedDays: Int = 4000) async {
+        requestedHistoryDays = max(requestedHistoryDays, requestedDays)
         guard let store = await ensureStore() else { return }
+        let nDays = requestedHistoryDays
         refreshGen &+= 1
         let myGen = refreshGen
         let now = Date()

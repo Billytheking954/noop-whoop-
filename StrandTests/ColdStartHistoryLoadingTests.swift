@@ -68,7 +68,7 @@ final class ColdStartHistoryLoadingTests: XCTestCase {
         XCTAssertTrue(today.contains(".task(id: TodayLoadKey(seq: repo.refreshSeq"))
 
         let repository = try text("Strand/Data/Repository.swift")
-        let refresh = try XCTUnwrap(repository.range(of: "func refresh(days nDays: Int = 4000) async {"))
+        let refresh = try XCTUnwrap(repository.range(of: "func refresh(days requestedDays: Int = 4000) async {"))
         let loaded = try XCTUnwrap(repository.range(
             of: "self.loaded = true", range: refresh.upperBound..<repository.endIndex))
         let signal = try XCTUnwrap(repository.range(
