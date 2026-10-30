@@ -4779,6 +4779,14 @@ struct TodayView: View {
     /// `refreshSeq`, which re-fires this task with `live.backfilling` false, and the deferred set runs then.
     /// Values + provenance are byte-identical to the old single-pass `loadAll` whenever each part runs.
     private func loadAll() async {
+        // The initial SwiftUI task can fire while AppModel is still hydrating the first
+        // 120-day saved snapshot. Do not compete with that launch-critical database read
+        // by starting dozens of day-scoped and history-wide card queries against an
+        // unopened/partially loaded store. The first successful Repository.refresh()
+        // publishes loaded and increments refreshSeq, which re-triggers this task.
+        // A failed store read keeps the existing Loading state rather than claiming
+        // that saved history is empty. No BLE or HealthKit operation is required.
+        guard repo.loaded, !Task.isCancelled else { return }
         // Always refresh the selected day (cheap, and it's what a day-switch / return-to-tab needs). Since
         // #860 retired the launch auto-land, this pass no longer changes `selectedDayOffset`, so there's no
         // re-fire to bail for: the history-wide set + the new-day announce run straight through below.
