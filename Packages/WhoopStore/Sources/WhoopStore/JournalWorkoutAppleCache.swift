@@ -151,31 +151,50 @@ extension WhoopStore {
     @discardableResult
     public func upsertWorkouts(_ rows: [WorkoutRow], deviceId: String) async throws -> Int {
         try syncWrite { db in
-            var n = 0
-            for r in rows {
-                try db.execute(sql: """
-                    INSERT INTO workout
-                        (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
-                         avgHr, maxHr, strain, distanceM, zonesJSON, notes, steps)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
-                        endTs = excluded.endTs,
-                        source = excluded.source,
-                        durationS = excluded.durationS,
-                        energyKcal = excluded.energyKcal,
-                        avgHr = excluded.avgHr,
-                        maxHr = excluded.maxHr,
-                        strain = excluded.strain,
-                        distanceM = excluded.distanceM,
-                        zonesJSON = excluded.zonesJSON,
-                        notes = excluded.notes,
-                        steps = excluded.steps
-                    """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
-                                     r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
-                                     r.zonesJSON, r.notes, r.steps])
-                n += db.changesCount
-            }
-            return n
+            try Self.upsertWorkouts(rows, deviceId: deviceId, in: db)
+        }
+    }
+
+    private static func upsertWorkouts(_ rows: [WorkoutRow], deviceId: String, in db: Database) throws -> Int {
+        var n = 0
+        for r in rows {
+            try db.execute(sql: """
+                INSERT INTO workout
+                    (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
+                     avgHr, maxHr, strain, distanceM, zonesJSON, notes, steps)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
+                    endTs = excluded.endTs,
+                    source = excluded.source,
+                    durationS = excluded.durationS,
+                    energyKcal = excluded.energyKcal,
+                    avgHr = excluded.avgHr,
+                    maxHr = excluded.maxHr,
+                    strain = excluded.strain,
+                    distanceM = excluded.distanceM,
+                    zonesJSON = excluded.zonesJSON,
+                    notes = excluded.notes,
+                    steps = excluded.steps
+                """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
+                                 r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
+                                 r.zonesJSON, r.notes, r.steps])
+            n += db.changesCount
+        }
+        return n
+    }
+
+    /// Confirm a suggested activity once, across every source namespace. The
+    /// overlap check and insert share the writer transaction, including callers
+    /// using another WhoopStore handle. Existing workouts are never rewritten.
+    /// Returns false when another saved activity already covers this window.
+    public func insertSuggestedWorkoutIfAbsent(_ row: WorkoutRow, deviceId: String) async throws -> Bool {
+        try syncWrite { db in
+            let exists = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM workout WHERE startTs <= ? AND endTs >= ?)
+                """, arguments: [row.endTs, row.startTs]) ?? false
+            guard !exists else { return false }
+            _ = try Self.upsertWorkouts([row], deviceId: deviceId, in: db)
+            return true
         }
     }
 

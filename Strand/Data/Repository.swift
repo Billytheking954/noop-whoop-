@@ -3329,45 +3329,54 @@ final class Repository: ObservableObject {
         let from = now - daysBack * 86_400
         let samples = await hrSamples(from: from, to: now, limit: 200_000)
         guard samples.count >= 2 else { return nil }
-        let hr = samples.map { (ts: $0.ts, bpm: $0.bpm) }
-
-        // Resting HR: most recent nightly RHR in range, else the detector's own default (60).
         let restingBpm = days.last(where: { $0.restingHr != nil })?.restingHr
-
-        // Exclude every already-saved workout window (any source , strap, manual, imported, detected).
         let saved = await workoutRows()
-        let savedSpans = saved.map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
+        let traceEnabled = TestCentre.active(.workouts) && workoutsLog != nil
+        guard !Task.isCancelled else { return nil }
+        let analysis = await Task.detached(priority: .utility) { () -> ([DetectedWorkout], [String]) in
+            let hr = samples.map { (ts: $0.ts, bpm: $0.bpm) }
 
-        // Workouts & GPS test mode: the published 12-minute result remains byte-identical. Aggregate,
-        // local-only comparisons include that 12-minute baseline plus the 10- and 15-minute alternatives.
-        // Shadow candidates are compared only with manual/imported labels; legacy detector rows are not
-        // ground truth. No shadow output can mutate the DB, visible card, daily scores or anything off-device.
-        let candidates: [DetectedWorkout]
-        if TestCentre.active(.workouts), workoutsLog != nil {
-            let (results, trace) = AutoWorkoutDetector.detectTrace(
-                hr: hr, restingBpm: restingBpm, motion: nil, savedSpans: savedSpans,
-                minimumSustainedMinutes: AutoWorkoutDetector.minSustainedMin,
-                path: "autoDetect")
-            for line in trace { emitWorkouts(line) }
-            let labelledSpans = saved
-                // `workoutRows()` intentionally returns long-lived history for the UI. Shadow candidates
-                // only cover this detector scan, so count labels in that same [from, now] start-time window
-                // (matching Android's range-scoped queries) or old sessions become false "missed" results.
-                .filter {
-                    $0.startTs >= from && $0.startTs <= now
-                        && WorkoutSource.classify($0.source) != .detected
+            // Resting HR: most recent nightly RHR in range, else the detector's own default (60).
+
+            // Exclude every already-saved workout window (any source , strap, manual, imported, detected).
+            let savedSpans = saved.map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
+
+            // Workouts & GPS test mode: the published 12-minute result remains byte-identical. Aggregate,
+            // local-only comparisons include that 12-minute baseline plus the 10- and 15-minute alternatives.
+            // Shadow candidates are compared only with manual/imported labels; legacy detector rows are not
+            // ground truth. No shadow output can mutate the DB, visible card, daily scores or anything off-device.
+            let candidates: [DetectedWorkout]
+            var lines: [String] = []
+            if traceEnabled {
+                let (results, trace) = AutoWorkoutDetector.detectTrace(
+                    hr: hr, restingBpm: restingBpm, motion: nil, savedSpans: savedSpans,
+                    minimumSustainedMinutes: AutoWorkoutDetector.minSustainedMin,
+                    path: "autoDetect")
+                lines += trace
+                let labelledSpans = saved
+                    // `workoutRows()` intentionally returns long-lived history for the UI. Shadow candidates
+                    // only cover this detector scan, so count labels in that same [from, now] start-time window
+                    // (matching Android's range-scoped queries) or old sessions become false "missed" results.
+                    .filter {
+                        $0.startTs >= from && $0.startTs <= now
+                            && WorkoutSource.classify($0.source) != .detected
+                    }
+                    .map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
+                for line in AutoWorkoutDetector.shadowComparisonLines(
+                    hr: hr, restingBpm: restingBpm, motion: nil, savedSpans: labelledSpans) {
+                    lines.append(line)
                 }
-                .map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
-            for line in AutoWorkoutDetector.shadowComparisonLines(
-                hr: hr, restingBpm: restingBpm, motion: nil, savedSpans: labelledSpans) {
-                emitWorkouts(line)
+                candidates = results
+            } else {
+                candidates = AutoWorkoutDetector.detect(hr: hr, restingBpm: restingBpm,
+                                                        motion: nil, savedSpans: savedSpans,
+                                                        minimumSustainedMinutes: AutoWorkoutDetector.minSustainedMin)
             }
-            candidates = results
-        } else {
-            candidates = AutoWorkoutDetector.detect(hr: hr, restingBpm: restingBpm,
-                                                    motion: nil, savedSpans: savedSpans,
-                                                    minimumSustainedMinutes: AutoWorkoutDetector.minSustainedMin)
-        }
+            return (candidates, lines)
+        }.value
+        guard !Task.isCancelled else { return nil }
+        for line in analysis.1 { emitWorkouts(line) }
+        let candidates = analysis.0
         return Self.selectAutoDetectCandidate(
             candidates,
             autoDismissedTokens: autoDetectDismissedSpans,
@@ -3397,13 +3406,26 @@ final class Repository: ObservableObject {
     /// re-queries (the new saved span now excludes this window from re-suggestion).
     @discardableResult
     func saveDetectedWorkout(_ w: DetectedWorkout) async -> Bool {
-        let durationMin = max(1, w.durationMin)
         let start = Date(timeIntervalSince1970: TimeInterval(w.startSec))
-        guard let row = WorkoutSource.buildManualRow(start: start, durationMin: durationMin,
-                                                     sport: "Workout", avgHr: w.avgBpm,
-                                                     energyKcal: nil) else { return false }
-        await saveManualWorkout(row)
-        return true
+        let end = Date(timeIntervalSince1970: TimeInterval(w.endSec))
+        guard let row = WorkoutSource.buildManualRowFromSpan(start: start, end: end,
+                                                            sport: "Workout", avgHr: w.avgBpm,
+                                                            energyKcal: nil) else { return false }
+        return await saveSuggestedWorkout(row)
+    }
+
+    /// A successful existing overlap also satisfies confirmation without
+    /// inserting a duplicate. A read/write failure must keep the card retryable.
+    @discardableResult
+    func saveSuggestedWorkout(_ row: WorkoutRow) async -> Bool {
+        guard let store = await ensureStore() else { return false }
+        do {
+            _ = try await store.insertSuggestedWorkoutIfAbsent(row, deviceId: deviceId)
+            return true
+        } catch {
+            NSLog("WhoopStore: activity confirmation failed; suggestion retained: \(error)")
+            return false
+        }
     }
 
     /// DISMISS a suggested window: record its span durably so it never re-prompts. Idempotent.
