@@ -76,6 +76,29 @@ final class ColdStartHistoryLoadingTests: XCTestCase {
         XCTAssertLessThan(loaded.lowerBound, signal.lowerBound)
     }
 
+    func testTodayCardStateCommitsOnlyAfterItsCancellationAndIdentityGuard() throws {
+        let source = try text("Strand/Screens/TodayView.swift")
+        let dayStart = try XCTUnwrap(source.range(of: "private func loadDayScoped() async {"))
+        let dayCommit = try XCTUnwrap(source.range(
+            of: "guard loadDayKey == selectedDayKey, loadSeq == repo.refreshSeq, !Task.isCancelled",
+            range: dayStart.upperBound..<source.endIndex))
+        let dayReads = String(source[dayStart.upperBound..<dayCommit.lowerBound])
+        // The synchronous same-key cache restore is allowed. Newly queried
+        // values must not mutate visible state while their reads still suspend.
+        for assignment in ["restScore = restScoreLocal", "hrPoints = hrPointsLocal",
+                           "sleepToday = sleepTodayLocal", "liveTodayStrain = liveStrainLocal"] {
+            XCTAssertFalse(dayReads.contains(assignment), assignment)
+            XCTAssertNotNil(source.range(of: assignment, range: dayCommit.upperBound..<source.endIndex))
+        }
+        let historyStart = try XCTUnwrap(source.range(of: "private func loadHistoryWide() async {"))
+        let historyCommit = try XCTUnwrap(source.range(
+            of: "sparks.merge(historySparks)", range: historyStart.upperBound..<source.endIndex))
+        let historyReads = String(source[historyStart.upperBound..<historyCommit.lowerBound])
+        XCTAssertTrue(historyReads.contains("guard !Task.isCancelled, loadSeq == repo.refreshSeq"))
+        XCTAssertFalse(historyReads.contains("workouts = await"))
+        XCTAssertFalse(historyReads.contains("sparks[\"recovery\"]        = await"))
+    }
+
     private func text(_ file: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

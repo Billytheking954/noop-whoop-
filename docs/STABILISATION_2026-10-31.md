@@ -86,6 +86,16 @@ claim is made. No health algorithm, detector threshold, database migration or sc
 Original physical failure IDs remain unresolved as test definitions; the checklist above is an
 additional test plan, not a reconstruction or PASS verdict for those missing definitions.
 
+Final cancellation review: selected-day and history card values now accumulate in locals and
+commit to visible Today state only after the day/refresh identity and cancellation check, with
+no suspension inside the commit. Hosted sleep/stress also reject superseded results. This closes
+the transient UI overwrite that a cache-only guard did not prevent. The existing architectural
+startup suite guards this ordering; real rapid date-navigation rendering still needs UI/device evidence.
+
+The earlier ChatGPT chat “Physical Test Planning” was also inspected. It expressly labelled its
+failure-ID mappings as **proposed retest focuses**, with original definitions missing. Those mappings
+are not original test definitions or physical PASS evidence, and have not been promoted to either.
+
 ## Physical checklist — iPhone 13 mini and WHOOP 5.0
 
 Preserve the installed app data, current pairing, database and backups. Do not uninstall/reset.
