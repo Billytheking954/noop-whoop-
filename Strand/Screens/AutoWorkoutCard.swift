@@ -63,16 +63,19 @@ struct AutoWorkoutCard: View {
         }
         .sheet(isPresented: $showEdit) {
             if let candidate,
-               let draft = WorkoutSource.buildManualRow(
+               let draft = WorkoutSource.buildManualRowFromSpan(
                    start: Date(timeIntervalSince1970: TimeInterval(candidate.startSec)),
-                   durationMin: max(1, candidate.durationMin), sport: "Workout",
+                   end: Date(timeIntervalSince1970: TimeInterval(candidate.endSec)), sport: "Workout",
                    avgHr: candidate.avgBpm, energyKcal: nil) {
                 ManualWorkoutSheet(editing: draft) { row, _ in
                     Task {
-                        await repo.saveManualWorkout(row)
-                        repo.dismissDetectedSuggestion(candidate)
-                        handledThisSession = true
-                        await repo.refresh()
+                        let saved = await repo.saveSuggestedWorkout(row)
+                        saveError = !saved
+                        if saved {
+                            repo.dismissDetectedSuggestion(candidate)
+                            handledThisSession = true
+                            await repo.refresh()
+                        }
                     }
                 }
             }

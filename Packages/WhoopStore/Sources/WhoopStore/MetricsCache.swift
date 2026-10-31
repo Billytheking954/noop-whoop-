@@ -11,7 +11,7 @@ import GRDB
 /// One cached sleep session pulled from the server's /v1/sleep. Natural key (deviceId, startTs).
 /// `stagesJSON` is the verbatim JSON array of stage segments ([{start,end,stage}]) — stored as a
 /// string so the cache stays schema-agnostic about the staging shape.
-public struct CachedSleepSession: Equatable, Codable {
+public struct CachedSleepSession: Equatable, Codable, Sendable {
     public let startTs: Int          // unix seconds
     public let endTs: Int            // unix seconds
     public let efficiency: Double?
@@ -79,7 +79,7 @@ public struct CachedSleepSession: Equatable, Codable {
 }
 
 /// One cached daily-metrics row pulled from the server's /v1/daily. Natural key (deviceId, day).
-public struct DailyMetric: Equatable, Codable {
+public struct DailyMetric: Equatable, Codable, Sendable {
     public let day: String           // YYYY-MM-DD
     public let totalSleepMin: Double?
     public let efficiency: Double?
@@ -618,50 +618,58 @@ extension WhoopStore {
     /// Cached sleep sessions overlapping [from, to] (by startTs), oldest first.
     public func sleepSessions(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [CachedSleepSession] {
         try syncRead { db in
-            try Row.fetchAll(db, sql: """
-                SELECT startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON, userEdited,
-                       startTsAdjusted, stagingSparse FROM sleepSession
-                WHERE deviceId = ? AND startTs >= ? AND startTs <= ?
-                ORDER BY startTs ASC LIMIT ?
-                """, arguments: [deviceId, from, to, limit])
-                .map {
-                    CachedSleepSession(startTs: $0["startTs"], endTs: $0["endTs"],
-                                       efficiency: $0["efficiency"], restingHr: $0["restingHr"],
-                                       avgHrv: $0["avgHrv"], stagesJSON: $0["stagesJSON"],
-                                       userEdited: $0["userEdited"], startTsAdjusted: $0["startTsAdjusted"],
-                                       stagingSparse: $0["stagingSparse"],
-                                       // The read knows the device it queried, so every block it hands
-                                       // back carries it and no caller has to ask the store again.
-                                       deviceId: deviceId)
-                }
+            try Self.readSleepSessions(deviceId: deviceId, from: from, to: to, limit: limit, in: db)
         }
+    }
+
+    static func readSleepSessions(deviceId: String, from: Int, to: Int, limit: Int, in db: Database) throws -> [CachedSleepSession] {
+        try Row.fetchAll(db, sql: """
+            SELECT startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON, userEdited,
+                   startTsAdjusted, stagingSparse FROM sleepSession
+            WHERE deviceId = ? AND startTs >= ? AND startTs <= ?
+            ORDER BY startTs ASC LIMIT ?
+            """, arguments: [deviceId, from, to, limit])
+            .map {
+                CachedSleepSession(startTs: $0["startTs"], endTs: $0["endTs"],
+                                   efficiency: $0["efficiency"], restingHr: $0["restingHr"],
+                                   avgHrv: $0["avgHrv"], stagesJSON: $0["stagesJSON"],
+                                   userEdited: $0["userEdited"], startTsAdjusted: $0["startTsAdjusted"],
+                                   stagingSparse: $0["stagingSparse"],
+                                   // The read knows the device it queried, so every block it hands
+                                   // back carries it and no caller has to ask the store again.
+                                   deviceId: deviceId)
+            }
     }
 
     /// Cached daily metrics for days in [from, to] (lexicographic YYYY-MM-DD compare), oldest first.
     public func dailyMetrics(deviceId: String, from: String, to: String) async throws -> [DailyMetric] {
         try syncRead { db in
-            try Row.fetchAll(db, sql: """
-                SELECT day, totalSleepMin, efficiency, deepMin, remMin, lightMin, disturbances,
-                       restingHr, avgHrv, recovery, strain, exerciseCount,
-                       spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
-                       spo2Red, spo2Ir, avgSdnn, skinTempC, sleepHrOnly FROM dailyMetric
-                WHERE deviceId = ? AND day >= ? AND day <= ?
-                ORDER BY day ASC
-                """, arguments: [deviceId, from, to])
-                .map {
-                    DailyMetric(day: $0["day"], totalSleepMin: $0["totalSleepMin"],
-                                efficiency: $0["efficiency"], deepMin: $0["deepMin"],
-                                remMin: $0["remMin"], lightMin: $0["lightMin"],
-                                disturbances: $0["disturbances"], restingHr: $0["restingHr"],
-                                avgHrv: $0["avgHrv"], recovery: $0["recovery"],
-                                strain: $0["strain"], exerciseCount: $0["exerciseCount"],
-                                spo2Pct: $0["spo2Pct"], skinTempDevC: $0["skinTempDevC"],
-                                respRateBpm: $0["respRateBpm"],
-                                steps: $0["steps"], activeKcalEst: $0["activeKcalEst"],
-                                spo2Red: $0["spo2Red"], spo2Ir: $0["spo2Ir"], avgSdnn: $0["avgSdnn"],
-                                skinTempC: $0["skinTempC"],
-                                sleepHrOnly: $0["sleepHrOnly"])
-                }
+            try Self.readDailyMetrics(deviceId: deviceId, from: from, to: to, in: db)
         }
+    }
+
+    static func readDailyMetrics(deviceId: String, from: String, to: String, in db: Database) throws -> [DailyMetric] {
+        try Row.fetchAll(db, sql: """
+            SELECT day, totalSleepMin, efficiency, deepMin, remMin, lightMin, disturbances,
+                   restingHr, avgHrv, recovery, strain, exerciseCount,
+                   spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
+                   spo2Red, spo2Ir, avgSdnn, skinTempC, sleepHrOnly FROM dailyMetric
+            WHERE deviceId = ? AND day >= ? AND day <= ?
+            ORDER BY day ASC
+            """, arguments: [deviceId, from, to])
+            .map {
+                DailyMetric(day: $0["day"], totalSleepMin: $0["totalSleepMin"],
+                            efficiency: $0["efficiency"], deepMin: $0["deepMin"],
+                            remMin: $0["remMin"], lightMin: $0["lightMin"],
+                            disturbances: $0["disturbances"], restingHr: $0["restingHr"],
+                            avgHrv: $0["avgHrv"], recovery: $0["recovery"],
+                            strain: $0["strain"], exerciseCount: $0["exerciseCount"],
+                            spo2Pct: $0["spo2Pct"], skinTempDevC: $0["skinTempDevC"],
+                            respRateBpm: $0["respRateBpm"],
+                            steps: $0["steps"], activeKcalEst: $0["activeKcalEst"],
+                            spo2Red: $0["spo2Red"], spo2Ir: $0["spo2Ir"], avgSdnn: $0["avgSdnn"],
+                            skinTempC: $0["skinTempC"],
+                            sleepHrOnly: $0["sleepHrOnly"])
+            }
     }
 }

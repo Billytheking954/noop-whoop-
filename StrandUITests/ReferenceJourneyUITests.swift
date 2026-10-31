@@ -72,4 +72,40 @@ final class ReferenceJourneyUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["About you"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Find a nearby strap"].exists)
     }
+
+    /// CI runs without a physical strap. Verify the self-test is reachable from the actual
+    /// iPhone navigation shell and produces a copyable, locally generated report.
+    func testLocalSelfTestReportsWithoutConnectedStrap() {
+        let app = launch()
+        let more = app.tabBars.buttons["More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 30))
+        more.tap()
+
+        let appSection = app.buttons["App"]
+        scrollTo(appSection, in: app)
+        if appSection.value as? String == "Collapsed" { appSection.tap() }
+
+        let testCentre = app.buttons["Test Centre"]
+        scrollTo(testCentre, in: app)
+        XCTAssertTrue(testCentre.waitForExistence(timeout: 15))
+        testCentre.tap()
+
+        let run = app.buttons["noop.testcentre.run-local-selftest"]
+        scrollTo(run, in: app)
+        XCTAssertTrue(run.waitForExistence(timeout: 15))
+        run.tap()
+
+        XCTAssertTrue(app.staticTexts["noop.testcentre.local-selftest-status"]
+            .waitForExistence(timeout: 90), "local diagnostics must finish without a strap")
+        XCTAssertTrue(app.buttons["noop.testcentre.copy-local-selftest"].exists)
+    }
+
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<12 {
+            if element.exists && element.isHittable { return }
+            app.swipeUp()
+        }
+        XCTAssertTrue(element.exists && element.isHittable, "Could not scroll to \(element)")
+    }
+
 }

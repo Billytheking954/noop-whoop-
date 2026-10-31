@@ -469,8 +469,17 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
-            await self.repo.refresh()                          // surface any imported data at once
-            await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
+            // Resolve the active strap before the first dashboard read, so the
+            // recent data includes both the active and canonical WHOOP sources.
+            let sourceTiming = ColdLaunchTrace.beginPhase("source-setup")
+            await self.wireSourceCoordinator(activateLiveSources: false)
+            ColdLaunchTrace.endPhase(sourceTiming)
+            // Publish recent saved data without waiting for full multi-year history.
+            // This is a cache-only read; no records are deleted or rewritten.
+            await self.repo.refresh(days: 120)
+            // Local history is visible before the coordinator can start a BLE
+            // source. This read has no HealthKit or network dependency.
+            self.sourceCoordinator?.start()
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -489,6 +498,10 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)  // 1 s, re-check; ~3 min cap then proceed
                 importWaited += 1
             }
+            // Widen the dashboard to complete saved history after the recent
+            // snapshot has already been published and initial sync settles.
+            // Existing full-history behaviour and on-upgrade repair remain intact.
+            await self.repo.refresh()
             // One-shot on-upgrade heal (#547): purge rows a bad-clock strap dated to scattered garbage
             // (far-past / bogus-2027 / FUTURE) from an older build, then rescore the real days. Runs
             // BEFORE the Effort rescore + analyzeRecent loop so both operate on a cleaned DB. Persisted
@@ -619,7 +632,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func wireSourceCoordinator() async {
+    private func wireSourceCoordinator(activateLiveSources: Bool = true) async {
         guard sourceCoordinator == nil, let store = await repo.storeHandle() else { return }
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
         registry.reload()
@@ -648,7 +661,7 @@ final class AppModel: ObservableObject {
                 self?.live.append(log: "[\(AppModel.logTimeFormatter.string(from: Date()))] \(line)")
             },
             ouraNightBand: { [weak self] in self?.ouraNightBand() })   // item 27
-        coordinator.start()
+        if activateLiveSources { coordinator.start() }
         self.deviceRegistry = registry
         // #1303: adoption re-points the strap onto its stable `whoop-<serial>` id inside BLEManager (which
         // holds only the non-observable store), so mirror it onto the OBSERVABLE registry here or the
@@ -657,6 +670,10 @@ final class AppModel: ObservableObject {
             registry?.setActive(serialId)
         }
         self.sourceCoordinator = coordinator
+        // Seed the read-side device id before subscribing. Its first registry
+        // emission then sees the same id and cannot start a second deep refresh;
+        // genuine later device changes still refresh and rescore normally.
+        _ = repo.adoptActiveDeviceId(registry.activeDeviceId)
         bindOuraFeatureStatusMirror()
         // #814 READ SPINE (HIGH-1): drive the read side off the registry's `activeDeviceId` for the WHOLE
         // session, exactly as SourceCoordinator drives the WRITE side off the SAME publisher. A Devices-
