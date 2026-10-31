@@ -193,6 +193,9 @@ final class Repository: ObservableObject {
     /// Imported (export-verbatim) sleep figures by day. Empty until a WHOOP import lands.
     @Published var importedSleep: [String: ImportedSleepFigures] = [:]
     @Published var loaded = false
+    /// A failed read differs from a successfully loaded empty database. Keep
+    /// the last complete snapshot visible while exposing its stale status.
+    @Published private(set) var savedCacheUnavailable = false
     /// How much history each source currently holds, recomputed on every `refresh()`. Powers the
     /// Data Sources "Freshness Pipeline" card so the user can see imported vs computed vs Apple coverage.
     @Published private(set) var freshness: RepositoryFreshness = .empty
@@ -992,7 +995,10 @@ final class Repository: ObservableObject {
     private func refreshSavedCaches(generation myGen: Int) async {
         let timing = ColdLaunchTrace.beginPhase("repository-refresh")
         defer { ColdLaunchTrace.endPhase(timing) }
-        guard let store = await ensureStore() else { return }
+        guard let store = await ensureStore() else {
+            if myGen == refreshGen { savedCacheUnavailable = true }
+            return
+        }
         guard myGen == refreshGen else { return }
         let nDays = requestedHistoryDays
         #if DEBUG
@@ -1010,23 +1016,22 @@ final class Repository: ObservableObject {
         // UNION the active strap (live raw, #814) with the canonical "my-whoop" import so a re-added strap's
         // live data AND the canonical history both surface, deduped per day (active strap wins). Collapses to
         // a single id on a single-device install (byte-identical to before).
-        let imported: [DailyMetric], computed: [DailyMetric], apple: [DailyMetric], activityFile: [DailyMetric]
-        let impSleep: [CachedSleepSession], compSleep: [CachedSleepSession]
-        let perf: [MetricPoint], cons: [MetricPoint], need: [MetricPoint], debt: [MetricPoint]
+        // Freeze source identities before suspending; source changes invalidate
+        // this generation and schedule a new read rather than mixing namespaces.
+        let importedIds = importedReadIds
+        let computedIds = computedReadIds
+        let rawIds = rawPhysiologyReadIds(store: store)
+        let rawComputedIds = rawIds.map { $0.hasSuffix("-noop") ? $0 : $0 + "-noop" }
+        let snapshot: DashboardSnapshot
         let readTiming = ColdLaunchTrace.beginPhase("repository-reads")
         do {
-            imported = try await unionDailyMetrics(store: store, from: fromDay, to: toDay)
-            computed = try await unionComputedDailyMetrics(store: store, from: fromDay, to: toDay)
-            apple = try await store.dailyMetrics(deviceId: Self.appleHealthSource, from: fromDay, to: toDay)
-            activityFile = try await store.dailyMetrics(deviceId: Self.activityFileSource, from: fromDay, to: toDay)
-            impSleep = try await unionSleepSessions(store: store, from: lo, to: hi)
-            compSleep = try await unionComputedSleepSessions(store: store, from: lo, to: hi)
-            perf = try await unionMetricSeries(store: store, key: "sleep_performance", from: fromDay, to: toDay)
-            cons = try await unionMetricSeries(store: store, key: "sleep_consistency", from: fromDay, to: toDay)
-            need = try await unionMetricSeries(store: store, key: "sleep_need_min", from: fromDay, to: toDay)
-            debt = try await unionMetricSeries(store: store, key: "sleep_debt_min", from: fromDay, to: toDay)
+            snapshot = try await store.dashboardSnapshot(
+                dailyDeviceIds: importedIds + computedIds + [Self.appleHealthSource, Self.activityFileSource],
+                sleepDeviceIds: rawIds + rawComputedIds, seriesDeviceIds: importedIds,
+                fromDay: fromDay, toDay: toDay, fromTs: lo, toTs: hi)
         } catch {
             ColdLaunchTrace.endPhase(readTiming)
+            if myGen == refreshGen { savedCacheUnavailable = true }
             // A transient locked/unavailable read is not evidence that saved
             // history vanished. Keep the last complete publication intact.
             NSLog("WhoopStore: dashboard refresh read failed; retaining cache: \(error)")
@@ -1050,11 +1055,27 @@ final class Repository: ObservableObject {
         // a detached task and the main actor stays free for SwiftUI during a deep-history refresh.
         let mergeTiming = ColdLaunchTrace.beginPhase("repository-merge")
         let merged: MergedCaches = await Task.detached(priority: .utility) {
+            let imported = Self.coalesceSavedDays(importedIds.flatMap { snapshot.dailyByDevice[$0] ?? [] })
+            let computed = Self.coalesceSavedDays(computedIds.flatMap { snapshot.dailyByDevice[$0] ?? [] })
+            let apple = snapshot.dailyByDevice[Self.appleHealthSource] ?? []
+            let activityFile = snapshot.dailyByDevice[Self.activityFileSource] ?? []
+            let impSleep = Self.dedupBlocks(rawIds.flatMap { snapshot.sleepByDevice[$0] ?? [] })
+            let compSleep = Self.dedupBlocks(rawComputedIds.flatMap { snapshot.sleepByDevice[$0] ?? [] })
             var fig: [String: ImportedSleepFigures] = [:]
-            for p in perf { fig[p.day, default: ImportedSleepFigures()].performancePct = p.value }
-            for p in cons { fig[p.day, default: ImportedSleepFigures()].consistencyPct = p.value }
-            for p in need { fig[p.day, default: ImportedSleepFigures()].needMin = p.value }
-            for p in debt { fig[p.day, default: ImportedSleepFigures()].debtMin = p.value }
+            // First source with a value wins, matching unionMetricSeries.
+            var seenSeries = Set<String>()
+            for id in importedIds {
+                for p in snapshot.seriesByDevice[id] ?? [] {
+                    guard seenSeries.insert(p.key + ":" + p.day).inserted else { continue }
+                    switch p.key {
+                    case "sleep_performance": fig[p.day, default: ImportedSleepFigures()].performancePct = p.value
+                    case "sleep_consistency": fig[p.day, default: ImportedSleepFigures()].consistencyPct = p.value
+                    case "sleep_need_min": fig[p.day, default: ImportedSleepFigures()].needMin = p.value
+                    case "sleep_debt_min": fig[p.day, default: ImportedSleepFigures()].debtMin = p.value
+                    default: break
+                    }
+                }
+            }
             // H5 (#509): a night the user hand-edited (userEdited) must keep its corrected sleep figures even
             // when a WHOOP/Apple import also covers that day. The computed ("-noop") session carries the edit,
             // and IntelligenceEngine re-keys the computed DAILY row from it; collect those edited days so the
@@ -1093,6 +1114,7 @@ final class Repository: ObservableObject {
             && merged.importedSleep == importedSleep
             && merged.vitalRows == vitalRows
             && merged.freshness == freshness
+        if savedCacheUnavailable { savedCacheUnavailable = false }
         guard !unchanged else { return }
 
         // One consistent publish per refresh: assign every cache, flip `loaded`, then bump `refreshSeq` so
@@ -1118,6 +1140,14 @@ final class Repository: ObservableObject {
         self.refreshSeq += 1
         // First successful dashboard cache, not the time all cards have drawn.
         ColdLaunchTrace.finish(cacheLoaded: true, cachedDays: self.days.count)
+    }
+
+    nonisolated private static func coalesceSavedDays(_ rows: [DailyMetric]) -> [DailyMetric] {
+        var byDay: [String: DailyMetric] = [:]
+        for row in rows {
+            byDay[row.day] = byDay[row.day].map { Self.coalesceDay($0, row) } ?? row
+        }
+        return byDay.values.sorted { $0.day < $1.day }
     }
 
     /// Per-source coverage counts for the Freshness Pipeline card. Pure over the rows already read.

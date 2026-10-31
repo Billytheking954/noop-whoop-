@@ -1443,6 +1443,19 @@ struct TodayView: View {
                        topBackground: showDayCycleBackground && !usesEditorialToday
                            ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                if repo.savedCacheUnavailable {
+                    NoopCard {
+                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                            Text("Storage unavailable").font(StrandFont.headline)
+                            Text("Couldn't read the local store right now. Try again in a moment.")
+                                .font(StrandFont.footnote)
+                            Button("Try again") {
+                                Task { await repo.refresh(days: 120) }
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("noop.today.saved-cache-unavailable")
+                }
                 #if os(iOS)
                 // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
                 // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).

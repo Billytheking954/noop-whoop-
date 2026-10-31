@@ -56,13 +56,17 @@ extension WhoopStore {
     /// oldest day first. Served index-only by idx_metricSeries_device_key_day.
     public func metricSeries(deviceId: String, key: String, from: String, to: String) async throws -> [MetricPoint] {
         try syncRead { db in
-            try Row.fetchAll(db, sql: """
-                SELECT day, key, value FROM metricSeries
-                WHERE deviceId = ? AND key = ? AND day >= ? AND day <= ?
-                ORDER BY day ASC
-                """, arguments: [deviceId, key, from, to])
-                .map { MetricPoint(day: $0["day"], key: $0["key"], value: $0["value"]) }
+            try Self.readMetricSeries(deviceId: deviceId, key: key, from: from, to: to, in: db)
         }
+    }
+
+    static func readMetricSeries(deviceId: String, key: String, from: String, to: String, in db: Database) throws -> [MetricPoint] {
+        try Row.fetchAll(db, sql: """
+            SELECT day, key, value FROM metricSeries
+            WHERE deviceId = ? AND key = ? AND day >= ? AND day <= ?
+            ORDER BY day ASC
+            """, arguments: [deviceId, key, from, to])
+            .map { MetricPoint(day: $0["day"], key: $0["key"], value: $0["value"]) }
     }
 
     /// Distinct metric keys present for a device, sorted ascending.

@@ -57,12 +57,14 @@ final class SavedHistoryWindowTests: XCTestCase {
         }
         await repo.refresh(days: 120)
         XCTAssertFalse(repo.loaded)
+        XCTAssertTrue(repo.savedCacheUnavailable)
         XCTAssertEqual(repo.refreshSeq, 0)
         try await store.registryWriter.write { db in
             try db.execute(sql: "ALTER TABLE unavailableDailyMetric RENAME TO dailyMetric")
         }
         await repo.refresh(days: 120)
         XCTAssertTrue(repo.loaded)
+        XCTAssertFalse(repo.savedCacheUnavailable)
         XCTAssertEqual(repo.days, [saved])
         XCTAssertEqual(repo.refreshSeq, 1)
     }

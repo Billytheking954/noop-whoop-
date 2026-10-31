@@ -31,5 +31,6 @@ final class SavedHistoryRefreshFailureTests: XCTestCase {
         XCTAssertEqual(repo.days, [saved])
         XCTAssertTrue(repo.loaded)
         XCTAssertEqual(repo.refreshSeq, publishedSequence)
+        XCTAssertTrue(repo.savedCacheUnavailable)
     }
 }
