@@ -259,6 +259,9 @@ final class Repository: ObservableObject {
         let trimmed = id.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, trimmed != deviceId else { return false }
         deviceId = trimmed
+        // A refresh may be suspended between source reads. Never publish that
+        // mixed-source snapshot after the active device changes.
+        refreshGen &+= 1
         return true
     }
 
@@ -949,13 +952,54 @@ final class Repository: ObservableObject {
     // launch full-history pass. Track requests before suspending so overlapping
     // refreshes also use a non-shrinking window. No persisted rows are changed.
     private var requestedHistoryDays = 0
+    private var refreshTask: Task<Void, Never>?
+
+    #if DEBUG
+    /// Suspend a real refresh at its read boundary for deterministic race tests.
+    var beforeRefreshReadForTesting: (() async -> Void)?
+    var onRefreshRequestForTesting: (() -> Void)?
+    private(set) var refreshReadPassesForTesting = 0
+    #endif
 
     func refresh(days requestedDays: Int = 4000) async {
+        guard !Task.isCancelled else { return }
         requestedHistoryDays = max(requestedHistoryDays, requestedDays)
-        guard let store = await ensureStore() else { return }
-        let nDays = requestedHistoryDays
         refreshGen &+= 1
-        let myGen = refreshGen
+        #if DEBUG
+        onRefreshRequestForTesting?()
+        #endif
+        // Join an existing reader. Requests arriving during a read owe ONE
+        // trailing pass; they must not launch overlapping full-history queries.
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            while true {
+                let generation = self.refreshGen
+                await self.refreshSavedCaches(generation: generation)
+                if generation == self.refreshGen { break }
+            }
+            // Clear inside the worker, before releasing its waiters. An older
+            // waiter must not clear a newer task created after this one finishes.
+            self.refreshTask = nil
+        }
+        refreshTask = task
+        await task.value
+    }
+
+    private func refreshSavedCaches(generation myGen: Int) async {
+        let timing = ColdLaunchTrace.beginPhase("repository-refresh")
+        defer { ColdLaunchTrace.endPhase(timing) }
+        guard let store = await ensureStore() else { return }
+        guard myGen == refreshGen else { return }
+        let nDays = requestedHistoryDays
+        #if DEBUG
+        refreshReadPassesForTesting += 1
+        await beforeRefreshReadForTesting?()
+        guard myGen == refreshGen else { return }
+        #endif
         let now = Date()
         let calendar = Calendar.current
         let fromDay = Self.dayString(calendar.date(byAdding: .day, value: -nDays, to: now) ?? now)
@@ -969,6 +1013,7 @@ final class Repository: ObservableObject {
         let imported: [DailyMetric], computed: [DailyMetric], apple: [DailyMetric], activityFile: [DailyMetric]
         let impSleep: [CachedSleepSession], compSleep: [CachedSleepSession]
         let perf: [MetricPoint], cons: [MetricPoint], need: [MetricPoint], debt: [MetricPoint]
+        let readTiming = ColdLaunchTrace.beginPhase("repository-reads")
         do {
             imported = try await unionDailyMetrics(store: store, from: fromDay, to: toDay)
             computed = try await unionComputedDailyMetrics(store: store, from: fromDay, to: toDay)
@@ -981,11 +1026,14 @@ final class Repository: ObservableObject {
             need = try await unionMetricSeries(store: store, key: "sleep_need_min", from: fromDay, to: toDay)
             debt = try await unionMetricSeries(store: store, key: "sleep_debt_min", from: fromDay, to: toDay)
         } catch {
+            ColdLaunchTrace.endPhase(readTiming)
             // A transient locked/unavailable read is not evidence that saved
             // history vanished. Keep the last complete publication intact.
             NSLog("WhoopStore: dashboard refresh read failed; retaining cache: \(error)")
             return
         }
+        ColdLaunchTrace.endPhase(readTiming)
+        guard myGen == refreshGen else { return }
 
         // #2525: the Charge baselines' inputs, read on the main actor before detaching: today's local day
         // (the same local-calendar key the engine anchors its fold on) and the two recalibration epochs the
@@ -1000,6 +1048,7 @@ final class Repository: ObservableObject {
         // Merge + sort OFF the main actor (FIX 3): the figures build, the two O(n log n) daily/sleep merges,
         // the source-row sort, and the freshness counts are all pure over the rows just read, so they run in
         // a detached task and the main actor stays free for SwiftUI during a deep-history refresh.
+        let mergeTiming = ColdLaunchTrace.beginPhase("repository-merge")
         let merged: MergedCaches = await Task.detached(priority: .utility) {
             var fig: [String: ImportedSleepFigures] = [:]
             for p in perf { fig[p.day, default: ImportedSleepFigures()].performancePct = p.value }
@@ -1027,6 +1076,7 @@ final class Repository: ObservableObject {
                 freshness: Self.computeFreshness(imported: imported, computed: computed, apple: apple,
                                                  importedSleeps: impSleep, computedSleeps: compSleep))
         }.value
+        ColdLaunchTrace.endPhase(mergeTiming)
 
         // Generation guard (#review): if a newer refresh() started while this one merged off-actor, drop
         // this now-stale result so it can't clobber the newer caches or re-fire loadAll out of order.

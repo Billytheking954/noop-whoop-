@@ -471,7 +471,9 @@ final class AppModel: ObservableObject {
             #endif
             // Resolve the active strap before the first dashboard read, so the
             // recent data includes both the active and canonical WHOOP sources.
+            let sourceTiming = ColdLaunchTrace.beginPhase("source-setup")
             await self.wireSourceCoordinator(activateLiveSources: false)
+            ColdLaunchTrace.endPhase(sourceTiming)
             // Publish recent saved data without waiting for full multi-year history.
             // This is a cache-only read; no records are deleted or rewritten.
             await self.repo.refresh(days: 120)

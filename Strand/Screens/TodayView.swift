@@ -4787,15 +4787,25 @@ struct TodayView: View {
         // A failed store read keeps the existing Loading state rather than claiming
         // that saved history is empty. No BLE or HealthKit operation is required.
         guard repo.loaded, !Task.isCancelled else { return }
+        let loadSeq = repo.refreshSeq
         // Always refresh the selected day (cheap, and it's what a day-switch / return-to-tab needs). Since
         // #860 retired the launch auto-land, this pass no longer changes `selectedDayOffset`, so there's no
         // re-fire to bail for: the history-wide set + the new-day announce run straight through below.
+        let dayTiming = ColdLaunchTrace.beginPhase("today-day")
         await loadDayScoped()
+        ColdLaunchTrace.endPhase(dayTiming)
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         // #today-hosted-cards: refresh the shared SleepModel for the hosted sleep cards. Runs on EVERY load
         // (before the cache-restore short-circuit below), so the card survives a tab-away/return; the gate
         // inside makes it a no-op unless a sleep card is actually hosted.
+        let sleepTiming = ColdLaunchTrace.beginPhase("today-sleep")
         await loadHostedSleepModel()
+        ColdLaunchTrace.endPhase(sleepTiming)
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+        let stressTiming = ColdLaunchTrace.beginPhase("today-stress")
         await loadHostedStress()
+        ColdLaunchTrace.endPhase(stressTiming)
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         // #849: a bare Today RE-MOUNT (tab-away + return, or an Apple-Health import that recreates the view)
         // re-fires this task with TodayView's `@State` reset, so the heavy history-wide pass re-ran in full
         // every time even when NOTHING in the data had changed: hundreds of redundant reads (incl. the
@@ -4830,7 +4840,10 @@ struct TodayView: View {
         // first pass also makes the mount-during-sync flag race harmless: with no data yet we load regardless
         // of the flag. The deferred set is guaranteed to run later via the coalesced refresh (see .task note).
         if !backfillActivelyWriting || !loadedHistoryWideOnce {
+            let historyTiming = ColdLaunchTrace.beginPhase("today-history")
             await loadHistoryWide()
+            ColdLaunchTrace.endPhase(historyTiming)
+            guard !Task.isCancelled, currentSeq == repo.refreshSeq else { return }
             loadedHistoryWideOnce = true
             // Record the seq we just loaded so a later re-mount with unchanged data short-circuits above.
             repo.todayHistoryWideLoadedSeq = currentSeq
@@ -4896,6 +4909,7 @@ struct TodayView: View {
     /// does NOT depend on `selectedDayOffset`. The bulk of the dashboard's reads; deferred during an active
     /// backfill (see `loadAll`). Same reads, same derivations, same assignment order as before.
     private func loadHistoryWide() async {
+        let loadSeq = repo.refreshSeq
         // 14-day sparklines, Whoop + Apple Health. These reads are mutually independent (distinct
         // metric keys/sources), so kick them all off concurrently with `async let` and await the
         // results below. Each hits the @MainActor Repository, fires its `await store.*` on the
@@ -5012,6 +5026,7 @@ struct TodayView: View {
         // the selected day on every pass, so caching it here (then merging it back on a same-seq day-switch)
         // would clobber the new day's value with a stale one. Every other spark key is history-wide.
         var historyWideSparks = sparks
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         historyWideSparks["sleep_performance"] = nil
         repo.todayHistoryWideCache = TodayHistoryWideCache(
             sparks: historyWideSparks,

@@ -1,10 +1,42 @@
 import Foundation
 import WhoopStore
+import os.signpost
 
 /// Local-only timing of the first successful repository cache publication. This is NOT a measurement of when
 /// individual Today cards finish loading. One sample per app process, stored as small scalars.
 @MainActor
 enum ColdLaunchTrace {
+    private static let performanceLog = OSLog(subsystem: "com.noopapp.noop", category: "Startup")
+
+    struct Phase {
+        let name: String
+        let id: OSSignpostID
+        let start: TimeInterval
+    }
+
+    /// Local Instruments intervals; names and durations only, never health values.
+    static func beginPhase(_ name: String) -> Phase {
+        let phase = Phase(name: name, id: OSSignpostID(log: performanceLog),
+                          start: ProcessInfo.processInfo.systemUptime)
+        os_signpost(.begin, log: performanceLog, name: "Saved dashboard", signpostID: phase.id,
+                    "%{public}@", name)
+        return phase
+    }
+
+    static func endPhase(_ phase: Phase) {
+        let seconds = ProcessInfo.processInfo.systemUptime - phase.start
+        os_signpost(.end, log: performanceLog, name: "Saved dashboard", signpostID: phase.id,
+                    "%{public}@ %.3f seconds", phase.name, seconds)
+        // Keep just the first duration for each phase of THIS launch, so the
+        // Test Centre can identify a slow stage without connecting Instruments.
+        let key = prefix + "phase." + phase.name
+        if UserDefaults.standard.object(forKey: key) == nil {
+            UserDefaults.standard.set(seconds, forKey: key)
+        }
+    }
+
+    static let phaseNames = ["source-setup", "repository-refresh", "repository-reads",
+                             "repository-merge", "today-day", "today-sleep", "today-stress", "today-history"]
     struct Snapshot {
         let seconds: Double
         let cacheLoaded: Bool
@@ -23,6 +55,9 @@ enum ColdLaunchTrace {
         // A failed new launch must not display an older launch's timing as current.
         for suffix in ["seconds", "cacheLoaded", "cachedDays", "todayDataLoadSeconds"] {
             UserDefaults.standard.removeObject(forKey: prefix + suffix)
+        }
+        for name in phaseNames {
+            UserDefaults.standard.removeObject(forKey: prefix + "phase." + name)
         }
     }
 
@@ -111,6 +146,12 @@ enum LocalSelfTest {
                 lines.append("Time to first completed Today data calculation: not recorded yet")
             }
             lines.append("Note: these times do not measure first frame paint or prove every card is populated.")
+            for name in ColdLaunchTrace.phaseNames {
+                let key = "noop.diagnostics.coldRootLoad.phase." + name
+                if let seconds = UserDefaults.standard.object(forKey: key) as? Double {
+                    lines.append(String(format: "First %@ interval: %.3fs", name, seconds))
+                }
+            }
         } else {
             lines.append("Time to first local cache publication: not recorded")
         }
