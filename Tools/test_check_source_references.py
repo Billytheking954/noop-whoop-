@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -41,7 +42,9 @@ class SourceReferenceTests(unittest.TestCase):
 
     def run_doc(self, doc: Path) -> tuple[int, list[str]]:
         output = io.StringIO()
-        with contextlib.redirect_stdout(output):
+        # Make diagnostic paths relative to a controlled fixture root on every
+        # OS, whether TEMP happens to live inside or outside the checkout.
+        with patch.object(check_source_references, "REPO_ROOT", self.root), contextlib.redirect_stdout(output):
             code = check_source_references.main([str(doc)])
         return code, output.getvalue().splitlines()
 
@@ -74,7 +77,7 @@ class SourceReferenceTests(unittest.TestCase):
         self.assertEqual(1, code)
         self.assertEqual(2, len(lines))
         self.assertEqual(
-            f"FAIL {doc}:2 ../Sources/Client.swift [missing] symbol not found",
+            "FAIL docs/PROTOCOL.md:2 ../Sources/Client.swift [missing] symbol not found",
             lines[0],
         )
         self.assertEqual("checked 1 references, 1 files, 1 failures", lines[1])
@@ -89,7 +92,7 @@ class SourceReferenceTests(unittest.TestCase):
 
         self.assertEqual(1, code)
         self.assertEqual(
-            f"FAIL {doc}:1 ../Sources/Missing.swift file does not exist",
+            "FAIL docs/PROTOCOL.md:1 ../Sources/Missing.swift file does not exist",
             lines[0],
         )
         self.assertEqual("checked 1 references, 1 files, 1 failures", lines[1])
@@ -101,7 +104,7 @@ class SourceReferenceTests(unittest.TestCase):
 
         self.assertEqual(1, code)
         self.assertEqual(
-            f"FAIL {doc}:1 ../Sources/missing.py file does not exist",
+            "FAIL docs/PROTOCOL.md:1 ../Sources/missing.py file does not exist",
             lines[0],
         )
         self.assertEqual("checked 1 references, 1 files, 1 failures", lines[1])
@@ -121,7 +124,7 @@ class SourceReferenceTests(unittest.TestCase):
 
         self.assertEqual(1, code)
         self.assertEqual(
-            f"FAIL {doc}:1 ../Sources/Client.swift [decode] symbol not found",
+            "FAIL docs/PROTOCOL.md:1 ../Sources/Client.swift [decode] symbol not found",
             lines[0],
         )
         self.assertEqual("checked 1 references, 1 files, 1 failures", lines[1])

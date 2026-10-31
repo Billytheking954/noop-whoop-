@@ -55,6 +55,37 @@ the executable app/package validation path. Local sandbox temp permissions requi
 TEMP/TMP. Initial full Tools discovery: 36 tests, four source-reference path-format failures;
 these are real Windows/inside-repository fixture assumptions, separate from app behavior.
 
+## Implemented candidate changes (automated execution still required)
+
+- `d4819dc9`: coalesce concurrent repository refreshes with one trailing read; invalidate
+  in-flight results on active-device changes; preserve the non-shrinking history window.
+  Add controlled suspension tests and local phase timings/Instruments signposts. Cancelled
+  Today tasks cannot mark or cache obsolete history loads as complete.
+- `7268e72b`: report real workout write success, keep failed confirmations retryable, preserve
+  exact detected end seconds, and atomically check all workout namespaces before inserting a
+  confirmation. Existing imported/manual data is never overwritten by confirmation. Move the
+  pure HR detection/shadow scan off the main actor; all detector policies remain unchanged.
+- `59a6162d`: read daily/sleep/metric inputs in one GRDB read snapshot, using the existing
+  decoders/queries; coalesce source rows and deduplicate sleep off the main actor. Expose failed
+  cache reads separately from empty/loading, retaining previous data with a retry affordance.
+  Add snapshot/commit consistency, nil-versus-zero and unavailable/retry regressions.
+- Make source-reference tests use a controlled relative fixture root so Windows separators
+  and a TEMP directory inside the checkout do not create false failures. Preserve exact message,
+  symbol and missing-file assertions. Run all 36 retained tool tests on Linux and Windows CI.
+
+Local result after the fixture correction: **36/36 Tools tests pass**, 1.914 seconds on this
+Windows host; protocol arithmetic examples pass; 88 source references across 28 files pass.
+Source-comment hygiene, iPhone-only invariants and localisation regression/focus-locale gates
+also pass locally. None is an iPhone launch, frame-rate or physiological measurement.
+
+No numeric iPhone startup, CPU, frame-rate or battery measurement has been obtained. The two-second
+target remains unverified. Do not describe the reported 15-second delay as resolved from these changes.
+No BLE reconnect, charging, overnight capture, HealthKit authorization or physiological accuracy
+claim is made. No health algorithm, detector threshold, database migration or schema version changed.
+
+Original physical failure IDs remain unresolved as test definitions; the checklist above is an
+additional test plan, not a reconstruction or PASS verdict for those missing definitions.
+
 ## Physical checklist — iPhone 13 mini and WHOOP 5.0
 
 Preserve the installed app data, current pairing, database and backups. Do not uninstall/reset.

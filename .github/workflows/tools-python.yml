@@ -37,15 +37,12 @@ jobs:
         working-directory: Tools
         run: |
           set -o pipefail
-          python3 -m unittest -v \
-            test_backup_validation \
-            test_prune_stale_branches \
-            test_verify_iphone_ipa \
+          python3 -m unittest discover -s . -p 'test_*.py' -v \
             2>&1 | tee "$RUNNER_TEMP/out.txt"
           ran=$(grep -oE '^Ran [0-9]+ test' "$RUNNER_TEMP/out.txt" | grep -oE '[0-9]+')
           echo "collected ${ran:-0} retained tool tests"
-          if [ "${ran:-0}" -lt 20 ]; then
-            echo "::error::expected at least 20 retained tool tests"
+          if [ "${ran:-0}" -lt 36 ]; then
+            echo "::error::expected at least 36 retained tool tests"
             exit 1
           fi
 
@@ -78,3 +75,5 @@ jobs:
               print('::error::expected at least 200 tests; discovery or execution is incomplete')
               sys.exit(1)
           sys.exit(0 if result.wasSuccessful() else 1)
+      - name: Run all retained repository-tool tests on Windows
+        run: python -m unittest discover -s Tools -p 'test_*.py' -v
