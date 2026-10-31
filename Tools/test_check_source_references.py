@@ -25,7 +25,9 @@ SPEC.loader.exec_module(check_source_references)
 class SourceReferenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        # Windows may return an 8.3 TEMP path while main() resolves its input to
+        # the long path. Normalize both sides before asserting relative output.
+        self.root = Path(self.temp.name).resolve()
         self.docs = self.root / "docs"
         self.sources = self.root / "Sources"
         self.docs.mkdir()

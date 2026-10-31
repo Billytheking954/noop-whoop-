@@ -136,6 +136,22 @@ jobs:
                 sleep 18
               fi
               xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/$SCREEN-$APPEARANCE.png"
+              if [[ "$SCREEN" == "today" ]]; then
+                DATA_DIR="$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" data)"
+                python3 - "$DATA_DIR/Library/Preferences/$BUNDLE_ID.plist" "$CAPTURE_DIR/startup-$APPEARANCE.json" <<'PY'
+          import json, pathlib, plistlib, sys
+          source, target = map(pathlib.Path, sys.argv[1:])
+          prefs = plistlib.loads(source.read_bytes()) if source.exists() else {}
+          prefix = 'noop.diagnostics.coldRootLoad.'
+          timings = {k.removeprefix(prefix): v for k, v in prefs.items() if k.startswith(prefix)}
+          target.write_text(json.dumps({
+              'environment': 'GitHub-hosted iPhone Simulator; synthetic stored fixtures',
+              'source_sha': __import__('subprocess').check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'available': bool(timings), 'timings': timings,
+              'limitations': 'One launch sample. Not physical iPhone speed, first paint, frame rate, BLE or battery validation.'
+          }, indent=2) + '\n')
+          PY
+              fi
             done
           done
           # Check the redesigned Today at an accessibility text size as well as the standard shots.
@@ -169,7 +185,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: noop-iphone-ui-review
-          path: ${{ runner.temp }}/noop-ui-review/*.png
+          path: |
+            ${{ runner.temp }}/noop-ui-review/*.png
+            ${{ runner.temp }}/noop-ui-review/startup-*.json
           if-no-files-found: error
           retention-days: 14
 
