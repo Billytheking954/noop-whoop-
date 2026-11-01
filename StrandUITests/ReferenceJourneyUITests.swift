@@ -96,6 +96,8 @@ final class ReferenceJourneyUITests: XCTestCase {
         let value = app.buttons["noop.today.calendar"].value as? String ?? ""
         XCTAssertTrue(value.contains("days=400"), value)
         let expectedDay = stateFields(app.buttons["noop.today.calendar"])["day"]
+        XCTAssertFalse(app.staticTexts["Last night's sleep"].exists)
+        XCTAssertTrue(app.staticTexts[expectedDay ?? "missing day"].exists)
         capture(app, name: "year-old-date")
         app.buttons["noop.today.ring.sleep_performance"].tap()
         XCTAssertTrue(app.staticTexts["Sleep"].firstMatch.waitForExistence(timeout: 20))

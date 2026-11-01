@@ -2132,7 +2132,8 @@ struct TodayView: View {
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                     HStack {
-                        Label("Last night's sleep", systemImage: "bed.double")
+                        Label(selectedDayOffset == 0 ? String(localized: "Last night's sleep") : selectedDayKey,
+                              systemImage: "bed.double")
                             .font(ReferenceStyle.headline)
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
