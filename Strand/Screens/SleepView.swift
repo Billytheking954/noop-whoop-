@@ -27,6 +27,10 @@ import UIKit
 // minutes for light/deep/rem/awake; typical = mean of repo.days).
 
 struct SleepView: View {
+    private let requestedDay: String?
+
+    init(day: String? = nil) { requestedDay = day }
+
     @EnvironmentObject var repo: Repository
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var router: NavRouter
@@ -185,8 +189,13 @@ struct SleepView: View {
                         }
                     }
                 } else {
-                    emptyState
-                    alarmsEntry
+                    if requestedDay != nil {
+                        if loadedSleepRefresh == nil { ProgressView() }
+                        else { Text("No saved sleep for this day") }
+                    } else {
+                        emptyState
+                        alarmsEntry
+                    }
                 }
             }
             // LiquidScoreGauge owns its own count-up animation (same as Home heroes).
@@ -531,7 +540,10 @@ struct SleepView: View {
         let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(night.session.endTs)))
         return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
             HStack {
-                Text("Last night's sleep").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                Text(requestedDay == nil ? String(localized: "Last night's sleep") : day)
+                    .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .accessibilityIdentifier("noop.sleep.day")
+                    .accessibilityValue(day)
                 Spacer()
                 wakeEditButton(night)
             }
@@ -549,7 +561,7 @@ struct SleepView: View {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     ReferenceCard {
                         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                            Text("Last night's sleep").font(ReferenceStyle.caption)
+                            Text(requestedDay == nil ? String(localized: "Last night's sleep") : day).font(ReferenceStyle.caption)
                             Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
                             Text("\(night.onsetText) – \(night.wakeText)")
                                 .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
@@ -2006,13 +2018,34 @@ struct SleepView: View {
     /// the pure `SleepModel.build(_:)` (SleepModel.swift), which the Today host also calls. Returns
     /// nil when there is no usable latest night (renders empty state).
     private func buildModel() -> SleepModel? {
-        SleepModel.build(SleepModelInputs(
+        let inputs = SleepModelInputs(
             days: repo.days,
             sleeps: repo.sleeps,
             allSessions: allSessions,
             importedSleep: repo.importedSleep,
             habitualMidsleepSec: habitualMidsleepSec,
-            motionByStart: motionByStart))
+            motionByStart: motionByStart)
+        guard let scoped = Self.routedInputs(inputs, day: requestedDay) else { return nil }
+        return SleepModel.build(scoped)
+    }
+
+    /// Presentation scope only: the shared model and its health calculations are unchanged.
+    /// A missing routed wake-day must not silently display a more recent or older night.
+    static func routedInputs(_ inputs: SleepModelInputs, day: String?) -> SleepModelInputs? {
+        guard let day else { return inputs }
+        let available = inputs.allSessions.isEmpty ? inputs.sleeps : inputs.allSessions
+        guard available.contains(where: { wakeDay($0) == day }) else { return nil }
+        return SleepModelInputs(
+            days: inputs.days.filter { $0.day <= day },
+            sleeps: inputs.sleeps.filter { wakeDay($0) <= day },
+            allSessions: inputs.allSessions.filter { wakeDay($0) <= day },
+            importedSleep: inputs.importedSleep.filter { $0.key <= day },
+            habitualMidsleepSec: inputs.habitualMidsleepSec,
+            motionByStart: inputs.motionByStart)
+    }
+
+    private static func wakeDay(_ session: CachedSleepSession) -> String {
+        Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(session.endTs)))
     }
 
     // MARK: - Derived model
@@ -2021,7 +2054,9 @@ struct SleepView: View {
     /// sleep). Falls back to `repo.sleeps` (one-per-night) until the fuller list loads, so the hero
     /// is never empty during the first frame. (#170)
     private var navSessions: [CachedSleepSession] {
-        allSessions.isEmpty ? repo.sleeps : allSessions
+        let sessions = allSessions.isEmpty ? repo.sleeps : allSessions
+        guard let requestedDay else { return sessions }
+        return sessions.filter { Self.wakeDay($0) <= requestedDay }
     }
 
     /// The browsable DAY list — a thin wrapper over the shared `SleepModel.navDays`, which is the

@@ -6,6 +6,38 @@ import WhoopStore
 /// Synthetic stores only: no app database, HealthKit, pairing or BLE is accessed.
 @MainActor
 final class SimulatorStabilisationTests: XCTestCase {
+    func testHistoricalSleepAndActivityUseTheSelectedDay() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await AppleDemoSeeder.seed(into: store, days: 400)
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(store)
+        await repo.refresh()
+        let date = Calendar.current.date(byAdding: .day, value: -365, to: Date())!
+        let day = Repository.localDayKey(date)
+        let sessions = await repo.allSleepSessions()
+        let inputs = SleepModelInputs(days: repo.days, sleeps: repo.sleeps,
+                                      allSessions: sessions, importedSleep: repo.importedSleep,
+                                      habitualMidsleepSec: nil, motionByStart: [:])
+        let selected = try XCTUnwrap(SleepView.routedInputs(inputs, day: day))
+        let night = try XCTUnwrap(SleepModel.build(selected)?.night)
+        XCTAssertEqual(Repository.localDayKey(Date(timeIntervalSince1970: Double(night.session.endTs))), day)
+        XCTAssertLessThan(night.session.effectiveStartTs, night.session.endTs)
+        XCTAssertTrue(selected.days.allSatisfy { $0.day <= day })
+        XCTAssertEqual(SleepView.routedInputs(inputs, day: nil)?.days, inputs.days)
+        XCTAssertNil(SleepView.routedInputs(inputs, day: "1900-01-01"), "A missing date must never fall through to the latest night")
+
+        func workout(_ date: Date) -> WorkoutRow {
+            let start = Int(date.timeIntervalSince1970)
+            return WorkoutRow(startTs: start, endTs: start + 1800, sport: "Running", source: "whoop",
+                              durationS: 1800, energyKcal: nil, avgHr: nil, maxHr: nil,
+                              strain: nil, distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
+        }
+        let historical = workout(date)
+        let recent = workout(Date())
+        XCTAssertEqual(TodayView.workouts(on: day, from: [recent, historical]), [historical])
+        XCTAssertTrue(TodayView.workouts(on: "1900-01-01", from: [recent, historical]).isEmpty)
+    }
+
     func testFourHundredDayFixtureIsDeterministic() async throws {
         let now = Date(timeIntervalSince1970: 1_793_534_400) // Fixed reference, including older history.
         let first = try await WhoopStore.inMemory()

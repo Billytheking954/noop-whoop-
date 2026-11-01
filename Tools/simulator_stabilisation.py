@@ -40,6 +40,7 @@ def collect(udid, bundle, output):
             prefs = plistlib.loads(prefs_path.read_bytes())
             timings = {k.removeprefix(prefix): v for k, v in prefs.items() if k.startswith(prefix)}
             sample = {"appearance": appearance, "index": index, "timings": timings,
+                      "seed_reference_epoch": prefs.get("noop.simulator.seedReferenceEpoch"),
                       "observation_window_seconds": time.monotonic() - started}
             samples.append(sample)
             (output / "launch-samples.json").write_text(json.dumps(samples, indent=2) + "\n")

@@ -71,9 +71,12 @@ enum AppleDemoSeeder {
         let existing = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
         guard existing.isEmpty else { return }
         do {
-            // A fixed noon reference makes all rows reproducible for a given local day.
+            // Capture one minute-rounded reference for reproducible rows without future samples.
             let now = validationRequested
-                ? Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 3600) : Date()
+                ? Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970 / 60) * 60) : Date()
+            if validationRequested {
+                UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "noop.simulator.seedReferenceEpoch")
+            }
             try await seed(into: store, days: validationRequested ? 400 : DAYS, now: now)
         }
         catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }

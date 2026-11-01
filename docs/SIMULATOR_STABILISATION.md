@@ -5,6 +5,14 @@ truncated workout endpoints and summary fields. The compact subtitle now wraps
 vertically and its row grows with the content. This changes layout only; stored
 times, calculations, source selection and row actions are preserved.
 
+Visual review of the first extended run found a recent workout shown on a year-old
+Today selection, hidden historical sleep endpoints, and a Sleep link opening the
+latest night. Historical workout rows now use the selected local start-day, the
+sleep card uses that wake-day's existing main-night span, and the Sleep destination
+scopes the shared model's inputs through the requested wake-day. A missing routed
+date stays missing. The shared sleep/scoring algorithms and persisted rows are
+unchanged. Unit and UI assertions cover the date identity as well as populated scores.
+
 `app-build.yml` checks out the exact PR head. The existing `NOOPiOS` scheme runs
 the hosted app suite and UI journeys. It then creates an iPhone 13 mini simulator
 and captures the existing screen routes in light/dark modes and accessibility text.
@@ -12,7 +20,8 @@ The extended validation refuses to call another device a mini.
 
 The opt-in DEBUG simulator arguments `--demo-seed --simulator-validation` extend
 the existing seed to 400 days, covering the recent 120-day cache and older history.
-The PRNG and local-day noon reference make a given day's fixture reproducible.
+The PRNG and recorded minute-rounded reference make the fixture reproducible
+without seeding future HR samples.
 No `--demo-hour` presentation overrides are used. Normal demo seeding remains 120
 days. No simulator is erased and no application database is reset. Use disposable
 CI simulators; these arguments are not intended for personal health stores.

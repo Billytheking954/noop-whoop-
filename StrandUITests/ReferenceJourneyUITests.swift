@@ -95,9 +95,13 @@ final class ReferenceJourneyUITests: XCTestCase {
         waitForPopulatedDay(app, offset: 365)
         let value = app.buttons["noop.today.calendar"].value as? String ?? ""
         XCTAssertTrue(value.contains("days=400"), value)
+        let expectedDay = stateFields(app.buttons["noop.today.calendar"])["day"]
         capture(app, name: "year-old-date")
         app.buttons["noop.today.ring.sleep_performance"].tap()
         XCTAssertTrue(app.staticTexts["Sleep"].firstMatch.waitForExistence(timeout: 20))
+        let sleepDay = app.staticTexts["noop.sleep.day"]
+        XCTAssertTrue(sleepDay.waitForExistence(timeout: 20))
+        XCTAssertEqual(sleepDay.value as? String, expectedDay, "Sleep detail must retain the selected wake-day")
         capture(app, name: "year-old-sleep-navigation")
     }
 
@@ -106,7 +110,9 @@ final class ReferenceJourneyUITests: XCTestCase {
         XCTAssertTrue(calendar.waitForExistence(timeout: 60))
         let populated = NSPredicate { _, _ in
             let fields = self.stateFields(calendar)
-            return fields["offset"] == String(offset) && fields["day"] == fields["loaded"]
+            let historicalContentMatches = offset == 0 || (
+                fields["sleepDay"] == fields["day"] && (fields["activityDays"] ?? "").split(separator: ",").allSatisfy { String($0) == fields["day"] })
+            return historicalContentMatches && fields["offset"] == String(offset) && fields["day"] == fields["loaded"]
                 && Double(fields["rest"] ?? "") != nil && Double(fields["charge"] ?? "") != nil
         }
         expectation(for: populated, evaluatedWith: calendar)

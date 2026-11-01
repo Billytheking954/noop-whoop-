@@ -1382,7 +1382,9 @@ struct TodayView: View {
         let loadedDay = repo.todayDayScopedLoadedDayKey
         let rest = restScore.map { String($0) } ?? "nil"
         let charge = displayDay?.recovery.map { String($0) } ?? "nil"
-        return "day=\(selectedDayKey);loaded=\(loadedDay);offset=\(selectedDayOffset);rest=\(rest);charge=\(charge);days=\(repo.days.count);hr=\(hrPoints.count)"
+        let sleepDay = editorialSleepSession.map { Repository.localDayKey(Date(timeIntervalSince1970: Double($0.endTs))) } ?? "none"
+        let activityDays = editorialActivityRows.map { Repository.localDayKey(Date(timeIntervalSince1970: Double($0.startTs))) }.joined(separator: ",")
+        return "day=\(selectedDayKey);loaded=\(loadedDay);offset=\(selectedDayOffset);rest=\(rest);charge=\(charge);days=\(repo.days.count);hr=\(hrPoints.count);sleepDay=\(sleepDay);activityDays=\(activityDays)"
     }
     #endif
 
@@ -2061,7 +2063,7 @@ struct TodayView: View {
                     Text(selectedDayOffset == 0
                          ? stressToday.map { String(format: "Day average %.1f", locale: AppLanguage.activeLocale, $0) }
                            ?? (repo.loaded ? "No supported reading" : "Loading…")
-                         : "Open selected-day detail")
+                         : "Explore trends")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
@@ -2105,8 +2107,16 @@ struct TodayView: View {
         }
     }
 
+    private var editorialSleepSession: CachedSleepSession? {
+        selectedDayOffset == 0 ? hostedSleepModel?.night.session ?? sleepToday : sleepToday
+    }
+
+    private var selectedSleepRoute: TabRoute {
+        selectedDayOffset == 0 ? .sleep : .sleepDay(selectedDayKey)
+    }
+
     private var editorialSleepSection: some View {
-        NavigationLink(value: TabRoute.sleep) {
+        NavigationLink(value: selectedSleepRoute) {
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
                     HStack {
@@ -2118,8 +2128,8 @@ struct TodayView: View {
                     HStack(alignment: .top, spacing: ReferenceStyle.gap) {
                         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                             Text("Bedtime").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                            if selectedDayOffset == 0, let model = hostedSleepModel {
-                                Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.effectiveStartTs)), style: .time)
+                            if let session = editorialSleepSession {
+                                Text(Date(timeIntervalSince1970: TimeInterval(session.effectiveStartTs)), style: .time)
                                     .font(ReferenceStyle.headline)
                             } else { Text("—").font(ReferenceStyle.headline) }
                         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -2132,8 +2142,8 @@ struct TodayView: View {
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                             Text("Wake up").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                            if selectedDayOffset == 0, let model = hostedSleepModel {
-                                Text(Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs)), style: .time)
+                            if let session = editorialSleepSession {
+                                Text(Date(timeIntervalSince1970: TimeInterval(session.endTs)), style: .time)
                                     .font(ReferenceStyle.headline)
                             } else { Text("—").font(ReferenceStyle.headline) }
                         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -2186,8 +2196,16 @@ struct TodayView: View {
         }
     }
 
+    static func workouts(on day: String, from rows: [WorkoutRow]) -> [WorkoutRow] {
+        rows.filter { Repository.localDayKey(Date(timeIntervalSince1970: Double($0.startTs))) == day }
+    }
+
+    private var editorialActivityRows: [WorkoutRow] {
+        selectedDayOffset == 0 ? Self.recentWorkoutsFeed(workouts) : Self.workouts(on: selectedDayKey, from: workouts)
+    }
+
     @ViewBuilder private var editorialActivitySection: some View {
-        let recent = Self.recentWorkoutsFeed(workouts)
+        let recent = editorialActivityRows
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
 
             if let row = recent.max(by: { $0.startTs < $1.startTs }) {
@@ -2211,7 +2229,11 @@ struct TodayView: View {
                 .buttonStyle(.plain)
             } else {
                 NavigationLink(value: TabRoute.workouts) {
-                    NoopCard { Text(repo.loaded ? "No recent activities · Open workouts" : "Loading activities…") }
+                    NoopCard {
+                        Text(repo.loaded
+                             ? (selectedDayOffset == 0 ? "No recent activities · Open workouts" : "No workouts found")
+                             : "Loading activities…")
+                    }
                 }
                 .buttonStyle(.plain)
             }
@@ -3480,7 +3502,7 @@ struct TodayView: View {
             // `HeroRingDetailRouteTests` pins against `MetricCatalog`; `TabRoute.metric` falls back to the
             // Health screen on an unknown key rather than failing, which is why they are pinned.
             heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance",
-                           detailRoute: .sleep,
+                           detailRoute: selectedSleepRoute,
                            caption: restIsPendingSync ? "Pending sync" : nil,
                            captionWidth: ring) { restRing(diameter: ring) }
             heroRingColumn(section: .charge, domain: .charge, provenanceKey: "recovery",
@@ -5382,7 +5404,10 @@ struct TodayView: View {
         // read for a night stored as more than one block (#294). Drives the HR sleep band + the recovery
         // marker's wake anchor.
         let overlapping = await repo.allSleepSessions(days: selectedDayOffset + 2)
-            .filter { $0.endTs > windowStart && $0.startTs < windowEndExclusive }
+            .filter {
+                $0.endTs > windowStart && $0.startTs < windowEndExclusive
+                    && Repository.localDayKey(Date(timeIntervalSince1970: Double($0.endTs))) == loadDayKey
+            }
         let habitualMidsleepSecLocal = await repo.habitualMidsleepSec()
         let sleepTodayLocal = SleepView.mainNightSpan(overlapping, habitualMidsleepSec: habitualMidsleepSecLocal)
             .map { span in
