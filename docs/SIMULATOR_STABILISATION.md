@@ -42,7 +42,12 @@ Neither timer measures first pixel paint. Filesystem/OS caches remain warm betwe
 process launches; the initial seed creation is excluded from repeat samples.
 
 The simulator has no physical strap or fresh import. Cached operation is exercised
-without those data sources, while host networking remains enabled. This does not
+without those data sources. Opt-in simulator validation registers a DEBUG URLProtocol
+that fails default HTTP/HTTPS loads with `notConnectedToInternet`; each repeat
+sample verifies a private-scheme probe returned that exact error in the current
+process. This is simulated URL loading failure, not an OS-wide firewall. Custom
+session configurations that replace protocol classes are outside this injection.
+Host networking remains enabled. This does not
 prove behavior under an OS-enforced loss of all network routes. No real BLE,
 battery, thermal, physical iPhone latency, installation, background reconnection,
 HealthKit permissions/deletion semantics or physiological accuracy is established.

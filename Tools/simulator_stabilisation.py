@@ -44,6 +44,7 @@ def collect(udid, bundle, output):
             samples.append(sample)
             (output / "launch-samples.json").write_text(json.dumps(samples, indent=2) + "\n")
             assert timings.get("processIdentifier") == pid, "Stale preferences must not masquerade as this launch"
+            assert prefs.get("noop.simulator.offlineValidatedPID") == pid, "Simulated offline URL loading must be verified in this process"
             assert timings.get("cacheLoaded") is True, sample
             assert timings.get("cachedDays", 0) >= 120, sample
             assert timings.get("todayDataLoadSeconds", 0) > 0, sample
@@ -57,7 +58,7 @@ def collect(udid, bundle, output):
                             "max": max(values), "pstdev": statistics.pstdev(values)}
     (output / "summary.json").write_text(json.dumps({
         "source_sha": source, "device_inventory": device, "udid": udid,
-        "environment": "GitHub-hosted macOS / iOS Simulator / DEBUG / 400 synthetic days",
+        "environment": "GitHub-hosted macOS / iOS Simulator / DEBUG / 400 synthetic days / URLProtocol offline injection",
         "launches": samples, "summary": summary,
         "limitations": "Process restarts with an existing OS/filesystem cache. Host networking enabled; no strap or new import. Timings start at ColdLaunchTrace.begin, not OS process start. XCTest separately observes populated view state. Not first paint, physical iPhone performance, BLE, battery or physiological accuracy."
     }, indent=2) + "\n")

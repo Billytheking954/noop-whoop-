@@ -56,6 +56,9 @@ struct StrandiOSApp: App {
         // Begin measuring the first successful publication of local saved data.
         // No BLE, HealthKit or raw health values are involved.
         ColdLaunchTrace.begin()
+        #if DEBUG
+        AppleDemoSeeder.installOfflineValidationIfRequested()
+        #endif
         // #1008: pin the pre-change Overnight-only default for existing installs before
         // anything reads it. Idempotent; a no-op on fresh installs and after the first launch.
         PuffinExperiment.migrateContinuousHrvOvernightDefault()

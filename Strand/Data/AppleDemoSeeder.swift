@@ -36,6 +36,22 @@ enum AppleDemoSeeder {
               index + 1 < args.count, let value = Int(args[index + 1]) else { return 0 }
         return min(399, max(0, value))
     }
+
+    /// Simulates unavailable HTTP services in the opt-in simulator harness only.
+    static func installOfflineValidationIfRequested() {
+        guard validationRequested else { return }
+        URLProtocol.registerClass(SimulatorOfflineProtocol.self)
+        UserDefaults.standard.removeObject(forKey: "noop.simulator.offlineValidatedPID")
+        Task {
+            do {
+                // A private scheme makes it impossible for the probe itself to contact a server.
+                _ = try await URLSession.shared.data(from: URL(string: "noop-offline-validation://probe")!)
+            } catch let error as URLError where error.code == .notConnectedToInternet {
+                UserDefaults.standard.set(ProcessInfo.processInfo.processIdentifier,
+                                          forKey: "noop.simulator.offlineValidatedPID")
+            } catch { NSLog("Simulator offline probe failed: \(error)") }
+        }
+    }
     /// Effort rescale factor: the old 0–21 strain scale → the new 0–100 Effort scale.
     private static let STRAIN_SCALE = 100.0 / 21.0
 
@@ -306,6 +322,18 @@ enum AppleDemoSeeder {
         seg("rem", rem * 0.4); seg("wake", awakeMin)
         return "[" + parts.joined(separator: ",") + "]"
     }
+}
+
+/// DEBUG harness fault injection, not a change to the WHOOP or production networking paths.
+private final class SimulatorOfflineProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["http", "https", "noop-offline-validation"].contains(request.url?.scheme ?? "")
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+    override func stopLoading() { }
 }
 
 /// Deterministic SplitMix64 PRNG — gives a fixed, reproducible demo dataset across runs (the Apple
