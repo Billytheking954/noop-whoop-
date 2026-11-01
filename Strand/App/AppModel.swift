@@ -501,7 +501,9 @@ final class AppModel: ObservableObject {
             // Widen the dashboard to complete saved history after the recent
             // snapshot has already been published and initial sync settles.
             // Existing full-history behaviour and on-upgrade repair remain intact.
+            ColdLaunchTrace.mark("background-history-started")
             await self.repo.refresh()
+            ColdLaunchTrace.mark("background-history-completed")
             // One-shot on-upgrade heal (#547): purge rows a bad-clock strap dated to scattered garbage
             // (far-past / bogus-2027 / FUTURE) from an older build, then rescore the real days. Runs
             // BEFORE the Effort rescore + analyzeRecent loop so both operate on a cleaned DB. Persisted

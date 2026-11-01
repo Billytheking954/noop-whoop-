@@ -1107,6 +1107,8 @@ final class Repository: ObservableObject {
         // loaded once, skip the re-publish and the `refreshSeq` bump entirely , assigning an equal value to
         // an @Published prop still fires objectWillChange, so the skip must cover the assignments too. This
         // is what stops the analyze-tail's burst of refresh() calls each re-firing TodayView.loadAll().
+        let publicationTiming = ColdLaunchTrace.beginPhase("repository-publication")
+        defer { ColdLaunchTrace.endPhase(publicationTiming) }
         let unchanged = loaded
             && merged.days == days
             && merged.chargeBaselines == chargeBaselines

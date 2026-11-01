@@ -16,6 +16,8 @@ enum ColdLaunchTrace {
 
     /// Local Instruments intervals; names and durations only, never health values.
     static func beginPhase(_ name: String) -> Phase {
+        let countKey = prefix + "count." + name
+        UserDefaults.standard.set(UserDefaults.standard.integer(forKey: countKey) + 1, forKey: countKey)
         let phase = Phase(name: name, id: OSSignpostID(log: performanceLog),
                           start: ProcessInfo.processInfo.systemUptime)
         os_signpost(.begin, log: performanceLog, name: "Saved dashboard", signpostID: phase.id,
@@ -36,7 +38,10 @@ enum ColdLaunchTrace {
     }
 
     static let phaseNames = ["source-setup", "repository-refresh", "repository-reads",
-                             "repository-merge", "today-day", "today-sleep", "today-stress", "today-history"]
+                             "repository-merge", "repository-publication", "today-day", "today-sleep",
+                             "today-sleep-reads", "today-sleep-build", "today-stress", "today-history"]
+    static let milestoneNames = ["app-model-ready", "today-selected-day-ready", "today-score-content-observed",
+                                 "background-history-started", "background-history-completed"]
     struct Snapshot {
         let seconds: Double
         let cacheLoaded: Bool
@@ -46,6 +51,7 @@ enum ColdLaunchTrace {
 
     private static var processStartUptime: TimeInterval?
     private static var firstTodayStartUptime: TimeInterval?
+    private static var launchStartUptime: TimeInterval?
     private static let prefix = "noop.diagnostics.coldRootLoad."
 
     static func begin() {
@@ -55,13 +61,27 @@ enum ColdLaunchTrace {
         #endif
         processStartUptime = start
         firstTodayStartUptime = start
+        launchStartUptime = start
         // A failed new launch must not display an older launch's timing as current.
         for suffix in ["seconds", "cacheLoaded", "cachedDays", "todayDataLoadSeconds"] {
             UserDefaults.standard.removeObject(forKey: prefix + suffix)
         }
         for name in phaseNames {
             UserDefaults.standard.removeObject(forKey: prefix + "phase." + name)
+            UserDefaults.standard.removeObject(forKey: prefix + "count." + name)
         }
+        for name in milestoneNames {
+            UserDefaults.standard.removeObject(forKey: prefix + "milestone." + name)
+        }
+    }
+
+    /// Elapsed from the same launch origin. View observation is not a GPU presentation timestamp.
+    static func mark(_ name: String) {
+        guard let start = launchStartUptime, milestoneNames.contains(name) else { return }
+        let key = prefix + "milestone." + name
+        guard UserDefaults.standard.object(forKey: key) == nil else { return }
+        UserDefaults.standard.set(ProcessInfo.processInfo.systemUptime - start, forKey: key)
+        os_signpost(.event, log: performanceLog, name: "Saved dashboard milestone", "%{public}@", name)
     }
 
     /// First completed Today data computation, not the first drawn frame or
@@ -149,10 +169,17 @@ enum LocalSelfTest {
                 lines.append("Time to first completed Today data calculation: not recorded yet")
             }
             lines.append("Note: these times do not measure first frame paint or prove every card is populated.")
+            lines.append("Cache, Today completion and milestones share one launch origin; do not add them together.")
             for name in ColdLaunchTrace.phaseNames {
                 let key = "noop.diagnostics.coldRootLoad.phase." + name
                 if let seconds = UserDefaults.standard.object(forKey: key) as? Double {
                     lines.append(String(format: "First %@ interval: %.3fs", name, seconds))
+                    lines.append("\(name) intervals started this process: \(UserDefaults.standard.integer(forKey: "noop.diagnostics.coldRootLoad.count." + name))")
+                }
+            }
+            for name in ColdLaunchTrace.milestoneNames {
+                if let seconds = UserDefaults.standard.object(forKey: "noop.diagnostics.coldRootLoad.milestone." + name) as? Double {
+                    lines.append(String(format: "Launch to %@: %.3fs", name, seconds))
                 }
             }
         } else {

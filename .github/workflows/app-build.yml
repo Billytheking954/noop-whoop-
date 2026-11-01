@@ -72,6 +72,21 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
           build
 
+      - name: Run focused Sleep and startup regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x.get("isAvailable") and x.get("name","").startswith("iPhone")))')"
+          mkdir -p "$RUNNER_TEMP/noop-stabilisation"
+          RESULT="$RUNNER_TEMP/noop-stabilisation/focused.xcresult"
+          xcodebuild -quiet -project Strand.xcodeproj -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -only-testing:StrandTests/SleepPhantomNightFallbackTests \
+            -only-testing:StrandTests/SimulatorStabilisationTests \
+            -only-testing:StrandTests/ColdLaunchTraceTests \
+            -resultBundlePath "$RESULT" CODE_SIGNING_ALLOWED=NO test
+          xcrun xcresulttool get test-results summary --path "$RESULT" > "$RUNNER_TEMP/noop-stabilisation/focused-summary.json"
+
       - name: Run iPhone-hosted unit tests
         id: iphone_tests
         shell: bash

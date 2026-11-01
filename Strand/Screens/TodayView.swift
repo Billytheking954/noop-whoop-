@@ -1388,6 +1388,12 @@ struct TodayView: View {
     }
     #endif
 
+    /// Observation of populated score inputs in the visible Today view, not first pixel paint.
+    private var startupScoresReady: Bool {
+        selectedDayOffset == 0 && repo.loaded && repo.todayDayScopedLoadedDayKey == selectedDayKey
+            && repo.todayDayScopedLoadedSeq == repo.refreshSeq && restScore != nil && displayDay?.recovery != nil
+    }
+
     /// Settings presented as a sheet from the top-bar profile button (sheets inherit the app
     /// environment on iOS, so SettingsView gets the same objects it has under the More tab).
     private var settingsSheet: some View {
@@ -1572,6 +1578,9 @@ struct TodayView: View {
         // day-scoped, so navigating must re-fetch them for the newly selected window.
         .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset,
                               dayCycleMode: dayCycleModeRaw)) { await loadAll() }
+        .onChange(of: startupScoresReady, initial: true) { _, ready in
+            if ready { ColdLaunchTrace.mark("today-score-content-observed") }
+        }
         // #989: hydration writes don't bump refreshSeq, so the card needs its own triggers, a logged /
         // edited / deleted drink (hydrationSeq) and the Settings feature toggle both re-read just the two
         // hydration fields. Cheap (one metricSeries row), never re-runs the heavy loads.
@@ -4850,6 +4859,7 @@ struct TodayView: View {
         await loadDayScoped()
         ColdLaunchTrace.endPhase(dayTiming)
         guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+        if selectedDayOffset == 0 { ColdLaunchTrace.mark("today-selected-day-ready") }
         // #today-hosted-cards: refresh the shared SleepModel for the hosted sleep cards. Runs on EVERY load
         // (before the cache-restore short-circuit below), so the card survives a tab-away/return; the gate
         // inside makes it a no-op unless a sleep card is actually hosted.
@@ -4948,10 +4958,14 @@ struct TodayView: View {
             hostedSleepModel = nil
             return
         }
+        let readTiming = ColdLaunchTrace.beginPhase("today-sleep-reads")
         let hostedSessions = await repo.allSleepSessions()
         let hostedHabitual = await repo.habitualMidsleepSec()
         let hostedMotion = await repo.sessionMotions(sessions: hostedSessions)
+        ColdLaunchTrace.endPhase(readTiming)
         guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+        let buildTiming = ColdLaunchTrace.beginPhase("today-sleep-build")
+        defer { ColdLaunchTrace.endPhase(buildTiming) }
         hostedSleepModel = SleepModel.build(SleepModelInputs(
             days: repo.days,
             sleeps: repo.sleeps,

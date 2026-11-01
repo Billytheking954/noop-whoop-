@@ -95,6 +95,7 @@ struct StrandiOSApp: App {
             Task { @MainActor in router?.openDailyInsight(id: id) }
         }
         let model = AppModel()
+        ColdLaunchTrace.mark("app-model-ready")
         _model = StateObject(wrappedValue: model)
         CoachBriefScheduler.register(generateBrief: { [weak coach = model.coach] in
             await coach?.generateBrief()

@@ -51,7 +51,7 @@ def collect(udid, bundle, output):
             assert timings.get("todayDataLoadSeconds", 0) > 0, sample
     summary = {}
     for key in sorted(set().union(*(s["timings"] for s in samples))):
-        if key not in ("seconds", "todayDataLoadSeconds") and not key.startswith("phase."):
+        if key not in ("seconds", "todayDataLoadSeconds") and not key.startswith(("phase.", "milestone.", "count.")):
             continue
         values = [s["timings"][key] for s in samples if key in s["timings"]]
         if len(values) == len(samples) and all(type(v) in (int, float) for v in values):
@@ -61,7 +61,7 @@ def collect(udid, bundle, output):
         "source_sha": source, "device_inventory": device, "udid": udid,
         "environment": "GitHub-hosted macOS / iOS Simulator / DEBUG / 400 synthetic days / URLProtocol offline injection",
         "launches": samples, "summary": summary,
-        "limitations": "Process restarts with an existing OS/filesystem cache. Host networking enabled; no strap or new import. Timings start at ColdLaunchTrace.begin, not OS process start. XCTest separately observes populated view state. Not first paint, physical iPhone performance, BLE, battery or physiological accuracy."
+        "limitations": "Process restarts with an existing OS/filesystem cache. Host networking enabled; no strap or new import. seconds, todayDataLoadSeconds and milestone.* share the ColdLaunchTrace.begin origin; do not add them. phase.* is the first interval (possibly interrupted); count.* counts starts, not completed calculations. View score observation is not GPU presentation or proof all cards populated. Not first paint, physical iPhone performance, BLE, battery or physiological accuracy."
     }, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
 
