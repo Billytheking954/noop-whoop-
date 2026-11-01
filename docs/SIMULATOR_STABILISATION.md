@@ -1,5 +1,10 @@
 # Simulator stabilisation evidence
 
+The prior mini Workouts screenshot confirmed that a one-line compact subtitle
+truncated workout endpoints and summary fields. The compact subtitle now wraps
+vertically and its row grows with the content. This changes layout only; stored
+times, calculations, source selection and row actions are preserved.
+
 `app-build.yml` checks out the exact PR head. The existing `NOOPiOS` scheme runs
 the hosted app suite and UI journeys. It then creates an iPhone 13 mini simulator
 and captures the existing screen routes in light/dark modes and accessibility text.
