@@ -12,6 +12,9 @@ sleep card uses that wake-day's existing main-night span, and the Sleep destinat
 scopes the shared model's inputs through the requested wake-day. A missing routed
 date stays missing. The shared sleep/scoring algorithms and persisted rows are
 unchanged. Unit and UI assertions cover the date identity as well as populated scores.
+The scrolled Today captures also showed text beneath the status-bar glyphs. Today
+now covers that safe-area region with the existing canvas token; the scroll content
+and gestures remain unchanged.
 
 `app-build.yml` checks out the exact PR head. The existing `NOOPiOS` scheme runs
 the hosted app suite and UI journeys. It then creates an iPhone 13 mini simulator

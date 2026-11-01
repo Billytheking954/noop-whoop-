@@ -1565,6 +1565,9 @@ struct TodayView: View {
             .background(BackfillFlagBridge(flag: $liveBackfillingFlag,
                                             pendingSyncFlag: $liveHistoryPendingSyncFlag))
         }
+        #if os(iOS)
+        .modifier(StatusBarCanvasCover())
+        #endif
         // Reload when the data refreshes OR the selected day changes, the HR trend and Rest score are
         // day-scoped, so navigating must re-fetch them for the newly selected window.
         .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset,

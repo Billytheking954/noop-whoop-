@@ -1,6 +1,24 @@
 import SwiftUI
 import StrandDesign
 
+#if os(iOS)
+/// Keep scrolled text out of the status-bar region when Today hides the navigation bar.
+/// The viewport may start inside or below that safe area; align the cover in global coordinates.
+struct StatusBarCanvasCover: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            GeometryReader { geometry in
+                StrandPalette.surfaceBase
+                    .frame(height: geometry.safeAreaInsets.top)
+                    .offset(y: -geometry.frame(in: .global).minY)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+#endif
+
 /// Standard scrollable screen container: title + dark surface + content column.
 struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional — when nil (and no subtitle) the header is omitted entirely, so a screen can supply its
