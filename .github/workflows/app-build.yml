@@ -1,6 +1,7 @@
 name: App build (iPhone)
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
@@ -13,6 +14,7 @@ on:
       - 'Packages/**'
       - 'Config/**'
       - 'project.yml'
+      - 'Tools/simulator_stabilisation.py'
       - '.github/workflows/app-build.yml'
   push:
     branches: [main]
@@ -108,6 +110,8 @@ jobs:
             fi
           fi
           echo "UI review simulator: $UDID"
+          echo "NOOP_REVIEW_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl list devices -j > "$CAPTURE_DIR/devices.json"
           BUILT_PRODUCTS_DIR="$(xcodebuild \
             -project Strand.xcodeproj \
             -scheme NOOPiOS \
@@ -127,7 +131,7 @@ jobs:
             for SCREEN in today liquidtoday trends sleep workouts health settings; do
               xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
               # `--demo-seed` uses the app's DEBUG-only synthetic dataset; no values are presented as live data.
-              xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
+              xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --simulator-validation --demo-screen "$SCREEN"
               # The Sleep model decodes a full night and can take longer on cold light-mode launches.
               # Give that path 45s so the screenshot cannot capture a blank launch frame.
               if [[ "$SCREEN" == "sleep" && "$APPEARANCE" == "light" ]]; then
@@ -157,7 +161,7 @@ jobs:
           # Check the redesigned Today at an accessibility text size as well as the standard shots.
           xcrun simctl ui "$UDID" appearance dark
           xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen today \
+          xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --simulator-validation --demo-screen today \
             -UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityM
           sleep 18
           xcrun simctl io "$UDID" screenshot "$CAPTURE_DIR/today-accessibility-medium-dark.png"
@@ -166,10 +170,60 @@ jobs:
           xcrun simctl ui "$UDID" appearance dark
           for SCREEN in activity live stress insights insightshub insightalerts insightdetail explore compare chargebreakdown restdetail effortdetail devices devicescatalog fitnessage vitality addwizard ouraonboarding ouradevice bondrefused; do
             xcrun simctl terminate "$UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-            xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --demo-screen "$SCREEN"
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" --demo-seed --simulator-validation --demo-screen "$SCREEN"
             sleep 12
             xcrun simctl io "$UDID" screenshot "$EXTRA_DIR/$SCREEN-dark.png"
           done
+
+      - name: Validate repeated cached launches and mini UI journeys
+        if: steps.capture.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/noop-stabilisation"
+          mkdir -p "$OUT"
+          # Require the narrow device rather than silently labelling a large phone a mini.
+          python3 - "$NOOP_REVIEW_UDID" <<'PY'
+          import json, subprocess, sys
+          inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', '-j']))
+          phone = next(d for ds in inventory['devices'].values() for d in ds if d['udid'] == sys.argv[1])
+          assert phone['deviceTypeIdentifier'] == 'com.apple.CoreSimulator.SimDeviceType.iPhone-13-mini', phone
+          PY
+          python3 Tools/simulator_stabilisation.py "$NOOP_REVIEW_UDID" com.noopapp.noop "$OUT"
+          for APPEARANCE in light dark; do
+            xcrun simctl ui "$NOOP_REVIEW_UDID" appearance "$APPEARANCE"
+            RESULT="$OUT/mini-$APPEARANCE.xcresult"
+            xcodebuild -quiet -project Strand.xcodeproj -scheme NOOPiOS -configuration Debug \
+              -destination "platform=iOS Simulator,id=$NOOP_REVIEW_UDID" \
+              -parallel-testing-enabled NO \
+              -only-testing:NOOPReferenceUITests/ReferenceJourneyUITests/testRepeatedCachedLaunchesAndRapidDateSwitches \
+              -only-testing:NOOPReferenceUITests/ReferenceJourneyUITests/testYearOldSavedDatePopulatesWithoutFreshImport \
+              -resultBundlePath "$RESULT" CODE_SIGNING_ALLOWED=NO test
+            xcrun xcresulttool get test-results summary --path "$RESULT" > "$OUT/mini-$APPEARANCE-summary.json"
+            python3 - "$OUT/mini-$APPEARANCE-summary.json" <<'PY'
+          import json, sys
+          summary = json.load(open(sys.argv[1]))
+          assert summary['totalTestCount'] >= 2 and summary['failedTests'] == 0, summary
+          PY
+            xcrun xcresulttool export attachments --path "$RESULT" --output-path "$OUT/attachments-$APPEARANCE"
+          done
+
+      - name: Export executed test roster
+        if: always() && steps.iphone_tests.outcome == 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/noop-stabilisation"
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/noop-iphone-tests.xcresult" > "$RUNNER_TEMP/noop-stabilisation/all-tests-summary.json"
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/noop-iphone-tests.xcresult" > "$RUNNER_TEMP/noop-stabilisation/all-tests-roster.json"
+
+      - name: Upload simulator stabilisation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-simulator-stabilisation
+          path: ${{ runner.temp }}/noop-stabilisation
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload iPhone test results
         if: always()

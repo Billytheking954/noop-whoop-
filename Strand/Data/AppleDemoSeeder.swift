@@ -20,6 +20,22 @@ enum AppleDemoSeeder {
     static let whoop = "my-whoop"
     static let apple = "apple-health"
     private static let DAYS = 120
+
+    /// Opt-in larger fixture on disposable simulators only. Release/device builds cannot use it.
+    static var validationRequested: Bool {
+        #if targetEnvironment(simulator)
+        return requested && CommandLine.arguments.contains("--simulator-validation")
+        #else
+        return false
+        #endif
+    }
+
+    static var validationDayOffset: Int {
+        let args = CommandLine.arguments
+        guard validationRequested, let index = args.firstIndex(of: "--validation-day-offset"),
+              index + 1 < args.count, let value = Int(args[index + 1]) else { return 0 }
+        return min(399, max(0, value))
+    }
     /// Effort rescale factor: the old 0–21 strain scale → the new 0–100 Effort scale.
     private static let STRAIN_SCALE = 100.0 / 21.0
 
@@ -38,7 +54,12 @@ enum AppleDemoSeeder {
         seedDemoDeviceIfNeeded(into: store)
         let existing = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
         guard existing.isEmpty else { return }
-        do { try await seed(into: store) }
+        do {
+            // A fixed noon reference makes all rows reproducible for a given local day.
+            let now = validationRequested
+                ? Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 3600) : Date()
+            try await seed(into: store, days: validationRequested ? 400 : DAYS, now: now)
+        }
         catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
     }
 
@@ -59,11 +80,11 @@ enum AppleDemoSeeder {
         try? registry.add(polar)
     }
 
-    private static func seed(into store: WhoopStore) async throws {
+    static func seed(into store: WhoopStore, days: Int = DAYS, now: Date = Date()) async throws {
         var rng = SplitMix64(seed: 0xC0FFEE)
         let cal = Calendar.current
         let zone = TimeZone.current
-        let startDay = cal.date(byAdding: .day, value: -(DAYS - 1), to: cal.startOfDay(for: Date()))!
+        let startDay = cal.date(byAdding: .day, value: -(days - 1), to: cal.startOfDay(for: now))!
 
         try? await store.upsertDevice(id: whoop, mac: nil, name: "WHOOP (demo)")
 
@@ -82,7 +103,7 @@ enum AppleDemoSeeder {
         isoFmt.timeZone = zone
         isoFmt.dateFormat = "yyyy-MM-dd"
 
-        for i in 0..<DAYS {
+        for i in 0..<days {
             let date = cal.date(byAdding: .day, value: i, to: startDay)!
             let day = isoFmt.string(from: date)
             let weekday = cal.component(.weekday, from: date)  // 1=Sun … 7=Sat
@@ -173,8 +194,8 @@ enum AppleDemoSeeder {
                 let hour = weekend ? 9 : 18
                 let dayStart = cal.startOfDay(for: date)
                 let scheduledStart = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
-                let start = i == DAYS - 1
-                    ? min(scheduledStart, Int(Date().timeIntervalSince1970) - Int(durSec) - 3600 - k * 7200)
+                let start = i == days - 1
+                    ? min(scheduledStart, Int(now.timeIntervalSince1970) - Int(durSec) - 3600 - k * 7200)
                     : scheduledStart
                 let avg = Int(gauss(&rng, 138.0, 12.0))
                 let src = rng.nextDouble() < 0.7 ? whoop : apple
@@ -194,7 +215,7 @@ enum AppleDemoSeeder {
             }
 
             // --- journal answers for the recent 40 days (real catalog strings → Insights light up) ---
-            if i >= DAYS - 40 {
+            if i >= days - 40 {
                 journal.append(JournalEntry(day: day, question: "Did you drink any alcohol?", answeredYes: rng.nextDouble() < 0.18, notes: nil))
                 journal.append(JournalEntry(day: day, question: "Did you have caffeine late in the day?", answeredYes: rng.nextDouble() < 0.30, notes: nil))
                 journal.append(JournalEntry(day: day, question: "Did you feel stressed?", answeredYes: rng.nextDouble() < 0.28, notes: nil))
@@ -208,7 +229,7 @@ enum AppleDemoSeeder {
         var vo2 = 44.0
         var vitality = 55.0      // weekly Vitality (0–100) trending up as the demo habits improve
         var bodyAgeDemo = 40.0   // Body Age (years) trending down (younger)
-        for i in 0..<DAYS {
+        for i in 0..<days {
             let date = cal.date(byAdding: .day, value: i, to: startDay)!
             guard cal.component(.weekday, from: date) == 7 else { continue }  // 7 = Saturday
             let day = isoFmt.string(from: date)
@@ -234,11 +255,11 @@ enum AppleDemoSeeder {
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
         // Only DEBUG demo stores receive these samples. The normal query and chart paths
         // read the persisted fixture, including an intentional gap, just as they read real data.
-        let now = Int(Date().timeIntervalSince1970)
-        let midnight = Int(cal.startOfDay(for: Date()).timeIntervalSince1970)
+        let nowTs = Int(now.timeIntervalSince1970)
+        let midnight = Int(cal.startOfDay(for: now).timeIntervalSince1970)
         var heartRates: [HRSample] = []
         var intervals: [RRInterval] = []
-        for ts in stride(from: midnight, through: now, by: 2) {
+        for ts in stride(from: midnight, through: nowTs, by: 2) {
             let hour = Double(ts - midnight) / 3600
             if hour >= 10 && hour < 10.5 { continue }
             let activity = workouts.first { ts >= $0.startTs && ts <= $0.endTs }

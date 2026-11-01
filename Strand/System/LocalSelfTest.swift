@@ -50,6 +50,9 @@ enum ColdLaunchTrace {
 
     static func begin() {
         let start = ProcessInfo.processInfo.systemUptime
+        #if DEBUG
+        UserDefaults.standard.set(ProcessInfo.processInfo.processIdentifier, forKey: prefix + "processIdentifier")
+        #endif
         processStartUptime = start
         firstTodayStartUptime = start
         // A failed new launch must not display an older launch's timing as current.

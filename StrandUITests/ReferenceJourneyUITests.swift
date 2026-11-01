@@ -6,7 +6,7 @@ final class ReferenceJourneyUITests: XCTestCase {
 
     private func launch(screen: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo-seed", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["--demo-seed", "--simulator-validation", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if let screen { app.launchArguments += ["--demo-screen", screen] }
         app.launch()
         return app
@@ -41,6 +41,96 @@ final class ReferenceJourneyUITests: XCTestCase {
         XCTAssertTrue(calendar.waitForExistence(timeout: 30))
         calendar.tap()
         XCTAssertTrue(app.datePickers.firstMatch.waitForExistence(timeout: 10))
+    }
+
+    /// No paired strap or import: meaningful cached scores must survive process termination.
+    func testRepeatedCachedLaunchesAndRapidDateSwitches() {
+        var samples: [Double] = []
+        let app = launch()
+        waitForPopulatedDay(app, offset: 0)
+        capture(app, name: "today-cached-top")
+        for _ in 0..<3 {
+            app.terminate()
+            let start = ProcessInfo.processInfo.systemUptime
+            app.launch()
+            waitForPopulatedDay(app, offset: 0)
+            samples.append(ProcessInfo.processInfo.systemUptime - start)
+        }
+        let attachment = XCTAttachment(string: "Simulator UI launch-to-observed populated scores (includes XCTest launch/idle overhead; not first paint or physical-device speed): \(samples)")
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let calendar = app.buttons["noop.today.calendar"]
+        let original = calendar.value as? String
+        for _ in 0..<4 {
+            swipeDay(app, older: true)
+            swipeDay(app, older: false)
+        }
+        waitForPopulatedDay(app, offset: 0)
+        XCTAssertEqual(calendar.value as? String, original, "Returning to the same day must restore the same scores and identity")
+        swipeDay(app, older: true)
+        waitForPopulatedDay(app, offset: 1)
+        capture(app, name: "yesterday-after-rapid-switch")
+        for _ in 0..<4 { app.swipeUp() }
+        capture(app, name: "today-scrolled-graphs")
+        for _ in 0..<4 { app.swipeDown() }
+        waitForPopulatedDay(app, offset: 1)
+        for name in ["Health", "Activity", "More", "Today"] {
+            let tab = app.tabBars.buttons[name]
+            XCTAssertTrue(tab.exists)
+            tab.tap()
+            XCTAssertTrue(tab.isSelected)
+        }
+        XCTAssertFalse(app.otherElements["noop.today.saved-cache-unavailable"].exists)
+        capture(app, name: "today-after-navigation")
+    }
+
+    func testYearOldSavedDatePopulatesWithoutFreshImport() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo-seed", "--simulator-validation", "--validation-day-offset", "365",
+                               "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        waitForPopulatedDay(app, offset: 365)
+        let value = app.buttons["noop.today.calendar"].value as? String ?? ""
+        XCTAssertTrue(value.contains("days=400"), value)
+        capture(app, name: "year-old-date")
+        app.buttons["noop.today.ring.sleep_performance"].tap()
+        XCTAssertTrue(app.staticTexts["Sleep"].firstMatch.waitForExistence(timeout: 20))
+        capture(app, name: "year-old-sleep-navigation")
+    }
+
+    private func waitForPopulatedDay(_ app: XCUIApplication, offset: Int) {
+        let calendar = app.buttons["noop.today.calendar"]
+        XCTAssertTrue(calendar.waitForExistence(timeout: 60))
+        let populated = NSPredicate { _, _ in
+            guard let value = calendar.value as? String else { return false }
+            let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { field -> (String, String)? in
+                let pair = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+            })
+            return fields["offset"] == String(offset) && fields["day"] == fields["loaded"]
+                && Double(fields["rest"] ?? "") != nil && Double(fields["charge"] ?? "") != nil
+        }
+        expectation(for: populated, evaluatedWith: calendar)
+        waitForExpectations(timeout: 90)
+        for key in ["sleep_performance", "recovery", "strain"] {
+            let ring = app.buttons["noop.today.ring." + key]
+            XCTAssertTrue(ring.exists && ring.isHittable, key)
+            XCTAssertLessThanOrEqual(ring.frame.maxX, app.frame.maxX)
+            XCTAssertGreaterThanOrEqual(ring.frame.minX, app.frame.minX)
+        }
+    }
+
+    private func swipeDay(_ app: XCUIApplication, older: Bool) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: older ? 0.25 : 0.8, dy: 0.3))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: older ? 0.8 : 0.25, dy: 0.3))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    private func capture(_ app: XCUIApplication, name: String) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func testInsightAlertPreferenceSurvivesRelaunch() {

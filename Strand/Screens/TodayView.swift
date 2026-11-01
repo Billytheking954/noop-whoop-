@@ -438,7 +438,11 @@ struct TodayView: View {
     // jump drive this, and every day-scoped read-out (hero synthesis, the Key-Metrics tiles, the HR
     // trend and Rest score) resolves to the selected day instead of always showing today. Mirrors the
     // Android TodayScreen.selectedDayOffset. Loads re-run when this changes (see .task(id:)).
+    #if DEBUG
+    @State private var selectedDayOffset = AppleDemoSeeder.validationDayOffset
+    #else
     @State private var selectedDayOffset = 0
+    #endif
     // #762: the hero ring row's measured width, set by a zero-impact background preference reader so the
     // three rings size off the real available width without a height-clamped GeometryReader clipping the
     // badge under the Rest/Charge ring. 0 until first layout (the row falls back to a sensible default
@@ -1348,6 +1352,10 @@ struct TodayView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
             .accessibilityIdentifier("noop.today.calendar")
+            #if DEBUG
+            // Simulator-only observation of the real view/cache state; no score overrides.
+            .accessibilityValue(AppleDemoSeeder.validationRequested ? simulatorValidationState : "")
+            #endif
             .popover(isPresented: $showDayPicker) {
                 DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
                            displayedComponents: [.date])
@@ -1368,6 +1376,15 @@ struct TodayView: View {
             }
         }
     }
+
+    #if DEBUG
+    private var simulatorValidationState: String {
+        let loadedDay = repo.todayDayScopedLoadedDayKey
+        let rest = restScore.map { String($0) } ?? "nil"
+        let charge = displayDay?.recovery.map { String($0) } ?? "nil"
+        return "day=\(selectedDayKey);loaded=\(loadedDay);offset=\(selectedDayOffset);rest=\(rest);charge=\(charge);days=\(repo.days.count);hr=\(hrPoints.count)"
+    }
+    #endif
 
     /// Settings presented as a sheet from the top-bar profile button (sheets inherit the app
     /// environment on iOS, so SettingsView gets the same objects it has under the More tab).
