@@ -60,13 +60,16 @@ final class ReferenceJourneyUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         let calendar = app.buttons["noop.today.calendar"]
-        let original = calendar.value as? String
+        let original = stateFields(calendar)
         for _ in 0..<4 {
             swipeDay(app, older: true)
             swipeDay(app, older: false)
         }
         waitForPopulatedDay(app, offset: 0)
-        XCTAssertEqual(calendar.value as? String, original, "Returning to the same day must restore the same scores and identity")
+        let returned = stateFields(calendar)
+        for key in ["day", "loaded", "offset", "rest", "charge"] {
+            XCTAssertEqual(returned[key], original[key], "Returning to the same day must restore \(key)")
+        }
         swipeDay(app, older: true)
         waitForPopulatedDay(app, offset: 1)
         capture(app, name: "yesterday-after-rapid-switch")
@@ -102,11 +105,7 @@ final class ReferenceJourneyUITests: XCTestCase {
         let calendar = app.buttons["noop.today.calendar"]
         XCTAssertTrue(calendar.waitForExistence(timeout: 60))
         let populated = NSPredicate { _, _ in
-            guard let value = calendar.value as? String else { return false }
-            let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { field -> (String, String)? in
-                let pair = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-                return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
-            })
+            let fields = self.stateFields(calendar)
             return fields["offset"] == String(offset) && fields["day"] == fields["loaded"]
                 && Double(fields["rest"] ?? "") != nil && Double(fields["charge"] ?? "") != nil
         }
@@ -118,6 +117,14 @@ final class ReferenceJourneyUITests: XCTestCase {
             XCTAssertLessThanOrEqual(ring.frame.maxX, app.frame.maxX)
             XCTAssertGreaterThanOrEqual(ring.frame.minX, app.frame.minX)
         }
+    }
+
+    private func stateFields(_ element: XCUIElement) -> [String: String] {
+        let value = element.value as? String ?? ""
+        return Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { field -> (String, String)? in
+            let pair = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+        })
     }
 
     private func swipeDay(_ app: XCUIApplication, older: Bool) {

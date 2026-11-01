@@ -49,6 +49,8 @@ def collect(udid, bundle, output):
             assert timings.get("todayDataLoadSeconds", 0) > 0, sample
     summary = {}
     for key in sorted(set().union(*(s["timings"] for s in samples))):
+        if key not in ("seconds", "todayDataLoadSeconds") and not key.startswith("phase."):
+            continue
         values = [s["timings"][key] for s in samples if key in s["timings"]]
         if len(values) == len(samples) and all(type(v) in (int, float) for v in values):
             summary[key] = {"min": min(values), "median": statistics.median(values),
