@@ -13,6 +13,36 @@ import StrandAnalytics
 /// no view mounting). Android twin: SleepPhantomNightFallbackTest.kt.
 final class SleepPhantomNightFallbackTests: XCTestCase {
 
+    func testHistoricalSelectionSuppressesEveryCurrentNightNotice() {
+        for syncing in [false, true] {
+            for calculating in [false, true] {
+                for failed in [false, true] {
+                    for synced in [false, true] {
+                        XCTAssertNil(resolveSleepFreshness(hasCurrentNight: false, morningReady: true,
+                            syncing: syncing, calculating: calculating, syncedSinceDayStart: synced,
+                            syncFailed: failed, viewingHistory: true))
+                    }
+                }
+            }
+        }
+    }
+
+    func testFreshnessScopeFollowsSelectionRatherThanLatestStoredWakeDay() {
+        let today = "2026-11-01"
+        for selected in ["2026-10-31", "2025-11-01", "1900-01-01"] {
+            XCTAssertTrue(isHistoricalSleepSelection(selectedDay: selected, browsingOlderNight: false, today: today))
+        }
+        XCTAssertTrue(isHistoricalSleepSelection(selectedDay: nil, browsingOlderNight: true, today: today))
+        // Returning to the current view must restore notices even when only old sleep is stored.
+        for selected in [nil, Optional(today)] {
+            let historical = isHistoricalSleepSelection(selectedDay: selected, browsingOlderNight: false, today: today)
+            XCTAssertFalse(historical)
+            XCTAssertEqual(resolveSleepFreshness(hasCurrentNight: false, morningReady: true,
+                syncing: false, calculating: false, syncedSinceDayStart: false,
+                syncFailed: true, viewingHistory: historical), .syncFailed)
+        }
+    }
+
     /// THE #940 PHANTOM: a userEdited row whose corrected window is future-dated and staged as a
     /// single all-wake segment (SleepWindowReclip's deliberate fallback). Detected key stays at the
     /// real 01:06 onset; the hand-set onset moved to tonight 23:00.

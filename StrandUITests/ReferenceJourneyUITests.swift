@@ -102,7 +102,28 @@ final class ReferenceJourneyUITests: XCTestCase {
         let sleepDay = app.staticTexts["noop.sleep.day"]
         XCTAssertTrue(sleepDay.waitForExistence(timeout: 20))
         XCTAssertEqual(sleepDay.value as? String, expectedDay, "Sleep detail must retain the selected wake-day")
+        assertNoCurrentSleepNotice(app)
         capture(app, name: "year-old-sleep-navigation")
+        // Exercise the actual carousel, including quick reversals while per-night reads are pending.
+        let previous = app.buttons["Previous night"]
+        scrollTo(previous, in: app)
+        let next = app.buttons["Next night"]
+        for _ in 0..<3 {
+            previous.tap()
+            next.tap()
+        }
+        for _ in 0..<5 { app.swipeDown() }
+        XCTAssertEqual(sleepDay.value as? String, expectedDay)
+        assertNoCurrentSleepNotice(app)
+        capture(app, name: "year-old-sleep-after-rapid-switch")
+    }
+
+    private func assertNoCurrentSleepNotice(_ app: XCUIApplication) {
+        for title in ["Last night's sleep hasn't synced", "Waiting for last night's sleep",
+                      "Last night's sleep wasn't detected", "Calculating last night's sleep…",
+                      "Syncing strap history…"] {
+            XCTAssertFalse(app.staticTexts[title].exists, "Historical sleep must not show: \(title)")
+        }
     }
 
     private func waitForPopulatedDay(_ app: XCUIApplication, offset: Int) {
