@@ -21,12 +21,14 @@ on:
     paths:
       - 'Strand/**'
       - 'StrandTests/**'
+      - 'StrandUITests/**'
       - 'StrandiOS/**'
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
       - 'Packages/**'
       - 'Config/**'
       - 'project.yml'
+      - 'Tools/simulator_stabilisation.py'
       - '.github/workflows/app-build.yml'
 
 concurrency:
