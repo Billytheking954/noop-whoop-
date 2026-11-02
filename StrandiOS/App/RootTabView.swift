@@ -87,7 +87,9 @@ struct RootTabView: View {
     }
 
     private func reselectTab(_ tag: Int) {
-        Task { await repo.refresh() }
+        // A repeat tap should only pop/scroll to top. Full-history database
+        // refreshes during a UI gesture delay navigation and reload cards.
+        // Pull-to-refresh remains the explicit way to request updated data.
         if !tabPaths[tag].isEmpty {
             tabPaths[tag] = NavigationPath()
         } else {
@@ -165,7 +167,8 @@ struct RootTabView: View {
             .simultaneousGesture(tabSwipeGesture,
                                  including: tabPaths[selectedTab].isEmpty ? .all : .subviews)
         .task {
-            await repo.refresh()
+            // AppModel alone hydrates the local dashboard on cold launch.
+            // Avoid a competing 4000-day read and an out-of-order cache publish.
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
             // 100MB+ whole-DB ZIP never blocks startup; gated on the auto toggle (default OFF). (Must-fix #4.)
             let backupRepo = repo

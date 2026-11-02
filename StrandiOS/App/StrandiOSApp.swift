@@ -53,6 +53,12 @@ struct StrandiOSApp: App {
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
     init() {
+        // Begin measuring the first successful publication of local saved data.
+        // No BLE, HealthKit or raw health values are involved.
+        ColdLaunchTrace.begin()
+        #if DEBUG
+        AppleDemoSeeder.installOfflineValidationIfRequested()
+        #endif
         // #1008: pin the pre-change Overnight-only default for existing installs before
         // anything reads it. Idempotent; a no-op on fresh installs and after the first launch.
         PuffinExperiment.migrateContinuousHrvOvernightDefault()
@@ -89,6 +95,7 @@ struct StrandiOSApp: App {
             Task { @MainActor in router?.openDailyInsight(id: id) }
         }
         let model = AppModel()
+        ColdLaunchTrace.mark("app-model-ready")
         _model = StateObject(wrappedValue: model)
         CoachBriefScheduler.register(generateBrief: { [weak coach = model.coach] in
             await coach?.generateBrief()

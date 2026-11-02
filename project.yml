@@ -27,6 +27,9 @@ settings:
       ONLY_ACTIVE_ARCH: NO
 
 packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 6.29.3
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     exactVersion: 2.4.1
@@ -178,6 +181,7 @@ targets:
       - target: NOOPiOS
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: GRDB
       - package: OuraProtocol
     settings:
       base:

@@ -27,6 +27,10 @@ import UIKit
 // minutes for light/deep/rem/awake; typical = mean of repo.days).
 
 struct SleepView: View {
+    private let requestedDay: String?
+
+    init(day: String? = nil) { requestedDay = day }
+
     @EnvironmentObject var repo: Repository
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var router: NavRouter
@@ -170,7 +174,8 @@ struct SleepView: View {
                     // Each top-level section fades + rises in sequence on first appear (Reduce-Motion safe).
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         if let sleepUndo { sleepUndoBanner(sleepUndo) }
-                        SleepFreshnessNote(latestWakeTs: resolved.night.session.endTs)
+                        SleepFreshnessNote(latestWakeTs: resolved.night.session.endTs,
+                                           selectedDay: requestedDay, browsingOlderNight: nightOffset > 0)
                         if resultNoticeVisible {
                             DataPendingNote(title: "Sleep result updated",
                                             message: "This night's sleep times or total asleep changed by at least five minutes.",
@@ -185,8 +190,13 @@ struct SleepView: View {
                         }
                     }
                 } else {
-                    emptyState
-                    alarmsEntry
+                    if requestedDay != nil {
+                        if loadedSleepRefresh == nil { ProgressView() }
+                        else { Text("No saved sleep for this day") }
+                    } else {
+                        emptyState
+                        alarmsEntry
+                    }
                 }
             }
             // LiquidScoreGauge owns its own count-up animation (same as Home heroes).
@@ -455,7 +465,8 @@ struct SleepView: View {
     /// hero's score, vessel fill, state word, provenance badge and overline on the SAME night the
     /// hypnogram shows — the fix for the score freezing on last night's value during navigation.
     private func heroNight(_ model: SleepModel) -> Night {
-        (nightOffset == 0 ? model.night : navNight) ?? model.night
+        guard modelKey == dataKey else { return model.night }
+        return (nightOffset == 0 ? model.night : navNight) ?? model.night
     }
 
     /// The sleep-performance score (0–100) for a SPECIFIC night: the imported WHOOP figure for that
@@ -524,14 +535,19 @@ struct SleepView: View {
 
     @State private var referenceNeed: Double?
     @State private var referenceConsistency: Double?
+    @State private var referenceMetricsKey: String?
 
     private func referenceSleepContent(_ model: SleepModel) -> some View {
         let night = heroNight(model)
         let score = performanceScore(for: night)
         let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(night.session.endTs)))
+        let metricsKey = "\(day):\(repo.refreshSeq)"
         return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
             HStack {
-                Text("Last night's sleep").font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                Text(requestedDay == nil && nightOffset == 0 ? String(localized: "Last night's sleep") : day)
+                    .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .accessibilityIdentifier("noop.sleep.day")
+                    .accessibilityValue(day)
                 Spacer()
                 wakeEditButton(night)
             }
@@ -549,7 +565,7 @@ struct SleepView: View {
                 VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                     ReferenceCard {
                         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
-                            Text("Last night's sleep").font(ReferenceStyle.caption)
+                            Text(requestedDay == nil && nightOffset == 0 ? String(localized: "Last night's sleep") : day).font(ReferenceStyle.caption)
                             Text(durationText(night.stages.asleep)).font(ReferenceStyle.value)
                             Text("\(night.onsetText) – \(night.wakeText)")
                                 .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
@@ -558,7 +574,7 @@ struct SleepView: View {
                     ReferenceCard {
                         VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                             Text("Sleep need").font(ReferenceStyle.headline)
-                            Text(referenceNeed.map { durationText($0) } ?? "Not available for this night")
+                            Text((referenceMetricsKey == metricsKey ? referenceNeed : nil).map { durationText($0) } ?? "Not available for this night")
                                 .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
                         }
                     }
@@ -590,7 +606,7 @@ struct SleepView: View {
                 ReferenceCard {
                     VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
                         Text("Consistency").font(ReferenceStyle.caption)
-                        Text(referenceConsistency.map { "\(Int($0.rounded()))%" } ?? "Unavailable")
+                        Text((referenceMetricsKey == metricsKey ? referenceConsistency : nil).map { "\(Int($0.rounded()))%" } ?? "Unavailable")
                             .font(ReferenceStyle.value)
                     }
                 }
@@ -620,11 +636,14 @@ struct SleepView: View {
             nightNavHeader(trailing: night.spanLabel)
             napSection(night)
         }
-        .task(id: "\(day):\(repo.refreshSeq)") {
+        .task(id: metricsKey) {
+            let refresh = repo.refreshSeq
             let needs = await repo.exploreSeries(key: "sleep_need_min", source: "my-whoop", days: 365)
             let consistency = await repo.exploreSeries(key: "sleep_consistency", source: "my-whoop", days: 365)
+            guard !Task.isCancelled, refresh == repo.refreshSeq else { return }
             referenceNeed = repo.importedSleep[day]?.needMin ?? needs.last { $0.day == day }?.value
             referenceConsistency = repo.importedSleep[day]?.consistencyPct ?? consistency.last { $0.day == day }?.value
+            referenceMetricsKey = metricsKey
         }
     }
 
@@ -1026,10 +1045,13 @@ struct SleepView: View {
         }
         // WHOOP top-chart data (ryanAtriumAi #988): 1-min sleeping-HR buckets for THIS night, reloaded
         // only when the displayed night changes (same `.task(id:)` pattern the other per-night loads use).
-        .task(id: night.session.startTs) {
-            nightHR = await repo.hrBuckets(from: night.session.startTs,
-                                           to: night.session.endTs,
-                                           bucketSeconds: 60)
+        .task(id: "\(night.session.startTs):\(night.session.endTs):\(repo.refreshSeq)") {
+            let refresh = repo.refreshSeq
+            let buckets = await repo.hrBuckets(from: night.session.startTs,
+                                              to: night.session.endTs,
+                                              bucketSeconds: 60)
+            guard !Task.isCancelled, refresh == repo.refreshSeq else { return }
+            nightHR = buckets
         }
     }
 
@@ -1990,6 +2012,7 @@ struct SleepView: View {
     /// memoized `model` must be rebuilt; otherwise hover/animation/1Hz HR re-renders are free.
     private var dataKey: SleepInputKey {
         SleepInputKey(
+            requestedDay: requestedDay,
             loaded: repo.loaded,
             daysCount: repo.days.count,
             sleepsCount: repo.sleeps.count,
@@ -2006,13 +2029,34 @@ struct SleepView: View {
     /// the pure `SleepModel.build(_:)` (SleepModel.swift), which the Today host also calls. Returns
     /// nil when there is no usable latest night (renders empty state).
     private func buildModel() -> SleepModel? {
-        SleepModel.build(SleepModelInputs(
+        let inputs = SleepModelInputs(
             days: repo.days,
             sleeps: repo.sleeps,
             allSessions: allSessions,
             importedSleep: repo.importedSleep,
             habitualMidsleepSec: habitualMidsleepSec,
-            motionByStart: motionByStart))
+            motionByStart: motionByStart)
+        guard let scoped = Self.routedInputs(inputs, day: requestedDay) else { return nil }
+        return SleepModel.build(scoped)
+    }
+
+    /// Presentation scope only: the shared model and its health calculations are unchanged.
+    /// A missing routed wake-day must not silently display a more recent or older night.
+    static func routedInputs(_ inputs: SleepModelInputs, day: String?) -> SleepModelInputs? {
+        guard let day else { return inputs }
+        let available = inputs.allSessions.isEmpty ? inputs.sleeps : inputs.allSessions
+        guard available.contains(where: { wakeDay($0) == day }) else { return nil }
+        return SleepModelInputs(
+            days: inputs.days.filter { $0.day <= day },
+            sleeps: inputs.sleeps.filter { wakeDay($0) <= day },
+            allSessions: inputs.allSessions.filter { wakeDay($0) <= day },
+            importedSleep: inputs.importedSleep.filter { $0.key <= day },
+            habitualMidsleepSec: inputs.habitualMidsleepSec,
+            motionByStart: inputs.motionByStart)
+    }
+
+    private static func wakeDay(_ session: CachedSleepSession) -> String {
+        Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(session.endTs)))
     }
 
     // MARK: - Derived model
@@ -2021,13 +2065,15 @@ struct SleepView: View {
     /// sleep). Falls back to `repo.sleeps` (one-per-night) until the fuller list loads, so the hero
     /// is never empty during the first frame. (#170)
     private var navSessions: [CachedSleepSession] {
-        allSessions.isEmpty ? repo.sleeps : allSessions
+        let sessions = allSessions.isEmpty ? repo.sleeps : allSessions
+        guard let requestedDay else { return sessions }
+        return sessions.filter { Self.wakeDay($0) <= requestedDay }
     }
 
     /// The browsable DAY list — a thin wrapper over the shared `SleepModel.navDays`, which is the
     /// source of truth the builder and the ◀/▶ nav both read (no duplicated grouping). (#170)
     private var navDays: [[CachedSleepSession]] {
-        navDaysCache ?? SleepModel.navDays(navSessions: navSessions)
+        (modelKey == dataKey ? navDaysCache : nil) ?? SleepModel.navDays(navSessions: navSessions)
     }
 
     /// The device's current UTC offset (seconds east), evaluated once per pick. Feeds the selector's
@@ -2805,7 +2851,8 @@ enum SleepFreshnessStatus: Equatable {
 /// opening Sleep during the night does not claim a still-in-progress night was missed.
 func resolveSleepFreshness(hasCurrentNight: Bool, morningReady: Bool, syncing: Bool,
                            calculating: Bool, syncedSinceDayStart: Bool,
-                           syncFailed: Bool) -> SleepFreshnessStatus? {
+                           syncFailed: Bool, viewingHistory: Bool = false) -> SleepFreshnessStatus? {
+    guard !viewingHistory else { return nil }
     if syncing { return .syncing }
     // #2108: a night already in hand outranks .calculating. It used to sit below, so `hasCurrentNight`
     // could only silence the missing-night states and a finished night was structurally unable to
@@ -2820,12 +2867,19 @@ func resolveSleepFreshness(hasCurrentNight: Bool, morningReady: Bool, syncing: B
     return syncedSinceDayStart ? .notDetected : .awaitingSync
 }
 
+/// Explicit historical navigation is different from the current view falling back to an older night.
+func isHistoricalSleepSelection(selectedDay: String?, browsingOlderNight: Bool, today: String) -> Bool {
+    browsingOlderNight || selectedDay.map { $0 != today } == true
+}
+
 /// Explicit state for the expected current night. Older sleep can remain available underneath, but it is
 /// never left to impersonate today's result while a sync, calculation, or failed detection is unresolved.
 private struct SleepFreshnessNote: View {
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var intelligence: IntelligenceEngine
     let latestWakeTs: Int?
+    var selectedDay: String? = nil
+    var browsingOlderNight = false
 
     var body: some View {
         let calendar = Calendar.current
@@ -2846,7 +2900,9 @@ private struct SleepFreshnessNote: View {
             syncing: live.backfilling,
             calculating: intelligence.computing || calculationQueued,
             syncedSinceDayStart: (live.lastSyncedAt ?? 0) >= start.timeIntervalSince1970,
-            syncFailed: live.lastSyncError != nil
+            syncFailed: live.lastSyncError != nil,
+            viewingHistory: isHistoricalSleepSelection(selectedDay: selectedDay,
+                browsingOlderNight: browsingOlderNight, today: Repository.localDayKey(now))
         )
         switch status {
         case .syncing:
@@ -2879,6 +2935,7 @@ private struct SleepFreshnessNote: View {
 /// equal iff the data the screen reads is unchanged, so the heavy `SleepModel` rebuild is
 /// skipped on the many `body` re-evaluations that don't touch sleep data.
 private struct SleepInputKey: Equatable {
+    let requestedDay: String?
     let loaded: Bool
     let daysCount: Int
     let sleepsCount: Int
