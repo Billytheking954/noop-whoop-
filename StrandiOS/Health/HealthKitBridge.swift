@@ -598,12 +598,14 @@ final class HealthKitBridge: ObservableObject {
             var a = agg(day); a.waterMl = v; byDay[day] = a
         }
 
-        // Sleep minutes per day (asleep stages summed; attributed to wake day).
-        await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
+        // Resolve overlapping sleep assertions without inventing stages or choosing a source.
+        // Like quantity reads, a failed sleep query must hold the whole replacement write.
+        let sleepRead = await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
             var a = agg(day)
             a.asleepMin = asleepMin; a.deepMin = deepMin; a.remMin = remMin; a.coreMin = coreMin
             byDay[day] = a
         }
+        note(sleepRead, "sleepAnalysis")
 
         // #2561 follow-up: hold the whole write back if ANY aggregate read failed. Every upsert below
         // assigns `column = excluded.column`, so writing now would replace each failed metric's stored
@@ -681,8 +683,17 @@ final class HealthKitBridge: ObservableObject {
         // from @vulnix0x4's PR #375.)
         do {
             try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
-            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
-            try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
+            let sleepKeys = WhoopStore.importedSleepMetricKeys
+            try await store.upsertMetricSeries(points.filter { !sleepKeys.contains($0.key) }, deviceId: appleDeviceId)
+            if sleepRead == .read {
+                // Upserting only known values leaves old, now-withheld stage points behind.
+                // Replace just the live sleep keys on the days represented by this successful read.
+                _ = try await store.replaceImportedSleepMetricSeries(
+                    deviceId: appleDeviceId, days: Array(byDay.keys),
+                    replacement: points.filter { sleepKeys.contains($0.key) }, dailyMetrics: dmRows)
+            } else {
+                try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
+            }
             if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
             // Imported water (#949) goes to the hydration source, not apple-health, because the hydration
             // screen is what reads it. Every day in the window is written — including the ones with no
@@ -1495,7 +1506,8 @@ final class HealthKitBridge: ObservableObject {
     /// have one, so absence IS the true answer and writing it is correct. Folding the two together would
     /// let one missing type abort every Health sync forever on that device.
     enum HealthRead {
-        /// The query ran. Whatever it found, including nothing, is authoritative.
+        /// The query completed. No visible samples does not establish read permission;
+        /// HealthKit may also return an empty result when access is denied.
         case read
         /// The quantity type does not exist on this device. Nothing to read, now or later.
         case unavailable
@@ -1539,34 +1551,38 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func collectSleep(start: Date, end: Date,
-                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async {
-        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
+                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async -> HealthRead {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return .unavailable }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
-                var asleep: [String: Double] = [:], deep: [String: Double] = [:]
-                var rem: [String: Double] = [:], core: [String: Double] = [:]
-                for case let s as HKCategorySample in samples ?? [] {
-                    let mins = s.endDate.timeIntervalSince(s.startDate) / 60
-                    let day = HealthKitBridge.dayString(s.endDate)
-                    switch s.value {
-                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
-                        deep[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
-                        rem[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue, HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                        core[day, default: 0] += mins; asleep[day, default: 0] += mins
-                    default:
-                        break
+        return await withCheckedContinuation { (cont: CheckedContinuation<HealthRead, Never>) in
+            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+                guard error == nil, let samples else { cont.resume(returning: .failed); return }
+                var byDay: [String: [HealthKitSleepSummary.Interval]] = [:]
+                for case let s as HKCategorySample in samples {
+                    guard s.startDate.timeIntervalSinceReferenceDate.isFinite,
+                          s.endDate.timeIntervalSinceReferenceDate.isFinite,
+                          s.endDate > s.startDate else {
+                        cont.resume(returning: .failed); return
                     }
+                    // Retain the existing end-date attribution and whole recorded interval.
+                    // This does not infer a sleep session or fabricate a midnight boundary.
+                    let day = HealthKitBridge.dayString(s.endDate)
+                    byDay[day, default: []].append(.init(
+                        stage: StrandImport.SleepStage.from(rawValue: String(s.value)),
+                        start: s.startDate, end: s.endDate))
                 }
-                for day in Set(asleep.keys) {
-                    sink(day, asleep[day], deep[day], rem[day], core[day])
+                let summaries = byDay.mapValues { HealthKitSleepSummary.summarize($0) }
+                // A malformed record is not evidence that the previously stored value disappeared.
+                guard summaries.values.allSatisfy({ $0.rejectedIntervalCount == 0 }) else {
+                    cont.resume(returning: .failed); return
                 }
-                cont.resume()
+                for (day, summary) in summaries {
+                    sink(day, summary.asleepMin, summary.deepMin, summary.remMin, summary.coreMin)
+                }
+                cont.resume(returning: .read)
             }
             store.execute(q)
         }

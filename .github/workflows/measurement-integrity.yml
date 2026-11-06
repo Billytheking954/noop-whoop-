@@ -1,0 +1,61 @@
+name: Measurement integrity candidate
+
+on:
+  push:
+    branches: ['rebuild/ryanbr-noop12-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: measurement-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [StrandImport, WhoopStore]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Record exact candidate
+        run: git rev-parse HEAD
+      - name: Test package including import and persistence regressions
+        working-directory: Packages/${{ matrix.package }}
+        run: swift test
+
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: NOOPiOS
+            runner: macos-26
+            destination: 'generic/platform=iOS Simulator'
+          - scheme: Strand
+            runner: macos-15
+            destination: 'generic/platform=macOS'
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Record exact candidate
+        run: git rev-parse HEAD
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate app project
+        run: xcodegen generate
+      - name: Compile app including adapter and provenance labels
+        run: >-
+          xcodebuild -scheme '${{ matrix.scheme }}' -configuration Debug
+          -destination '${{ matrix.destination }}'
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check source hygiene
+        run: python3 Tools/doc_comment_lint.py

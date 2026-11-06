@@ -20,7 +20,76 @@ public struct MetricPoint: Equatable, Codable, Sendable {
     }
 }
 
+/// Invalid replacement input is rejected before any imported sleep points are removed.
+public enum ImportedSleepMetricSeriesError: Error, Equatable {
+    case invalidScope
+    case unexpectedKey(String)
+    case unexpectedDay(String)
+    case invalidValue
+    case duplicatePoint
+}
+
 extension WhoopStore {
+
+    /// Sleep keys collected by the live HealthKit bridge. File-imported awake/in-bed values are separate.
+    nonisolated public static let importedSleepMetricKeys: Set<String> = [
+        "asleep_min", "deep_min", "rem_min", "core_min",
+    ]
+
+    /// Replace an authoritative successful sleep read for explicitly affected days. Omitted stage
+    /// points become absent, so a correction to unspecified sleep cannot leave an old core value.
+    /// Other sources, days and metric-series keys are untouched. Optional daily rows are upserted in
+    /// the same transaction so daily sleep values cannot disagree with charts after a failed write.
+    /// Callers must not invoke this for a failed read. Returns replacement metric-series rows written.
+    @discardableResult
+    public func replaceImportedSleepMetricSeries(deviceId: String, days: [String],
+                                                 replacement: [MetricPoint],
+                                                 dailyMetrics: [DailyMetric] = []) async throws -> Int {
+        guard !deviceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              days.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw ImportedSleepMetricSeriesError.invalidScope
+        }
+        let affectedDays = Set(days)
+        var dailyDays: Set<String> = []
+        for row in dailyMetrics {
+            guard affectedDays.contains(row.day) else {
+                throw ImportedSleepMetricSeriesError.unexpectedDay(row.day)
+            }
+            guard dailyDays.insert(row.day).inserted else {
+                throw ImportedSleepMetricSeriesError.invalidScope
+            }
+            let sleepValues = [row.totalSleepMin, row.deepMin, row.remMin, row.lightMin].compactMap { $0 }
+            guard sleepValues.allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+                throw ImportedSleepMetricSeriesError.invalidValue
+            }
+        }
+        var seen: Set<String> = []
+        for point in replacement {
+            guard Self.importedSleepMetricKeys.contains(point.key) else {
+                throw ImportedSleepMetricSeriesError.unexpectedKey(point.key)
+            }
+            guard affectedDays.contains(point.day) else {
+                throw ImportedSleepMetricSeriesError.unexpectedDay(point.day)
+            }
+            guard point.value.isFinite, point.value >= 0 else {
+                throw ImportedSleepMetricSeriesError.invalidValue
+            }
+            guard seen.insert(point.day + "\u{0}" + point.key).inserted else {
+                throw ImportedSleepMetricSeriesError.duplicatePoint
+            }
+        }
+        guard !affectedDays.isEmpty else { return 0 }
+        return try syncWrite { db in
+            _ = try Self.upsertDailyMetrics(dailyMetrics, deviceId: deviceId, in: db)
+            for day in affectedDays {
+                try db.execute(sql: """
+                    DELETE FROM metricSeries WHERE deviceId = ? AND day = ?
+                    AND key IN ('asleep_min', 'deep_min', 'rem_min', 'core_min')
+                    """, arguments: [deviceId, day])
+            }
+            return try Self.upsertMetricSeries(replacement, deviceId: deviceId, in: db)
+        }
+    }
 
     // MARK: - Upsert (idempotent by natural key; latest value wins on conflict)
 

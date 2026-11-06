@@ -44,9 +44,10 @@ private data class LimitRow(val feature: String, val whoop4: LimitState, val who
 
 private val LIMIT_ROWS: List<LimitRow> = listOf(
     LimitRow("Live heart rate", LimitState.FULL, LimitState.FULL),
-    LimitRow("HRV (rMSSD)", LimitState.FULL, LimitState.FULL),
-    LimitRow("Sleep staging", LimitState.FULL, LimitState.FULL),
-    LimitRow("Recovery & strain", LimitState.FULL, LimitState.FULL),
+    // These outputs are calculated on-device; the strap supplies their inputs, not these metrics.
+    LimitRow("HRV (rMSSD)", LimitState.PARTIAL, LimitState.PARTIAL),
+    LimitRow("Sleep staging", LimitState.PARTIAL, LimitState.PARTIAL),
+    LimitRow("Recovery & strain", LimitState.PARTIAL, LimitState.PARTIAL),
     // PARTIAL on BOTH generations: the displayed respiratory rate is always SleepStager.respRateFromRR
     // — an on-device RSA estimate off the R-R stream, which is what PARTIAL means — computed with NO
     // family branch (AnalyticsEngine respRateDaily). The 5.0/MG v18 wire carries no respiratory channel
@@ -55,8 +56,8 @@ private val LIMIT_ROWS: List<LimitRow> = listOf(
     // Neither is "read live off the strap" (FULL) — also why an over-counted-R-R 4.0 night (#1331) blanks
     // it. Twin of the Swift NoopLimitationsView row.
     LimitRow("Respiratory rate", LimitState.PARTIAL, LimitState.PARTIAL),
-    LimitRow("Stress (on-device)", LimitState.FULL, LimitState.FULL),
-    LimitRow("Workout detection", LimitState.FULL, LimitState.FULL),
+    LimitRow("Stress (on-device)", LimitState.PARTIAL, LimitState.PARTIAL),
+    LimitRow("Workout detection", LimitState.PARTIAL, LimitState.PARTIAL),
     LimitRow("Skin temperature", LimitState.PARTIAL, LimitState.FULL),
     LimitRow("Steps", LimitState.PARTIAL, LimitState.FULL),
     LimitRow("Blood oxygen (SpO₂ %)", LimitState.NONE, LimitState.NONE),
