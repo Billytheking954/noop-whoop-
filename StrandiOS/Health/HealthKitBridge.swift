@@ -1571,7 +1571,7 @@ final class HealthKitBridge: ObservableObject {
                     // This does not infer a sleep session or fabricate a midnight boundary.
                     let day = HealthKitBridge.dayString(s.endDate)
                     byDay[day, default: []].append(.init(
-                        stage: StrandImport.SleepStage.from(rawValue: String(s.value)),
+                        stage: .from(rawValue: String(s.value)),
                         start: s.startDate, end: s.endDate))
                 }
                 let summaries = byDay.mapValues { HealthKitSleepSummary.summarize($0) }
