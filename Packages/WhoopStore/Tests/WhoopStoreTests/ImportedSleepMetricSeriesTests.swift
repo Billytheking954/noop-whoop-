@@ -105,13 +105,12 @@ final class ImportedSleepMetricSeriesTests: XCTestCase {
     }
 
     func testInsertionFailureRollsBackDeletionAndEarlierInserts() async throws {
-        let queue = try DatabaseQueue()
-        let store = try WhoopStore(dbWriter: queue)
+        let store = try await WhoopStore.inMemory()
         let existing = MetricPoint(day: day, key: "core_min", value: 300)
         let oldDaily = daily(day, total: 400, core: 300)
         try await store.upsertMetricSeries([existing], deviceId: "apple-health")
         try await store.upsertDailyMetrics([oldDaily], deviceId: "apple-health")
-        try await queue.write { db in
+        try await store.dbWriter.write { db in
             try db.execute(sql: """
                 CREATE TRIGGER reject_sleep_total BEFORE INSERT ON metricSeries
                 WHEN NEW.key = 'asleep_min'
