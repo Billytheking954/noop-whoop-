@@ -710,7 +710,15 @@ final class BackupSyncRoundTripTests: XCTestCase {
             }
         XCTAssertEqual(snapshots.count, 1, "Recovery verification must select only the main SQLite snapshot")
         let recovery = try XCTUnwrap(snapshots.first)
-        XCTAssertTrue(message.contains(recovery.path), "The verified file must be the recovery snapshot named in the error")
+        let prefix = try XCTUnwrap(message.range(of: "Recovery snapshot: "))
+        let suffix = try XCTUnwrap(message.range(of: ". Recovery error:",
+            range: prefix.upperBound..<message.endIndex))
+        let reportedPath = String(message[prefix.upperBound..<suffix.lowerBound])
+        // macOS may return /private/var from directory enumeration and /var from the
+        // temporary-directory API. Compare the actual files, not those equivalent spellings.
+        XCTAssertEqual(URL(fileURLWithPath: reportedPath).resolvingSymlinksInPath().path,
+                       recovery.resolvingSymlinksInPath().path,
+                       "The verified file must be the recovery snapshot named in the error")
         XCTAssertEqual(try deviceRows(in: recovery), ["wal-only-row"])
         XCTAssertTrue(StoreWriteBarrier.isSuspended)
     }
