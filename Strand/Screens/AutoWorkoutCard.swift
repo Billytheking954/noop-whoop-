@@ -18,7 +18,7 @@ struct AutoWorkoutCard: View {
     @EnvironmentObject var repo: Repository
 
     /// Whether the toggle is on. Read here too so the card disappears the instant it's switched off.
-    @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectEnabled = true
+    @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectEnabled = false
 
     /// The current suggestion, loaded in `.task`. Nil shows the scan state.
     @State private var candidate: DetectedWorkout?
