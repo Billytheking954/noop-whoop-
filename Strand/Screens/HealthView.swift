@@ -1373,7 +1373,7 @@ private struct VitalsSection: View {
         let readings = BodyVitalSigns.readings(
             sourceRows: repo.vitalMetricRows,
             temperatureUnit: temperatureUnit,
-            // Health Monitor requires a validated percentage. Candidate optical codes stay in Night Lab.
+            // Health Monitor displays imported percentages. Candidate optical codes stay in Night Lab.
             spo2CandidateByDay: [:],
             hrvOverCountByDay: hrvOverCountByDay,
             skinTempPreferred: SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute   // #1846
@@ -1442,10 +1442,6 @@ private struct ReferenceVitalTile: View {
                     if let day = reading.day, day != BodyVitalSigns.logicalDayKey(Date()) {
                         Text(BodyVitalReading.dayLabel(day))
                             .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    if reading.key == "spo2" {
-                        Text("Experimental").font(ReferenceStyle.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
                     }
                 }
             }

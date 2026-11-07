@@ -45,7 +45,7 @@ enum DailyInsightNotificationScheduler {
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Measured change in your history"
+        content.title = "Change in your recorded history"
         content.body = "\(selected.metric.title): \(Int(selected.value.rounded())) \(selected.metric.unit), compared with your \(Int(selected.median.rounded())) \(selected.metric.unit) median."
         content.categoryIdentifier = category
         content.userInfo = ["insightID": selected.id]

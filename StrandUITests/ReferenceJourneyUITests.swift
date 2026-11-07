@@ -173,7 +173,7 @@ final class ReferenceJourneyUITests: XCTestCase {
 
     func testInsightAlertPreferenceSurvivesRelaunch() {
         let app = launch(screen: "insightalerts")
-        let control = app.switches["Measured changes"]
+        let control = app.switches["Recorded changes"]
         XCTAssertTrue(control.waitForExistence(timeout: 30))
         let original = control.value as? String
         control.tap()
@@ -185,8 +185,8 @@ final class ReferenceJourneyUITests: XCTestCase {
         let saved = control.value as? String
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.switches["Measured changes"].waitForExistence(timeout: 30))
-        XCTAssertEqual(app.switches["Measured changes"].value as? String, saved)
+        XCTAssertTrue(app.switches["Recorded changes"].waitForExistence(timeout: 30))
+        XCTAssertEqual(app.switches["Recorded changes"].value as? String, saved)
     }
 
     func testSetUpLaterRetainsRequirementsAndSkipsPairing() {

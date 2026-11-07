@@ -17,7 +17,7 @@ struct DailyInsightNotificationSettingsView: View {
         ScreenScaffold(title: "Insights & Alerts", subtitle: nil) {
             ReferenceCard {
                 VStack(alignment: .leading, spacing: ReferenceStyle.padding) {
-                    Toggle("Measured changes", isOn: $enabled)
+                    Toggle("Recorded changes", isOn: $enabled)
                     Text("At most one alert per day. A new sync can update or withdraw a finding. Alerts are checked while NOOP is running; iOS may delay background work.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)

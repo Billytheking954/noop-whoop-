@@ -1,7 +1,7 @@
 import Foundation
 import WhoopStore
 
-/// A measured change against recent personal history. This is a display finding, not an input to
+/// A recorded change against recent personal history. This is a display finding, not an input to
 /// production scoring or a medical alert. It is recomputed from the current local rows after each sync,
 /// so a late offload automatically revises or withdraws a finding.
 struct DailyChangeInsight: Identifiable, Hashable {

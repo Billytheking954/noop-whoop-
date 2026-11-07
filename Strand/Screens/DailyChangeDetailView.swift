@@ -99,11 +99,13 @@ struct DailyChangeDetailView: View {
                             .font(ReferenceStyle.body)
                         Divider()
                         Text("Reading date: \(insight.day)").font(ReferenceStyle.body)
+                        Text("Recorded values may include imported measurements and app estimates. This comparison does not validate their accuracy.")
+                            .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
                         Text("Sync details are available under Device.")
                             .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
                     }
                 }
-                NavigationLink(value: insight.metric == .sleep ? TabRoute.sleep : TabRoute.metric(insight.metric.detailKey)) {
+                NavigationLink(value: insight.metric == .sleep ? TabRoute.sleepDay(insight.day) : TabRoute.metric(insight.metric.detailKey)) {
                     ReferenceCard {
                         HStack {
                             Label("View trend", systemImage: "chart.xyaxis.line")
