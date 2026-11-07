@@ -103,7 +103,9 @@ struct WorkoutDetailView: View {
             }
         }
         .navigationTitle("Activity")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             // A Done affordance for the sheet on both platforms (iOS gets the grabber too).
             ToolbarItem(placement: .cancellationAction) {

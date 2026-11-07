@@ -425,7 +425,9 @@ struct SettingsView: View {
         }
         .background(StrandPalette.surfaceBase)
         .navigationTitle("Settings")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func conceptSettingsDetail<Content: View>(
@@ -439,7 +441,9 @@ struct SettingsView: View {
         }
         .background(StrandPalette.surfaceBase)
         .navigationTitle(title)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func conceptSettingsRow<Destination: View>(

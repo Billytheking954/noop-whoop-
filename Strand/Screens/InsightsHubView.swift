@@ -161,7 +161,7 @@ struct InsightsHubView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             // Header and the 4-segment outcome control each get their own row — one HStack
             // crushed the pill control on narrow widths and truncated the segment labels.
-            SectionHeader("What moves your \(outcome.outcomeName.lowercased())",
+            SectionHeader("Patterns in your \(outcome.outcomeName.lowercased())",
                           overline: "Ranked · your data")
             SegmentedPillControl(InsightsHubViewModel.Outcome.allCases, selection: $outcome) { $0.label }
                 .accessibilityLabel("Outcome metric")
@@ -169,7 +169,7 @@ struct InsightsHubView: View {
 
             if model.ranked.isEmpty {
                 NoopCard {
-                    Text(String(localized: "Not enough overlap between your journal answers and \(outcome.outcomeName.lowercased()) yet. Keep logging. Each behaviour needs days both with and without it before NOOP can read its effect."))
+                    Text(String(localized: "Not enough overlap between your journal answers and \(outcome.outcomeName.lowercased()) yet. Keep logging. Each behaviour needs days both with and without it before NOOP can compare their recorded outcomes."))
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -218,7 +218,10 @@ struct InsightsHubView: View {
                     ScoreStatePill(Self.scoreState(r.confidence))
                 }
 
-                // The engine's sign-aware sentence (includes the lead/lag clause).
+                Text("Observed association; other factors may explain the difference.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                // The engine's descriptive sentence includes the lead/lag clause.
                 Text(r.sentence())
                     .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -392,7 +395,7 @@ private struct DoseResponseCardView: View {
 
                 Divider().overlay(StrandPalette.hairline)
 
-                damageForecast(r)
+                modelComparison(r)
             }
         }
     }
@@ -416,60 +419,30 @@ private struct DoseResponseCardView: View {
         }
     }
 
-    // MARK: Evening damage forecast (what-if on the user's latest Charge)
+    // MARK: Illustrative model comparison
 
-    @ViewBuilder private func damageForecast(_ r: DoseResponse) -> some View {
-        // The Δ of going from the typical starting dose (1) to the previewed dose, applied
-        // to the user's most recent outcome value as an honest "where you'd likely land".
-        let fromDose = 1
-        let delta = r.delta(fromDose: fromDose, toDose: previewDose)
-        let projected = card.latestOutcome.map { max(0, min(card.outcomeCeiling, $0 + delta)) }
-        let stepLabel = previewDose <= 1 ? String(localized: "no extra") : card.stepLabel(previewDose)
-
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            // Overline and the dose stepper each get their own row — sharing one HStack
-            // compressed the 0/1/2/3+ stepper and truncated its segments on narrow widths.
-            Text(card.forecastOverline).strandOverline()
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private func modelComparison(_ r: DoseResponse) -> some View {
+        let delta = r.delta(fromDose: 1, toDose: previewDose)
+        return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            Text("Model comparison").strandOverline()
             SegmentedPillControl(card.doseChoices, selection: $previewDose) { card.doseChoiceLabel($0) }
                 .accessibilityLabel("Preview dose")
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(forecastSentence(delta: delta, projected: projected, stepLabel: stepLabel))
-                .font(StrandFont.subhead)
+            Text("An illustrative model difference from one unit. This is not a prediction of tomorrow's score or evidence that changing this behaviour will improve it.")
+                .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: NoopMetrics.gap)],
                       alignment: .leading, spacing: NoopMetrics.gap) {
-                StatTile(label: "Per extra \(card.unitNoun)",
+                StatTile(label: "Model slope per unit",
                          value: signed(r.perUnit, suffix: card.outcomeSuffix),
-                         caption: r.priorDominated ? String(localized: "typical") : String(localized: "your data"),
-                         accent: r.perUnit < 0 ? StrandPalette.statusCritical : StrandPalette.statusPositive)
-                StatTile(label: "Tomorrow\u{2019}s \(card.outcomeName)",
-                         value: projected.map { "\(Int($0.rounded()))\(card.outcomeSuffix)" } ?? "—",
-                         caption: projected != nil ? String(localized: "projected · \(stepLabel)") : String(localized: "needs a recent day"),
+                         caption: r.priorDominated ? String(localized: "mostly population prior") : String(localized: "fitted association"),
+                         accent: domain.color)
+                StatTile(label: "Model difference",
+                         value: signed(delta, suffix: card.outcomeSuffix),
+                         caption: String(localized: "relative to one unit"),
                          accent: domain.color)
             }
         }
-    }
-
-    /// Whole-phrase variants per direction and basis, so translators never see stitched
-    /// lower/higher or basis fragments.
-    private func forecastSentence(delta: Double, projected: Double?, stepLabel: String) -> String {
-        if previewDose <= 1 {
-            return String(localized: "No extra tonight. Your \(card.outcomeName.lowercased()) forecast stays where it is.")
-        }
-        let magText = "\(Int(abs(delta).rounded()))\(card.outcomeSuffix)"
-        let lower = delta <= 0
-        if card.response.priorDominated {
-            return lower
-                ? String(localized: "A \(stepLabel) tonight tends to line up with about \(magText) lower on tomorrow\u{2019}s \(card.outcomeName.lowercased()) for you, based on typical patterns.")
-                : String(localized: "A \(stepLabel) tonight tends to line up with about \(magText) higher on tomorrow\u{2019}s \(card.outcomeName.lowercased()) for you, based on typical patterns.")
-        }
-        return lower
-            ? String(localized: "A \(stepLabel) tonight tends to line up with about \(magText) lower on tomorrow\u{2019}s \(card.outcomeName.lowercased()) for you, based on \(card.response.nUser) of your \(card.unitLabel.lowercased()) days.")
-            : String(localized: "A \(stepLabel) tonight tends to line up with about \(magText) higher on tomorrow\u{2019}s \(card.outcomeName.lowercased()) for you, based on \(card.response.nUser) of your \(card.unitLabel.lowercased()) days.")
     }
 
     // MARK: Bits

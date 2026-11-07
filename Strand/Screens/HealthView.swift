@@ -32,7 +32,9 @@ struct HealthView: View {
         .background(ReferenceStyle.canvas.ignoresSafeArea())
         .refreshable { await repo.refresh() }
         .navigationTitle("Health Monitor")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
