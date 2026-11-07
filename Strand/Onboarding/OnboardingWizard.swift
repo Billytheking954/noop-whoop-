@@ -46,6 +46,7 @@ public struct OnboardingWizard: View {
 
     @State private var step: Step = .welcome
     @State private var glow = false
+    @State private var skipPairing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Low Power Mode / "Reduce motion in NOOP" pose these looping glows still too. Onboarding is
     /// first-run only, but a `repeatForever` is a `repeatForever` wherever it lives.
@@ -59,13 +60,13 @@ public struct OnboardingWizard: View {
             VStack(spacing: 0) {
                 // Top chrome: a small back affordance + a step counter.
                 topBar
-                    .padding(.horizontal, 36)
-                    .padding(.top, 42)
+                    .padding(.horizontal, ReferenceStyle.page)
+                    .padding(.top, ReferenceStyle.gap)
 
                 // The paged content.
                 ZStack {
                     switch step {
-                    case .welcome:    WelcomeStep()
+                    case .welcome:    ReferenceConnectionIntro(onContinue: { skipPairing = false; advance() }, onLater: { skipPairing = true; advance() })
                     case .what:       WhatItDoesStep()
                     case .expectations: ExpectationsStep()
                     case .bluetooth:  BluetoothStep()
@@ -82,13 +83,15 @@ public struct OnboardingWizard: View {
                 .frame(maxWidth: 620, maxHeight: .infinity)
                 .transition(stepTransition)
                 .id(step)                       // re-runs the transition per step
-                .padding(.horizontal, 40)
+                .padding(.horizontal, ReferenceStyle.page)
 
                 // Bottom: the thread (progress) + the forward CTA.
-                bottomBar
-                    .padding(.horizontal, 40)
-                    .padding(.top, 24)
-                    .padding(.bottom, 36)
+                if !step.isFirst {
+                    bottomBar
+                        .padding(.horizontal, ReferenceStyle.page)
+                        .padding(.top, ReferenceStyle.section)
+                        .padding(.bottom, ReferenceStyle.page)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -108,29 +111,7 @@ public struct OnboardingWizard: View {
     // MARK: Backgrounds
 
     private var background: some View {
-        ZStack {
-            StrandPalette.surfaceBase
-            // A slow ambient bloom that breathes — the substrate feels alive. Kept subtle
-            // (≈⅓ the old gold opacity) so it's a minimal gold hint, not a wash.
-            RadialGradient(
-                colors: [StrandPalette.glowAmbient.opacity(0.18), .clear],
-                center: .center,
-                startRadius: 40,
-                endRadius: glow ? 620 : 480
-            )
-            .blendMode(.plusLighter)
-            .opacity(glow ? 0.4 : 0.28)
-            .animation(StrandMotion.breathe(reduced: poseStill), value: glow)
-            .ignoresSafeArea()
-
-            // A faint indigo wash from the top — instrument-grade depth.
-            LinearGradient(
-                colors: [StrandPalette.accentMuted.opacity(0.20), .clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            .ignoresSafeArea()
-        }
+        ReferenceStyle.canvas.ignoresSafeArea()
     }
 
     // MARK: Top bar
@@ -154,7 +135,7 @@ public struct OnboardingWizard: View {
 
             Spacer()
 
-            Text("\(step.rawValue + 1) / \(Step.allCases.count)")
+            Text("\(step.rawValue < 7 ? 1 : (step.rawValue < 9 ? 2 : 3)) / \(3)")
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(StrandPalette.textTertiary)
         }
@@ -242,11 +223,19 @@ public struct OnboardingWizard: View {
     }
 
     private func advanceStep() {
+        if skipPairing && step == .expectations {
+            withAnimation(StrandMotion.gentle) { step = .profile }
+            return
+        }
         guard let next = Step(rawValue: step.rawValue + 1) else { onFinished(); return }
         withAnimation(StrandMotion.gentle) { step = next }
     }
 
     private func back() {
+        if skipPairing && step == .profile {
+            withAnimation(StrandMotion.gentle) { step = .expectations }
+            return
+        }
         guard let prev = Step(rawValue: step.rawValue - 1) else { return }
         withAnimation(StrandMotion.gentle) { step = prev }
     }
@@ -256,6 +245,66 @@ public struct OnboardingWizard: View {
             insertion: .move(edge: .trailing).combined(with: .opacity),
             removal: .move(edge: .leading).combined(with: .opacity)
         )
+    }
+}
+
+/// The first connection page keeps setup optional without inventing a nearby peripheral.
+private struct ReferenceConnectionIntro: View {
+    let onContinue: () -> Void
+    let onLater: () -> Void
+    @EnvironmentObject private var live: LiveState
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
+                HStack(spacing: ReferenceStyle.section) {
+                    ForEach(0..<3) { index in
+                        Circle().fill(index == 0 ? ReferenceStyle.blue : ReferenceStyle.border)
+                            .frame(width: 10, height: 10)
+                        if index < 2 {
+                            Rectangle().fill(ReferenceStyle.border).frame(width: 32, height: 1)
+                        }
+                    }
+                }.frame(maxWidth: .infinity).padding(.vertical, ReferenceStyle.section)
+                Text("Connect your strap").font(StrandFont.title1)
+                    .frame(maxWidth: .infinity).multilineTextAlignment(.center)
+                Text("Pair your device to start syncing sleep, recovery and activity.")
+                    .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                    .frame(maxWidth: .infinity).multilineTextAlignment(.center)
+                    .padding(.bottom, ReferenceStyle.section)
+                ReferenceCard {
+                    HStack(spacing: ReferenceStyle.padding) {
+                        ReferenceBandIllustration()
+                            .scaleEffect(0.28).frame(width: 54, height: 58)
+                        VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                            Text(live.bonded ? "Strap connected" : "Find a nearby strap")
+                                .font(ReferenceStyle.headline)
+                            Text(live.bonded ? "Ready to sync" : "Continue to enable Bluetooth and scan.")
+                                .font(ReferenceStyle.caption).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: live.bonded ? "checkmark.circle.fill" : "chevron.right")
+                            .foregroundStyle(ReferenceStyle.blue)
+                    }
+                }
+                ReferenceCard {
+                    VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                        Label("Your data stays private", systemImage: "lock.shield")
+                            .font(ReferenceStyle.headline)
+                        Text("NOOP connects directly over Bluetooth. Your health data stays on your iPhone unless you choose to export it.")
+                            .font(ReferenceStyle.body).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+                Button(action: onContinue) {
+                    Text("Continue").font(ReferenceStyle.headline)
+                        .frame(maxWidth: .infinity, minHeight: ReferenceStyle.touch)
+                }.buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(ReferenceStyle.blue, in: RoundedRectangle(cornerRadius: ReferenceStyle.radius))
+                Button("Set up later", action: onLater)
+                    .font(ReferenceStyle.body)
+                    .frame(maxWidth: .infinity, minHeight: ReferenceStyle.touch)
+            }.padding(.vertical, ReferenceStyle.section)
+        }
     }
 }
 

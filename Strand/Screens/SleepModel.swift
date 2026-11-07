@@ -71,28 +71,9 @@ struct Night {
     /// The wall-clock start of the night (for the Hypnogram's clock labels).
     var onsetDate: Date { Date(timeIntervalSince1970: TimeInterval(session.effectiveStartTs)) }
 
-    /// Stage intervals laid end-to-end across the night, in seconds from start.
-    /// On-device computed nights use their REAL timeline; imported nights are reconstructed
-    /// from durations only (the export has no per-epoch timeline).
-    var intervals: [SleepInterval] {
-        if let real = realSegments, real.count >= 2 { return real }
-        var t: TimeInterval = 0
-        var out: [SleepInterval] = []
-        func add(_ stage: SleepStage, _ minutes: Double) {
-            guard minutes > 0 else { return }
-            let secs = minutes * 60
-            out.append(SleepInterval(stage: stage, start: t, end: t + secs))
-            t += secs
-        }
-        // A plausible architecture: deep early, REM later, awake last.
-        add(.light, stages.light * 0.4)
-        add(.deep, stages.deep)
-        add(.light, stages.light * 0.3)
-        add(.rem, stages.rem)
-        add(.light, stages.light * 0.3)
-        add(.awake, stages.awake)
-        return out
-    }
+    /// Persisted stage timing only. Imported totals cannot establish a timeline.
+    /// An empty array selects the stage-breakdown presentation without invented transitions.
+    var intervals: [SleepInterval] { realSegments ?? [] }
 
     var onsetText: String { Night.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(session.effectiveStartTs))) }
     var wakeText: String { Night.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(session.endTs))) }

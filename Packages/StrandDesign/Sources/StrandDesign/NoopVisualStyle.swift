@@ -7,32 +7,34 @@ import SwiftUI
 // bindings, while cards, gauges, typography, and chrome share one maintainable source of truth.
 
 public enum NoopVisualStyle {
-    // Neutral, low-chroma surfaces sampled from the supplied dark-mode reference.
-    public static let canvas = Color(light: "#F3F4F6", dark: "#1D1E23")
-    public static let surface = Color(light: "#FFFFFF", dark: "#2A2C34")
-    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#30323B")
-    public static let surfaceBottom = Color(light: "#F4F5F7", dark: "#282A31")
-    public static let inset = Color(light: "#E8E9ED", dark: "#23252C")
+    // NOOP's cool mineral canvas and midnight ink give the metrics room to lead.
+    // CRUX contributes spacing discipline, while the colour and atmosphere remain NOOP's own.
+    public static let canvas = Color(light: "#F4F7FA", dark: "#0D171B")
+    public static let surface = Color(light: "#FFFFFF", dark: "#19262C")
+    public static let surfaceTop = Color(light: "#FFFFFF", dark: "#1C2A30")
+    public static let surfaceBottom = Color(light: "#FAFCFE", dark: "#19262C")
+    public static let inset = Color(light: "#E9EFF4", dark: "#141D28")
 
-    public static let border = Color(light: "#D8DAE0", dark: "#373A44")
-    public static let borderHighlight = Color(light: "#FFFFFF", dark: "#4B4E59")
-    public static let divider = Color(light: "#E4E5E9", dark: "#383A43")
+    public static let border = Color(light: "#DCE4EB", dark: "#2C3948")
+    public static let borderHighlight = Color(light: "#FFFFFF", dark: "#4B5C70")
+    public static let divider = Color(light: "#E3EAF0", dark: "#334153")
 
-    public static let primaryText = Color(light: "#17181C", dark: "#F7F7FA")
-    public static let secondaryText = Color(light: "#555861", dark: "#C3C4CA")
-    public static let tertiaryText = Color(light: "#7D808A", dark: "#7D7F88")
+    public static let primaryText = Color(light: "#18212C", dark: "#F4F8FC")
+    public static let secondaryText = Color(light: "#536170", dark: "#BAC7D5")
+    public static let tertiaryText = Color(light: "#6E7C8A", dark: "#8F9EB0")
 
-    public static let mint = Color(light: "#149A78", dark: "#69DDB8")
-    public static let mintDeep = Color(light: "#0D765C", dark: "#13A982")
-    public static let mintGlow = Color(light: "#38C99E", dark: "#54E6BD")
+    // Tide green anchors navigation and controls; domain scoring colours stay independent.
+    public static let mint = Color(light: "#147D6C", dark: "#6AD9B8")
+    public static let mintDeep = Color(light: "#0D655B", dark: "#36B994")
+    public static let mintGlow = Color(light: "#42A995", dark: "#A3E4D4")
 
-    public static let cardRadius: CGFloat = 22
-    public static let compactRadius: CGFloat = 16
+    public static let cardRadius: CGFloat = 10
+    public static let compactRadius: CGFloat = 10
     public static let pillRadius: CGFloat = 999
     public static let pagePadding: CGFloat = 16
-    public static let cardPadding: CGFloat = 16
-    public static let itemGap: CGFloat = 12
-    public static let sectionGap: CGFloat = 26
+    public static let cardPadding: CGFloat = 12
+    public static let itemGap: CGFloat = 8
+    public static let sectionGap: CGFloat = 16
 }
 
 /// Shared card/panel treatment: a solid surface on iOS, gradient and soft elevation elsewhere.
@@ -84,7 +86,7 @@ public struct NoopPanelSurface: View {
                 if let tint {
                     shape.fill(
                         LinearGradient(
-                            colors: [tint.opacity(0.055), tint.opacity(0.012), .clear],
+                            colors: [tint.opacity(0.045), tint.opacity(0.008), .clear],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -102,10 +104,10 @@ public struct NoopPanelSurface: View {
                 )
             )
             .shadow(
-                color: scheme == .dark ? .black.opacity(elevated ? 0.34 : 0.18) : .black.opacity(0.10),
-                radius: elevated ? 18 : 9,
+                color: scheme == .dark ? .black.opacity(elevated ? 0.30 : 0.12) : .black.opacity(elevated ? 0.075 : 0.035),
+                radius: elevated ? 16 : 10,
                 x: 0,
-                y: elevated ? 10 : 5
+                y: elevated ? 7 : 3
             )
             .opacity(surfaceOpacity)
         #endif

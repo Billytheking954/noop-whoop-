@@ -1,6 +1,34 @@
 import SwiftUI
 import StrandDesign
 
+#if os(iOS)
+import UIKit
+
+/// Keep scrolled text out of the status-bar region when Today hides the navigation bar.
+/// The viewport may start inside or below that safe area; align the cover in global coordinates.
+struct StatusBarCanvasCover: ViewModifier {
+    @State private var windowTopInset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            GeometryReader { geometry in
+                StrandPalette.surfaceBase
+                    .frame(height: max(geometry.safeAreaInsets.top, windowTopInset))
+                    .offset(y: -geometry.frame(in: .global).minY)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear {
+                windowTopInset = UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }
+                    .flatMap(\.windows)
+                    .first(where: \.isKeyWindow)?.safeAreaInsets.top ?? 0
+            }
+        }
+    }
+}
+#endif
+
 /// Standard scrollable screen container: title + dark surface + content column.
 struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional — when nil (and no subtitle) the header is omitted entirely, so a screen can supply its
@@ -49,7 +77,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             // Unified side margins matching the floating navigation bar so every page's cards + header line up
             // to the same edges (2026-07-02); macOS keeps the classic 28 in the #else branch.
             .padding(.horizontal, NoopMetrics.screenHPadding)
-            .padding(.top, 24)
+            .padding(.top, ReferenceStyle.gap)
             // The tab bar floats over the scroll content, so the last card sat hidden behind it.
             // Reserve extra bottom scroll room so every screen's final card clears the floating bar.
             .padding(.bottom, NoopMetrics.tabBarClearance)
@@ -102,12 +130,12 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// the previous layout. `@ViewBuilder` lets the two stack types resolve to one opaque return.
     @ViewBuilder private var column: some View {
         if lazy {
-            LazyVStack(alignment: .leading, spacing: 20) {
+            LazyVStack(alignment: .leading, spacing: ReferenceStyle.section) {
                 if title != nil || subtitle != nil { header }
                 content()
             }
         } else {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
                 if title != nil || subtitle != nil { header }
                 content()
             }
@@ -120,7 +148,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
                 if let title {
                     // Match the liquid home's title face (SF Rounded 28) so every page's header reads
                     // identically (2026-07-02 cohesion pass).
-                    Text(title).font(StrandFont.rounded(28)).foregroundStyle(StrandPalette.textPrimary)
+                    Text(title).font(ReferenceStyle.title).foregroundStyle(StrandPalette.textPrimary)
                 }
                 if let subtitle {
                     Text(subtitle).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)

@@ -32,30 +32,127 @@ import WhoopStore
 
 struct InsightsHubView: View {
     @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var router: NavRouter
     @StateObject private var model = InsightsHubViewModel()
 
     /// The currently-selected outcome for the ranked feed (Charge / HRV / Rest / RHR).
     @State private var outcome: InsightsHubViewModel.Outcome = .recovery
+    @State private var selectedDailyInsight: DailyChangeInsight?
+    @State private var withdrawnDailyInsightID: String?
+    @State private var showNotificationSettings = false
+    @State private var category = "All"
+    private let categories = ["All", "Recovery", "Sleep", "Activity"]
 
     var body: some View {
-        ScreenScaffold(title: "Insights",
-                       subtitle: "Patterns in your own data: association, not cause.",
-                       // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
-                       // alignment/spacing/header). The content is one inner eager VStack, so the staggered
-                       // mover reveal is unchanged; this only defers building that stack until it scrolls in.
-                       lazy: true) {
-            if !model.loaded {
-                ComingSoon(what: "Reading your journal and outcomes…")
-            } else {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ReferenceStyle.section) {
+                HStack {
+                    Text("Insights").font(ReferenceStyle.title)
+                    Spacer()
+                    Button { showNotificationSettings = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .frame(minWidth: ReferenceStyle.touch, minHeight: ReferenceStyle.touch)
+                    }.accessibilityLabel("Insights & Alerts")
+                }
+                Picker("Category", selection: $category) {
+                    ForEach(categories, id: \.self) { Text(LocalizedStringKey($0)).tag($0) }
+                }.pickerStyle(.segmented)
+                dailyChangesSection
+                if !model.loaded {
+                    ComingSoon(what: "Reading your journal and outcomes…")
+                } else {
                     moversSection
                     doseSection
                     methodNote
                 }
-            }
+            }.padding(ReferenceStyle.page)
         }
+        .background(ReferenceStyle.canvas.ignoresSafeArea())
         .task(id: repo.refreshSeq) { await model.load(repo: repo) }
         .onChangeCompat(of: outcome) { model.rankFor($0) }
+        .sheet(item: $selectedDailyInsight) { insight in
+            NavigationStack {
+                DailyChangeDetailView(insight: insight)
+                    .tabRouteDestinations()
+            }
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showNotificationSettings) {
+            NavigationStack { DailyInsightNotificationSettingsView() }
+        }
+        #endif
+        .onAppear { openPendingDailyInsight() }
+        .onChangeCompat(of: router.pendingDailyInsightID) { _ in openPendingDailyInsight() }
+        .onChangeCompat(of: repo.refreshSeq) { _ in openPendingDailyInsight() }
+    }
+
+    private func openPendingDailyInsight() {
+        guard let id = router.pendingDailyInsightID else { return }
+        guard repo.loaded else { return }
+        selectedDailyInsight = DailyChangeInsight.derive(from: repo.days).first { $0.id == id }
+        withdrawnDailyInsightID = selectedDailyInsight == nil ? id : nil
+        router.pendingDailyInsightID = nil
+    }
+
+    private var dailyChangesSection: some View {
+        let findings = DailyChangeInsight.derive(from: repo.days).filter { insight in
+            switch category {
+            case "Recovery": return insight.metric != .sleep
+            case "Sleep": return insight.metric == .sleep
+            case "Activity": return false
+            default: return true
+            }
+        }
+        return VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+
+            if withdrawnDailyInsightID != nil {
+                ReferenceCard {
+                    Text("This finding changed after new data was saved. Its earlier notification is no longer current.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            if findings.isEmpty {
+                ReferenceCard {
+                    Text("No supported change yet. Seven recent comparable days are needed for each metric.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+            } else {
+                ForEach(findings.reduce(into: [DailyChangeInsight]()) { result, insight in
+                    if !result.contains(where: { $0.metric == insight.metric }) { result.append(insight) }
+                }) { insight in
+                    Button { selectedDailyInsight = insight } label: {
+                        ReferenceCard() {
+                            HStack(spacing: ReferenceStyle.padding) {
+                                Image(systemName: insight.metric == .sleep ? "moon" : (insight.metric == .hrv ? "waveform.path.ecg" : "heart"))
+                                    .font(ReferenceStyle.value).foregroundStyle(ReferenceStyle.blue)
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: ReferenceStyle.gap) {
+                                    Text(insight.metric.title).font(ReferenceStyle.headline)
+                                    Text(insight.increased ? "Above your baseline" : "Below your baseline")
+                                        .font(ReferenceStyle.body)
+                                    Text("\(Int(abs(insight.value - insight.median).rounded())) \(insight.metric.unit)")
+                                        .font(ReferenceStyle.value).foregroundStyle(ReferenceStyle.blue)
+                                    Text("\(insight.day) · \(Int(insight.value.rounded())) \(insight.metric.unit) vs. \(Int(insight.median.rounded())) \(insight.metric.unit) median")
+                                        .font(StrandFont.footnote)
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            #if os(iOS)
+            Button("Insight notification settings") { showNotificationSettings = true }
+                .font(StrandFont.subhead)
+            #endif
+        }
     }
 
     // MARK: - What moves your Charge (ranked, lag-aware)

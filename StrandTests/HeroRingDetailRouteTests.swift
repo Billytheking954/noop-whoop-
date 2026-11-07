@@ -20,7 +20,7 @@ import XCTest
 /// would have kept passing while either shell was renamed out from under it.
 final class HeroRingDetailRouteTests: XCTestCase {
 
-    /// Charge, Effort and Rest, in the order the hero row renders them.
+    /// Rest, Charge and Effort, in the order the hero row renders them.
     ///
     /// Read from the production constants rather than restated here. A private copy would have kept
     /// passing while a shell was renamed out from under it, which is the one failure this file exists to
@@ -35,7 +35,7 @@ final class HeroRingDetailRouteTests: XCTestCase {
         XCTAssertEqual(HeroRingMetric.charge, "recovery")
         XCTAssertEqual(HeroRingMetric.effort, "strain")
         XCTAssertEqual(HeroRingMetric.rest, "sleep_performance")
-        XCTAssertEqual(HeroRingMetric.all, ["recovery", "strain", "sleep_performance"])
+        XCTAssertEqual(HeroRingMetric.all, ["sleep_performance", "recovery", "strain"])
     }
 
     func testEveryHeroRingKeyResolvesToACatalogMetric() {

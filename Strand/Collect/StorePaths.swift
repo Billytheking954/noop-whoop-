@@ -1,5 +1,14 @@
 import Foundation
 enum StorePaths {
+    /// Parent for NightLab/<night-id>, alongside the durable store. Bundle import may create it; this path
+    /// resolver itself does not migrate or create anything.
+    static func nightLabRoot() throws -> URL {
+        let support = try FileManager.default.url(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask, appropriateFor: nil, create: false)
+        return macOSProductionContainerAppSupport(defaultingTo: support)
+            .appendingPathComponent("OpenWhoop", isDirectory: true)
+    }
+
     /// `<AppSupport>/OpenWhoop/whoop.sqlite`, creating the directory if needed.
     static func defaultDatabasePath() throws -> String {
         let fm = FileManager.default

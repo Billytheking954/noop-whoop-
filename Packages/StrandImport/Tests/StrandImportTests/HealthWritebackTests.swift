@@ -3,6 +3,55 @@ import XCTest
 
 final class HealthWritebackTests: XCTestCase {
 
+    func testFailedReplacementPreservesPreviousObjects() async {
+        enum SaveError: Error { case rejected }
+        var retired: [Int] = []
+        do {
+            try await HealthWriteback.replaceAfterSave(existing: [7, 8],
+                save: { throw SaveError.rejected },
+                retire: { retired = $0 })
+            XCTFail("A rejected HealthKit save must fail the sync")
+        } catch SaveError.rejected {
+            XCTAssertTrue(retired.isEmpty)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testSuccessfulReplacementRetiresOnlyCapturedObjectsAfterSave() async throws {
+        var events: [String] = []
+        try await HealthWriteback.replaceAfterSave(existing: [7, 8],
+            save: { events.append("save") },
+            retire: { old in
+                XCTAssertEqual(old, [7, 8])
+                events.append("retire")
+            })
+        XCTAssertEqual(events, ["save", "retire"])
+    }
+
+    func testRetirementFailureIsReportedAfterReplacementSaved() async {
+        enum DeleteError: Error { case denied }
+        var saved = false
+        do {
+            try await HealthWriteback.replaceAfterSave(existing: [7],
+                save: { saved = true },
+                retire: { _ in throw DeleteError.denied })
+            XCTFail("A failed retirement must not be reported as a successful sync")
+        } catch DeleteError.denied {
+            XCTAssertTrue(saved, "Replacement must exist before retiring the old object")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testFirstWriteSavesWithoutRetiringAnything() async throws {
+        var saved = false
+        try await HealthWriteback.replaceAfterSave(existing: [Int](),
+            save: { saved = true },
+            retire: { _ in XCTFail("An empty snapshot must not trigger retirement") })
+        XCTAssertTrue(saved)
+    }
+
     private let start = 1_700_000_000
     private var end: Int { start + 8 * 3600 }
 

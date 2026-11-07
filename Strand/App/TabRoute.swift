@@ -32,6 +32,8 @@ enum TabRoute: Hashable {
     case dataSources
     case stress
     case sleep
+    case sleepDay(String)
+    case charge(day: String?)
     case health
     case hydration
     case coupled
@@ -43,6 +45,7 @@ extension View {
     /// Today detail pane and TrendsView's own macOS wrap).
     func tabRouteDestinations() -> some View {
         navigationDestination(for: TabRoute.self) { route in
+            Group {
             switch route {
             case .fullDayChart: FullDayChartView()
             case .metric(let key):
@@ -68,10 +71,16 @@ extension View {
             case .dataSources: DataSourcesView()
             case .stress: StressView()
             case .sleep: SleepView()
+            case .sleepDay(let day): SleepView(day: day)
+            case .charge(let day): ChargeDetailView(day: day)
             case .health: HealthView()
             case .hydration: HydrationView()
             case .coupled: CoupledView()
             }
+            }
+            #if os(iOS)
+            .toolbar(.visible, for: .navigationBar)
+            #endif
         }
     }
 }
@@ -106,6 +115,6 @@ enum HeroRingMetric {
     static let effort = "strain"
     static let rest = "sleep_performance"
 
-    /// Charge, Effort, Rest, in the order the hero row renders them.
-    static let all = [charge, effort, rest]
+    /// Rest, Charge, Effort, in the order the Today hero row renders them.
+    static let all = [rest, charge, effort]
 }

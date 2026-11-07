@@ -7,24 +7,17 @@ final class StepsDetailDensityTests: XCTestCase {
         StepsDetailDensity.project
 
     private func loadOracle() throws -> [[String: Any]] {
-        let relative = "android/app/src/test/resources/steps_detail_density_oracle.json"
-        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        for _ in 0..<8 {
-            let candidate = directory.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                let object = try JSONSerialization.jsonObject(with: Data(contentsOf: candidate))
-                let root = try XCTUnwrap(object as? [String: Any])
-                XCTAssertEqual(root["schemaVersion"] as? Int, 1)
-                XCTAssertFalse(try XCTUnwrap(root["note"] as? String).isEmpty)
-                return try XCTUnwrap(root["cases"] as? [[String: Any]])
-            }
-            directory = directory.deletingLastPathComponent()
-        }
-        XCTFail("committed oracle \(relative) not found above \(#filePath)")
-        throw CocoaError(.fileNoSuchFile)
+        let candidate = Bundle.module.url(forResource: "steps_detail_density_oracle",
+                                          withExtension: "json", subdirectory: "OracleResources")
+        let url = try XCTUnwrap(candidate, "committed step-density oracle must be packaged with the tests")
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+        let root = try XCTUnwrap(object as? [String: Any])
+        XCTAssertEqual(root["schemaVersion"] as? Int, 1)
+        XCTAssertFalse(try XCTUnwrap(root["note"] as? String).isEmpty)
+        return try XCTUnwrap(root["cases"] as? [[String: Any]])
     }
 
-    func testSwiftProjectorAssertsTheSharedAndroidFixture() throws {
+    func testSwiftProjectorAssertsTheCommittedFixture() throws {
         let cases = try loadOracle()
         XCTAssertEqual(cases.count, 11)
         XCTAssertEqual(Set(cases.compactMap { $0["range"] as? String }),

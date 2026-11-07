@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
+import WhoopStore
 import UserNotifications
 
 /// iOS entry point. Unlike the macOS app (which adds a `MenuBarExtra` scene), iOS uses a single
@@ -52,6 +53,12 @@ struct StrandiOSApp: App {
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
     init() {
+        // Begin measuring the first successful publication of local saved data.
+        // No BLE, HealthKit or raw health values are involved.
+        ColdLaunchTrace.begin()
+        #if DEBUG
+        AppleDemoSeeder.installOfflineValidationIfRequested()
+        #endif
         // #1008: pin the pre-change Overnight-only default for existing installs before
         // anything reads it. Idempotent; a no-op on fresh installs and after the first launch.
         PuffinExperiment.migrateContinuousHrvOvernightDefault()
@@ -84,7 +91,11 @@ struct StrandiOSApp: App {
         let router = NavRouter()
         _router = StateObject(wrappedValue: router)
         NotificationPresenter.shared.onCoachBriefTapped = { [weak router] in router?.openCoach() }
+        NotificationPresenter.shared.onDailyInsightTapped = { [weak router] id in
+            Task { @MainActor in router?.openDailyInsight(id: id) }
+        }
         let model = AppModel()
+        ColdLaunchTrace.mark("app-model-ready")
         _model = StateObject(wrappedValue: model)
         CoachBriefScheduler.register(generateBrief: { [weak coach = model.coach] in
             await coach?.generateBrief()
@@ -244,11 +255,9 @@ struct StrandiOSApp: App {
                 // fixed-geometry tiles/gauges stay legible at the largest accessibility sizes rather than
                 // clipping; the common Larger-Text range still scales fully.
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                // `hr` is the value being written: this runs in willSet, when `live.heartRate` still holds the old one.
+                // The HR banner follows the strap through LiveActivityController.follow(model) in init.
+                // Published emits before assignment; use the emitted value and avoid rereading stale state.
                 .onReceive(model.live.$heartRate) { hr in
-                    // The gym banner's own cheap path: no presentation is built here, and a heart rate moves
-                    // the banner only when `LiftBannerPushPolicy` says it is worth a push. Everything else
-                    // about the session pushes through `pushLiftActivity` below, carrying the current number.
                     liftActivity.updateHeartRate(model.live.connected ? (model.bpm ?? hr) : nil)
                 }
                 // The gym session's own banner follows each change to the session once it has landed —
@@ -469,10 +478,12 @@ private struct iOSRootView: View {
             // Inherit the app appearance (set via the Theme picker, or `-theme.appearance light|dark`
             // in the launch arguments) so demo/marketing shots can be taken in either scheme.
             return AnyView(
-                NavigationStack {
-                    demo
-                        .background(StrandPalette.surfaceBase.ignoresSafeArea())
-                        .navigationBarTitleDisplayMode(.inline)
+                Group {
+                    if CommandLine.arguments.contains("addwizard") {
+                        demo
+                    } else {
+                        ReferenceDemoTabHost(screen: demo)
+                    }
                 }
             )
         }
@@ -584,17 +595,25 @@ enum DemoScreens {
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())
         case "workouts": return AnyView(WorkoutsView())
+        case "activity": return AnyView(ReferenceActivityDemoHost())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsView())
+        case "insightshub": return AnyView(InsightsHubView())
+        case "insightalerts": return AnyView(DailyInsightNotificationSettingsView())
+        case "insightdetail": return AnyView(DailyInsightDemoHost())
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
-        case "chargebreakdown": return AnyView(ChargeBreakdownDemoHost())
+        case "chargebreakdown": return AnyView(ChargeDetailView())
+        case "restdetail": return AnyView(SleepView())
+        case "effortdetail":
+            guard let metric = MetricCatalog.all.first(where: { $0.key == HeroRingMetric.effort }) else { return nil }
+            return AnyView(MetricDetailView(metric: metric))
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())
         case "fitnessage": return AnyView(FitnessAgeDemoScreen())
         case "vitality": return AnyView(VitalityDemoScreen())
-        case "addwizard": return AnyView(AddWizardDemoHost())
+        case "addwizard": return AnyView(OnboardingWizard(onFinished: {}))
         // Oura onboarding: the Add-device wizard deep-linked straight to the Oura factory-reset-and-adopt
         // prep step (the Beta banner + get/lose card + the red irreversible-consent gate), screenshot-able
         // WITHOUT a ring.
@@ -617,6 +636,64 @@ enum DemoScreens {
 /// DEBUG-only host so `--demo-screen addwizard` can render the multi-step Add-a-device wizard.
 /// A SwiftUI View body is main-actor, so it can pull the injected LiveState and hand it to the
 /// wizard's `init(live:)` (the nonisolated DemoScreens switch can't construct a LiveState itself).
+private struct ReferenceDemoTabHost: View {
+    let screen: AnyView
+    @State private var selection = 0
+    private var screenTab: Int {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--demo-screen"), index + 1 < args.count else { return 0 }
+        switch args[index + 1] {
+        case "health": return 1
+        case "workouts", "activity": return 2
+        case "settings", "devices", "insightshub", "insightdetail", "trends": return 3
+        default: return 0
+        }
+    }
+    private func root<V: View>(_ view: V, tag: Int) -> some View {
+        NavigationStack {
+            Group {
+                if tag == screenTab { screen } else { AnyView(view) }
+            }
+            .tabRouteDestinations()
+            .background(ReferenceStyle.canvas.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+    var body: some View {
+        TabView(selection: $selection) {
+            root(TodayView(), tag: 0).tabItem { Label("Today", systemImage: "house") }.tag(0)
+            root(HealthView(), tag: 1).tabItem { Label("Health", systemImage: "heart") }.tag(1)
+            root(WorkoutsView(), tag: 2).tabItem { Label("Activity", systemImage: "chart.bar") }.tag(2)
+            root(SettingsView(), tag: 3).tabItem { Label("More", systemImage: "ellipsis") }.tag(3)
+        }
+        .tint(ReferenceStyle.blue)
+        .onAppear { selection = screenTab }
+    }
+}
+
+private struct ReferenceActivityDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var row: WorkoutRow?
+    var body: some View {
+        Group {
+            if let row { WorkoutDetailView(row: row) }
+            else { Text("No saved activity") }
+        }
+        .task { row = await repo.workoutRows(days: 4000).first }
+    }
+}
+
+private struct DailyInsightDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    var body: some View {
+        if let insight = DailyChangeInsight.derive(from: repo.days).first {
+            DailyChangeDetailView(insight: insight)
+        } else {
+            Text("No baseline comparison available")
+        }
+    }
+}
+
 private struct AddWizardDemoHost: View {
     @EnvironmentObject var live: LiveState
     var body: some View { AddDeviceWizard(live: live, onClose: {}) }

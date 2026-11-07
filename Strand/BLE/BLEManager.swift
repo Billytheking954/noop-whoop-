@@ -3663,19 +3663,32 @@ public final class BLEManager: NSObject, ObservableObject {
         finishR22Disable()
     }
 
-    /// Make a bonded strap advertise as a standard BLE HR sensor. WHOOP 4 uses the reversible
-    /// TOGGLE_GENERIC_HR_PROFILE command; WHOOP 5/MG keeps the existing device-config path.
+    /// EXPERIMENTAL (#181): make a bonded WHOOP 5/MG advertise its heart rate as a standard BLE HR
+    /// sensor (0x180D + the live HR in its manufacturer data) by writing the device-config flag
+    /// `whoop_live_hr_in_adv_ind_pkt` = "1" (on) / "0" (off) via SET_DEVICE_CONFIG (0x77). With it on, a
+    /// Garmin (Edge/watch), Zwift or gym HR client can pair to the WHOOP directly during a workout.
+    /// Validated on real hardware (paired on a Garmin Edge 840). Opt-in, reversible; unlike R22 it is NOT
+    /// on-wrist gated. Re-applied on each 5/MG connection. iOS/Android only (macOS can't bond a 5/MG).
+    public enum BroadcastHRStatus: Equatable {
+        case idle, unavailable, pending
+        case finished(BroadcastHrGateReport)
+    }
+    @Published public private(set) var broadcastHRStatus: BroadcastHRStatus = .idle
+
     public func setBroadcastHr(_ on: Bool) {
         guard state.connected, state.bonded else {
+            broadcastHRStatus = .unavailable
             log("Broadcast HR: connect and bond the strap first — ignored."); return
         }
         if selectedModel.deviceFamily == .whoop4 {
+            broadcastHRStatus = .unavailable
             send(.toggleGenericHRProfile, payload: [on ? 0x01 : 0x00])
             log("Broadcast HR: WHOOP 4 \(on ? "enable" : "disable") command sent (14); effect not confirmed.")
             return
         }
         guard selectedModel.deviceFamily == .whoop5 else {
-            log("Broadcast HR: strap family is not known yet — ignored."); return
+            broadcastHRStatus = .unavailable
+            log("Broadcast HR: needs a WHOOP 5.0/MG strap selected — ignored."); return
         }
         // Mutually exclusive with the ECG gate: both verify over the SAME 121 read-back opcode, so if both
         // were in flight one strap reply would be consumed by both handlers and cross-contaminate the other's
@@ -3693,12 +3706,14 @@ public final class BLEManager: NSObject, ObservableObject {
                                                ecgGateOptIn: PuffinExperiment.ecgRawDataEnabled,
                                                isMG: isWhoop5MG,
                                                broadcastHrOptIn: PuffinExperiment.broadcastHrEnabled) else {
+            broadcastHRStatus = .unavailable
             log("Broadcast HR: write whoop_live_hr_in_adv_ind_pkt=\(on ? "1" : "0") REFUSED by the 5/MG send gate — strap unchanged.")
             return
         }
         // #1061: write, then READ IT BACK — the ack is not the proof. A reporter on FW 50.36.2.0 saw the
         // flag written yet the strap never advertised 0x180D, with no way to tell "accepted but not
         // advertised" from "write ignored". The 121 read-back settles that, same discipline as the ECG gate.
+        broadcastHRStatus = .pending
         broadcastHrGateReport = BroadcastHrGateReport(on: on)
         log("Broadcast HR: writing \(DeviceConfigWriteGate.broadcastHrKey)='\(DeviceConfigWriteGate.valueString(on: on))' via SET_DEVICE_CONFIG_VALUE(119); the ack is NOT the result — a GET_DEVICE_CONFIG_VALUE(121) read-back follows.")
         send(.setDeviceConfig, payload: payload, writeType: .withResponse)
@@ -3726,6 +3741,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private func finishBroadcastHrWrite() {
         guard let report = broadcastHrGateReport else { return }
         broadcastHrGateReport = nil
+        broadcastHRStatus = .finished(report)
         log("Broadcast HR (#1061):\n\(report.render())")
     }
 

@@ -3,7 +3,7 @@ import XCTest
 @testable import StrandAnalytics
 
 /// The day-window primitive, one test per scenario of the `daily-windows` specification, plus the
-/// parity oracle that the Kotlin twin reads from the same committed file.
+/// committed calendar-window oracle retained for the iPhone app.
 ///
 /// Every fixture passes an explicit zone and an explicit reference instant, so nothing here depends on
 /// the machine's zone or on when the suite runs. The two exceptions are the default-accessor tests,
@@ -299,31 +299,23 @@ final class LocalDayWindowsTests: XCTestCase {
         XCTAssertLessThanOrEqual(helperDefault, after)
     }
 
-    // MARK: - Both platforms agree, proven by a committed oracle
+    // MARK: - Committed calendar-window oracle
 
-    /// The committed oracle, loaded by a path derived from this file's own location.
+    /// The committed oracle, bundled with the Swift test target.
     ///
     /// It fails rather than skips when the file is absent: an oracle nobody can find would otherwise
-    /// let both platforms stay green while they disagree, which is the whole thing this file guards.
+    /// let the suite stay green without verifying calendar behaviour.
     private func loadOracle() throws -> [String: Any] {
-        let relative = "android/app/src/test/resources/local_day_windows_oracle.json"
-        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        for _ in 0..<8 {
-            let candidate = dir.appendingPathComponent(relative)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                let data = try Data(contentsOf: candidate)
-                let parsed = try JSONSerialization.jsonObject(with: data)
-                return try XCTUnwrap(parsed as? [String: Any], "the oracle must be a JSON object")
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        XCTFail("committed oracle \(relative) not found above \(#filePath) — this test must not pass by default")
-        throw CocoaError(.fileNoSuchFile)
+        let candidate = Bundle.module.url(forResource: "local_day_windows_oracle",
+                                          withExtension: "json", subdirectory: "OracleResources")
+        let url = try XCTUnwrap(candidate, "committed local-day oracle must be packaged with the tests")
+        let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+        return try XCTUnwrap(parsed as? [String: Any], "the oracle must be a JSON object")
     }
 
     /// Every value in the committed oracle, re-derived by the helper and compared.
     ///
-    /// The Kotlin twin asserts the same file, so a change on either side reddens one of the two suites.
+    /// The retained oracle verifies the iPhone's calendar-window behaviour after Android removal.
     func testSwiftTestReadsTheSameCommittedFile() throws {
         let oracle = try loadOracle()
 

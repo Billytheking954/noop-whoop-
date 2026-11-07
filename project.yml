@@ -518,6 +518,21 @@ targets:
 
 # Explicit schemes so `xcodebuild -scheme Strand …` builds + tests the macOS app (with StrandTests
 # wired in) and `-scheme NOOPiOS …` builds the iOS app. Names match the app-build CI matrix.
+  NOOPReferenceUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - StrandUITests
+    dependencies:
+      - target: NOOPiOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).noop.referenceuitests
+        TEST_TARGET_NAME: NOOPiOS
+        TARGETED_DEVICE_FAMILY: "1"
+
 schemes:
   Strand:
     build:
@@ -535,6 +550,10 @@ schemes:
         NOOPiOS: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - NOOPReferenceUITests
   # `xcodebuild -scheme NOOPWatch …` compile-verifies the watchOS app + its embedded complication
   # extension (M3). Name matches the app-build CI matrix entry the verify script adds.
   NOOPWatch:

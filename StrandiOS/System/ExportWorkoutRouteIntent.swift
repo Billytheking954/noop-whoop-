@@ -11,8 +11,10 @@ import UniformTypeIdentifiers
 // read back as a timed activity. What it could not do was run unattended: every workout needed the
 // sheet opened by hand.
 //
-// This exposes the SAME renderer to Shortcuts, so an automation can take the file and hand it to
-// whichever app the wearer already uses. NOOP gains no account, no credential and no network call:
+// This exposes the same export pipeline to Shortcuts, so an automation can take the file and hand it to
+// whichever app the wearer already uses. FIT is rendered by CanonicalFitExporter, the exact encoder used
+// by the completed-workout UI; GPX remains on the existing RouteExporter. NOOP gains no account, no
+// credential and no network call:
 // the file leaves only when the wearer's own automation moves it, exactly like the share sheet.
 // Issue #2679 records why a direct Strava API client is a separate scope decision rather than this.
 //
@@ -49,7 +51,6 @@ enum RouteExportFormatChoice: String, AppEnum, CaseIterable {
         .fit: DisplayRepresentation(title: "FIT", subtitle: "Route and GPS distance, without the heart-rate and calorie summary"),
     ]
 
-    var exporterFormat: RouteExporter.Format { self == .gpx ? .gpx : .fit }
 }
 
 /// Return the most recently recorded GPS route as a GPX or FIT file.
@@ -76,21 +77,36 @@ struct ExportWorkoutRouteIntent: AppIntent {
             // than asking the wearer to pick GPX again.
             throw RouteExportIntentError.noExportableRoute
         }
-        // `energyKcal`, `avgHr` and `maxHr` are deliberately NOT passed, and GPX is unaffected either
-        // way: `buildGpx` takes none of them, so a GPX from here is byte-identical to the share sheet's.
-        // FIT does carry them as session fields, and the share sheet supplies them from the `WorkoutRow`.
-        // This path has no row, and copying them into `RouteStore` to get them would plant a second copy
-        // of a fact the database owns: the edit and merge paths re-store a route without touching them,
-        // and a later offload fills heart rate for a window after the route was saved. A stored snapshot
-        // would then disagree with the workout, which is the failure the project forbids outright. So the
-        // FIT written here is a route plus its GPS distance, and the format picker says so.
-        let data = RouteExporter.render(
-            format.exporterFormat,
-            route: newest.points.map { RoutePoint(lat: $0.lat, lon: $0.lon) },
-            startTs: newest.startTs,
-            endTs: newest.endTs,
-            sport: newest.sport,
-            distanceM: newest.distanceM)
+        let data: Data
+        switch format {
+        case .gpx:
+            // Preserve the existing route-only GPX behaviour. RouteExporter is now deliberately GPX-only
+            // at this call site; FIT has one canonical encoder everywhere in the iPhone app.
+            data = RouteExporter.render(
+                .gpx,
+                route: newest.points.map { RoutePoint(lat: $0.lat, lon: $0.lon) },
+                startTs: newest.startTs,
+                endTs: newest.endTs,
+                sport: newest.sport,
+                distanceM: newest.distanceM)
+        case .fit:
+            // This intent deliberately remains route-only because it has no WorkoutRow/database context.
+            // What matters for architectural parity is that the FIT bytes use the SAME canonical builder
+            // representation and CanonicalFitExporter as the full workout UI, with true persisted GPS
+            // timestamps rather than the legacy interpolated RouteExporter FIT path.
+            guard let canonical = CanonicalWorkoutExportBuilder.buildRouteOnly(
+                startTs: newest.startTs,
+                endTs: newest.endTs,
+                sport: newest.sport,
+                distanceM: newest.distanceM,
+                points: newest.points
+            ) else {
+                throw RouteExportIntentError.noExportableRoute
+            }
+            let rendered = CanonicalFitExporter.render(canonical)
+            guard rendered.stravaUploadReady else { throw RouteExportIntentError.noExportableRoute }
+            data = rendered.data
+        }
         // Named by the workout's start, matching the share sheet's `noop-route-<startTs>.<ext>` so the
         // same session exports to the same filename whichever path produced it.
         let name = "noop-route-\(newest.startTs).\(format.rawValue)"
@@ -118,8 +134,16 @@ struct ExportWorkoutRouteIntent: AppIntent {
     static func newestExportableRoute(from map: [String: WorkoutRoute]? = nil) -> Resolved? {
         let routes = map ?? RouteStore.loadMap()
         var best: Resolved?
-        for (key, route) in routes where route.hasExportableMeasurements {
-            guard let points = route.points, let last = points.last,
+        for (key, lightweightRoute) in routes {
+            // RouteStore intentionally keeps heavy point arrays out of its map. Re-attach the one blob
+            // for this key before applying hasExportableMeasurements; otherwise every persisted route
+            // loaded from UserDefaults looks legacy/untimed here and the Shortcuts action finds nothing.
+            var route = lightweightRoute
+            if route.points == nil {
+                route.points = RoutePointStore.load(for: key)
+            }
+            guard route.hasExportableMeasurements,
+                  let points = route.points, let last = points.last,
                   let parsed = Self.parseKey(key) else { continue }
             let endTs = Int(last.tMs / 1_000)
             guard endTs > parsed.startTs else { continue }

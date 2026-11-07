@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - DEBUG-only demo seed (Apple parity with Android's DemoSeeder)
 // Seeds a comprehensive, self-contained synthetic dataset so a DEBUG build can walk every screen —
@@ -19,6 +20,38 @@ enum AppleDemoSeeder {
     static let whoop = "my-whoop"
     static let apple = "apple-health"
     private static let DAYS = 120
+
+    /// Opt-in larger fixture on disposable simulators only. Release/device builds cannot use it.
+    static var validationRequested: Bool {
+        #if targetEnvironment(simulator)
+        return requested && CommandLine.arguments.contains("--simulator-validation")
+        #else
+        return false
+        #endif
+    }
+
+    static var validationDayOffset: Int {
+        let args = CommandLine.arguments
+        guard validationRequested, let index = args.firstIndex(of: "--validation-day-offset"),
+              index + 1 < args.count, let value = Int(args[index + 1]) else { return 0 }
+        return min(399, max(0, value))
+    }
+
+    /// Simulates unavailable HTTP services in the opt-in simulator harness only.
+    static func installOfflineValidationIfRequested() {
+        guard validationRequested else { return }
+        URLProtocol.registerClass(SimulatorOfflineProtocol.self)
+        UserDefaults.standard.removeObject(forKey: "noop.simulator.offlineValidatedPID")
+        Task {
+            do {
+                // A private scheme makes it impossible for the probe itself to contact a server.
+                _ = try await URLSession.shared.data(from: URL(string: "noop-offline-validation://probe")!)
+            } catch let error as URLError where error.code == .notConnectedToInternet {
+                UserDefaults.standard.set(ProcessInfo.processInfo.processIdentifier,
+                                          forKey: "noop.simulator.offlineValidatedPID")
+            } catch { NSLog("Simulator offline probe failed: \(error)") }
+        }
+    }
     /// Effort rescale factor: the old 0–21 strain scale → the new 0–100 Effort scale.
     private static let STRAIN_SCALE = 100.0 / 21.0
 
@@ -37,7 +70,15 @@ enum AppleDemoSeeder {
         seedDemoDeviceIfNeeded(into: store)
         let existing = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
         guard existing.isEmpty else { return }
-        do { try await seed(into: store) }
+        do {
+            // Capture one minute-rounded reference for reproducible rows without future samples.
+            let now = validationRequested
+                ? Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970 / 60) * 60) : Date()
+            if validationRequested {
+                UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "noop.simulator.seedReferenceEpoch")
+            }
+            try await seed(into: store, days: validationRequested ? 400 : DAYS, now: now)
+        }
         catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
     }
 
@@ -58,11 +99,11 @@ enum AppleDemoSeeder {
         try? registry.add(polar)
     }
 
-    private static func seed(into store: WhoopStore) async throws {
+    static func seed(into store: WhoopStore, days: Int = DAYS, now: Date = Date()) async throws {
         var rng = SplitMix64(seed: 0xC0FFEE)
         let cal = Calendar.current
         let zone = TimeZone.current
-        let startDay = cal.date(byAdding: .day, value: -(DAYS - 1), to: cal.startOfDay(for: Date()))!
+        let startDay = cal.date(byAdding: .day, value: -(days - 1), to: cal.startOfDay(for: now))!
 
         try? await store.upsertDevice(id: whoop, mac: nil, name: "WHOOP (demo)")
 
@@ -81,7 +122,7 @@ enum AppleDemoSeeder {
         isoFmt.timeZone = zone
         isoFmt.dateFormat = "yyyy-MM-dd"
 
-        for i in 0..<DAYS {
+        for i in 0..<days {
             let date = cal.date(byAdding: .day, value: i, to: startDay)!
             let day = isoFmt.string(from: date)
             let weekday = cal.component(.weekday, from: date)  // 1=Sun … 7=Sat
@@ -104,7 +145,7 @@ enum AppleDemoSeeder {
             let hrv = (gauss(&rng, 78.0 + fitness * 1.5, 12.0) + (weekend ? 6 : 0) - Double(nWorkouts) * 4)
                 .clamped(28.0, 150.0)
             let rhr = Int((gauss(&rng, 56.0 - fitness * 0.4, 3.0) + Double(nWorkouts) * 1.2).clamped(42.0, 70.0))
-            let spo2 = gauss(&rng, 96.5, 0.8).clamped(93.0, 100.0)
+            _ = gauss(&rng, 96.5, 0.8) // Preserve deterministic RNG; no validated oxygen fixture.
             let skinTempDev = gauss(&rng, 0.0, 0.25).clamped(-1.2, 1.4)
             let resp = gauss(&rng, 14.6, 0.9).clamped(11.0, 19.0)
 
@@ -125,7 +166,7 @@ enum AppleDemoSeeder {
                 deepMin: round1(deep), remMin: round1(rem), lightMin: round1(light),
                 disturbances: disturbances, restingHr: rhr, avgHrv: round1(hrv),
                 recovery: round1(recovery), strain: round1(strain), exerciseCount: nWorkouts,
-                spo2Pct: round1(spo2), skinTempDevC: round2(skinTempDev), respRateBpm: round1(resp)))
+                spo2Pct: nil, skinTempDevC: round2(skinTempDev), respRateBpm: round1(resp)))
 
             // --- sleep session: previous night ~23:10 → wake, with a REAL stage timeline so the
             //     hypnogram renders the computed segment path (not just the proportional bar). ---
@@ -171,7 +212,10 @@ enum AppleDemoSeeder {
                 let durSec = gauss(&rng, 48.0, 16.0).clamped(18.0, 110.0) * 60
                 let hour = weekend ? 9 : 18
                 let dayStart = cal.startOfDay(for: date)
-                let start = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
+                let scheduledStart = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
+                let start = i == days - 1
+                    ? min(scheduledStart, Int(now.timeIntervalSince1970) - Int(durSec) - 3600 - k * 7200)
+                    : scheduledStart
                 let avg = Int(gauss(&rng, 138.0, 12.0))
                 let src = rng.nextDouble() < 0.7 ? whoop : apple
                 let zonesJSON: String? = src == whoop ? {
@@ -190,7 +234,7 @@ enum AppleDemoSeeder {
             }
 
             // --- journal answers for the recent 40 days (real catalog strings → Insights light up) ---
-            if i >= DAYS - 40 {
+            if i >= days - 40 {
                 journal.append(JournalEntry(day: day, question: "Did you drink any alcohol?", answeredYes: rng.nextDouble() < 0.18, notes: nil))
                 journal.append(JournalEntry(day: day, question: "Did you have caffeine late in the day?", answeredYes: rng.nextDouble() < 0.30, notes: nil))
                 journal.append(JournalEntry(day: day, question: "Did you feel stressed?", answeredYes: rng.nextDouble() < 0.28, notes: nil))
@@ -204,7 +248,7 @@ enum AppleDemoSeeder {
         var vo2 = 44.0
         var vitality = 55.0      // weekly Vitality (0–100) trending up as the demo habits improve
         var bodyAgeDemo = 40.0   // Body Age (years) trending down (younger)
-        for i in 0..<DAYS {
+        for i in 0..<days {
             let date = cal.date(byAdding: .day, value: i, to: startDay)!
             guard cal.component(.weekday, from: date) == 7 else { continue }  // 7 = Saturday
             let day = isoFmt.string(from: date)
@@ -228,6 +272,27 @@ enum AppleDemoSeeder {
         _ = try await store.upsertAppleDaily(appleRows, deviceId: apple)
         if !workouts.isEmpty { _ = try await store.upsertWorkouts(workouts, deviceId: whoop) }
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
+        // Only DEBUG demo stores receive these samples. The normal query and chart paths
+        // read the persisted fixture, including an intentional gap, just as they read real data.
+        let nowTs = Int(now.timeIntervalSince1970)
+        let midnight = Int(cal.startOfDay(for: now).timeIntervalSince1970)
+        var heartRates: [HRSample] = []
+        var intervals: [RRInterval] = []
+        for ts in stride(from: midnight, through: nowTs, by: 2) {
+            let hour = Double(ts - midnight) / 3600
+            if hour >= 10 && hour < 10.5 { continue }
+            let activity = workouts.first { ts >= $0.startTs && ts <= $0.endTs }
+            let bpm = activity?.avgHr ?? (hour < 7 ? 55 : 72)
+            let wave = sin(Double(ts - midnight) / 180) * 5
+            if (ts - midnight).isMultiple(of: 30) {
+                heartRates.append(HRSample(ts: ts, bpm: max(40, bpm + Int(wave))))
+            }
+            let rr = 60000.0 / Double(max(40, bpm)) + sin(Double(ts - midnight) / 7) * 42
+            intervals.append(RRInterval(ts: ts, rrMs: Int(rr)))
+        }
+        let samples = Streams(hr: heartRates, rr: intervals)
+        _ = try await store.insert(samples, deviceId: whoop)
+        _ = try await store.insert(samples, deviceId: apple)
         NSLog("AppleDemoSeeder: seeded \(daily.count) days, \(workouts.count) workouts.")
     }
 
@@ -260,6 +325,18 @@ enum AppleDemoSeeder {
         seg("rem", rem * 0.4); seg("wake", awakeMin)
         return "[" + parts.joined(separator: ",") + "]"
     }
+}
+
+/// DEBUG harness fault injection, not a change to the WHOOP or production networking paths.
+private final class SimulatorOfflineProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["http", "https", "noop-offline-validation"].contains(request.url?.scheme ?? "")
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+    override func stopLoading() { }
 }
 
 /// Deterministic SplitMix64 PRNG — gives a fixed, reproducible demo dataset across runs (the Apple

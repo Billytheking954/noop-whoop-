@@ -60,6 +60,9 @@ final class HomeScreenQuickActionAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         HomeScreenQuickAction.install(in: application)
+        #if DEBUG
+        CanonicalHealthKitDebugHarness.runIfRequested()
+        #endif
         return true
     }
 

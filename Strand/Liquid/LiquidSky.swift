@@ -24,31 +24,31 @@ private func hx(_ hex: UInt32) -> Color {
 /// The ten keyframes mirror the real app's day-cycle scenes (SceneHeroBackground),
 /// as pure gradients rather than painted art.
 let liquidSkyKeys: [LiquidSkyStop] = [
-    .init(h: 0,    top: hx(0x191A1F), mid: hx(0x1D1E23), hor: hx(0x22242B), stars: 0.20, warm: 0),
-    .init(h: 5,    top: hx(0x1A1B20), mid: hx(0x1D1F24), hor: hx(0x23252C), stars: 0.12, warm: 0),
-    .init(h: 6.5,  top: hx(0x1B1C21), mid: hx(0x1F2026), hor: hx(0x25272E), stars: 0.06, warm: 0),
-    .init(h: 8.5,  top: hx(0x1C1D22), mid: hx(0x202229), hor: hx(0x272A31), stars: 0, warm: 0),
-    .init(h: 11,   top: hx(0x1D1E23), mid: hx(0x21232A), hor: hx(0x292C33), stars: 0, warm: 0),
-    .init(h: 14,   top: hx(0x1D1E23), mid: hx(0x22242B), hor: hx(0x292C34), stars: 0, warm: 0),
-    .init(h: 17.5, top: hx(0x1C1D22), mid: hx(0x202229), hor: hx(0x272930), stars: 0, warm: 0),
-    .init(h: 19.5, top: hx(0x1B1C21), mid: hx(0x1F2026), hor: hx(0x24262D), stars: 0.05, warm: 0),
-    .init(h: 22,   top: hx(0x191A1F), mid: hx(0x1D1E23), hor: hx(0x22242B), stars: 0.16, warm: 0),
-    .init(h: 24,   top: hx(0x191A1F), mid: hx(0x1D1E23), hor: hx(0x22242B), stars: 0.20, warm: 0),
+    .init(h: 0,    top: hx(0x0D1420), mid: hx(0x10151E), hor: hx(0x192638), stars: 0.20, warm: 0),
+    .init(h: 5,    top: hx(0x0E1623), mid: hx(0x111A28), hor: hx(0x1B2B3D), stars: 0.12, warm: 0),
+    .init(h: 6.5,  top: hx(0x142234), mid: hx(0x18283A), hor: hx(0x243A50), stars: 0.06, warm: 0),
+    .init(h: 8.5,  top: hx(0x172538), mid: hx(0x1B2C3F), hor: hx(0x264054), stars: 0, warm: 0),
+    .init(h: 11,   top: hx(0x142135), mid: hx(0x1B2B3D), hor: hx(0x263B4E), stars: 0, warm: 0),
+    .init(h: 14,   top: hx(0x152338), mid: hx(0x1D2D40), hor: hx(0x284054), stars: 0, warm: 0),
+    .init(h: 17.5, top: hx(0x18253A), mid: hx(0x1D2A3E), hor: hx(0x294055), stars: 0, warm: 0),
+    .init(h: 19.5, top: hx(0x111C2C), mid: hx(0x172338), hor: hx(0x223449), stars: 0.05, warm: 0),
+    .init(h: 22,   top: hx(0x0D1420), mid: hx(0x10151E), hor: hx(0x192638), stars: 0.16, warm: 0),
+    .init(h: 24,   top: hx(0x0D1420), mid: hx(0x10151E), hor: hx(0x192638), stars: 0.20, warm: 0),
 ]
 
 /// Light appearance keeps the same time-of-day movement without beginning from the dark-only
-/// keyframes above. The restrained blue-gray atmosphere settles naturally into the light canvas.
+/// keyframes above. A cool daylight atmosphere settles naturally into the light canvas.
 private let liquidLightSkyKeys: [LiquidSkyStop] = [
-    .init(h: 0,    top: hx(0xDCE3ED), mid: hx(0xE5EAF1), hor: hx(0xEEF1F5), stars: 0.08, warm: 0),
-    .init(h: 5,    top: hx(0xDDE5EE), mid: hx(0xE7EBF1), hor: hx(0xEFF2F5), stars: 0.05, warm: 0),
-    .init(h: 6.5,  top: hx(0xE1E8EF), mid: hx(0xE9EDF2), hor: hx(0xF0F2F5), stars: 0.02, warm: 0),
-    .init(h: 8.5,  top: hx(0xE3EBF1), mid: hx(0xEAF0F3), hor: hx(0xF1F3F5), stars: 0, warm: 0),
-    .init(h: 11,   top: hx(0xE1EAF0), mid: hx(0xE9EEF2), hor: hx(0xF1F3F5), stars: 0, warm: 0),
-    .init(h: 14,   top: hx(0xDFE8EF), mid: hx(0xE8EDF2), hor: hx(0xF0F2F5), stars: 0, warm: 0),
-    .init(h: 17.5, top: hx(0xE1E7ED), mid: hx(0xE8ECF1), hor: hx(0xEFF1F4), stars: 0, warm: 0),
-    .init(h: 19.5, top: hx(0xDDE4EC), mid: hx(0xE6EAF0), hor: hx(0xEEF1F4), stars: 0.02, warm: 0),
-    .init(h: 22,   top: hx(0xDAE2EC), mid: hx(0xE4E9F0), hor: hx(0xEDF0F4), stars: 0.06, warm: 0),
-    .init(h: 24,   top: hx(0xDCE3ED), mid: hx(0xE5EAF1), hor: hx(0xEEF1F5), stars: 0.08, warm: 0),
+    .init(h: 0,    top: hx(0xE5ECF5), mid: hx(0xEFF4F9), hor: hx(0xF4F7FA), stars: 0.08, warm: 0),
+    .init(h: 5,    top: hx(0xE5EDF6), mid: hx(0xEFF5FA), hor: hx(0xF4F7FA), stars: 0.05, warm: 0),
+    .init(h: 6.5,  top: hx(0xDFEAF5), mid: hx(0xECF3F9), hor: hx(0xF4F7FA), stars: 0.02, warm: 0),
+    .init(h: 8.5,  top: hx(0xDCEAF4), mid: hx(0xECF3F9), hor: hx(0xF4F7FA), stars: 0, warm: 0),
+    .init(h: 11,   top: hx(0xDBEAF5), mid: hx(0xEDF4FA), hor: hx(0xF4F7FA), stars: 0, warm: 0),
+    .init(h: 14,   top: hx(0xDCE9F4), mid: hx(0xEDF3F9), hor: hx(0xF4F7FA), stars: 0, warm: 0),
+    .init(h: 17.5, top: hx(0xE0E9F3), mid: hx(0xEEF3F9), hor: hx(0xF4F7FA), stars: 0, warm: 0),
+    .init(h: 19.5, top: hx(0xE3EAF4), mid: hx(0xEEF3F9), hor: hx(0xF4F7FA), stars: 0.02, warm: 0),
+    .init(h: 22,   top: hx(0xE4EBF5), mid: hx(0xEFF4F9), hor: hx(0xF4F7FA), stars: 0.06, warm: 0),
+    .init(h: 24,   top: hx(0xE5ECF5), mid: hx(0xEFF4F9), hor: hx(0xF4F7FA), stars: 0.08, warm: 0),
 ]
 
 private func lerp(_ a: Double, _ b: Double, _ t: Double) -> Double { a + (b - a) * t }
@@ -269,9 +269,9 @@ struct LiquidSkyStatic: View {
         let h = hour ?? liveHour()
         let dark = scheme == .dark
         let settle = Color(.sRGB,
-                           red: dark ? 29.0 / 255.0 : 242.0 / 255.0,
-                           green: dark ? 30.0 / 255.0 : 242.0 / 255.0,
-                           blue: dark ? 35.0 / 255.0 : 247.0 / 255.0,
+                           red: dark ? 16.0 / 255.0 : 244.0 / 255.0,
+                           green: dark ? 21.0 / 255.0 : 247.0 / 255.0,
+                           blue: dark ? 30.0 / 255.0 : 250.0 / 255.0,
                            opacity: 1)
         Canvas { ctx, size in
             let S = liquidSkyAt(h, light: !dark)

@@ -51,6 +51,30 @@ final class RouteExporterTests: XCTestCase {
         XCTAssertEqual(Int(a!.end.timeIntervalSince1970), endTs)
     }
 
+    func testHikingUsesOfficialSportCodeRatherThanRowing() throws {
+        // Garmin FIT SDK: sport 15 = rowing, sport 17 = hiking. Inspect the binary session
+        // independently of the importer so a matching sport-name bug cannot hide the error.
+        for sport in ["hike", "hiking", "Hiking"] {
+            let data = RouteExporter.render(.fit, route: route, startTs: startTs,
+                                            endTs: endTs, sport: sport)
+            let session = try XCTUnwrap(FitInspector(data).messages().first { $0.global == 18 })
+            XCTAssertEqual(session.u8(5), 17)
+            XCTAssertEqual(ActivityFileImporter.parse(data: data, filename: "hike.fit").activity?.sport,
+                           "Hiking")
+        }
+        // Feed a valid sport-15 file through the public importer and update its CRC.
+        var rowing = [UInt8](RouteExporter.render(.fit, route: route, startTs: startTs,
+                                                  endTs: endTs, sport: "hike"))
+        let session = try XCTUnwrap(FitInspector(Data(rowing)).messages().first { $0.global == 18 })
+        let sportOffset = try XCTUnwrap(session.fieldOffsets[5])
+        rowing[sportOffset] = 15
+        let crc = RouteExporter.fitCrc(Array(rowing.dropLast(2)))
+        rowing[rowing.count - 2] = UInt8(crc & 0xFF)
+        rowing[rowing.count - 1] = UInt8((crc >> 8) & 0xFF)
+        XCTAssertEqual(ActivityFileImporter.parse(data: Data(rowing), filename: "rowing.fit").activity?.sport,
+                       "Rowing")
+    }
+
     func testFitHasValidHeaderAndCrc() {
         let bytes = [UInt8](RouteExporter.render(.fit, route: route, startTs: startTs, endTs: endTs, sport: "run"))
         XCTAssertEqual(Int(bytes[0]), 12)                  // header size

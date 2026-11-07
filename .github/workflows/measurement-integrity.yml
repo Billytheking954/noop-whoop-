@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [StrandImport, WhoopStore]
+        package: [StrandImport, WhoopStore, StrandAnalytics, WhoopProtocol, StrandDesign]
     steps:
       - uses: actions/checkout@v5
       - name: Record exact candidate
@@ -52,6 +52,45 @@ jobs:
           xcodebuild -scheme '${{ matrix.scheme }}' -configuration Debug
           -destination '${{ matrix.destination }}'
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Run shared app regressions
+        if: matrix.scheme == 'Strand'
+        run: >-
+          xcodebuild -scheme Strand -configuration Debug
+          -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+
+  interface:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Select an available iPhone simulator
+        run: |
+          xcrun simctl list devices available -j > /tmp/noop-simulators.json
+          python3 - <<'PY'
+          import json, os
+          devices = json.load(open('/tmp/noop-simulators.json'))['devices']
+          iphones = [d for group in devices.values() for d in group if d['name'].startswith('iPhone')]
+          assert iphones, 'No available iPhone simulator'
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('NOOP_SIMULATOR_ID=' + iphones[0]['udid'] + '\n')
+          PY
+      - name: Exercise classic navigation using synthetic local fixtures
+        run: >-
+          xcodebuild -scheme NOOPiOS -configuration Debug
+          -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID"
+          -resultBundlePath UIResults.xcresult
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          -parallel-testing-enabled NO test
+      - name: Save simulator test results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-interface-results
+          path: UIResults.xcresult
+          retention-days: 7
 
   source:
     runs-on: ubuntu-latest
