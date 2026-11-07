@@ -8,7 +8,7 @@ struct BloodOxygenTrendPoint: Identifiable, Equatable, Sendable {
     var id: Date { date }
 }
 
-/// Display-only view for a validated nightly aggregate. The biomedical decoding and gating stay in
+/// Display-only view for a supplied nightly aggregate. The decoding and gating stay in
 /// WhoopProtocol/StrandAnalytics so the UI cannot manufacture a value from incomplete raw evidence.
 struct BloodOxygenCardView: View {
     let percent: Double?
@@ -41,13 +41,13 @@ struct BloodOxygenCardView: View {
                 } else {
                     Text("Unavailable")
                         .font(.title2.weight(.semibold))
-                    Text("Not enough validated Slow-Wave Sleep telemetry")
+                    Text("No eligible recorded aggregate")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
                 if trend.isEmpty {
-                    Text("No validated 7-day history")
+                    Text("No recorded 7-day history")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {

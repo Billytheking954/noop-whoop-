@@ -710,7 +710,7 @@ struct SleepView: View {
             }
 
             SourceBadge(
-                score != nil ? heroSource(for: night) : (repo.activeDeviceIsOura ? "Oura" : "On-device"),
+                score != nil ? heroSource(for: night) : "Saved sleep record",
                 tint: StrandPalette.restColor
             )
             .padding(.top, 8)
@@ -751,7 +751,7 @@ struct SleepView: View {
     private func heroSource(for night: Night) -> LocalizedStringKey {
         let wakeDay = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
         if repo.importedSleep[wakeDay]?.performancePct != nil { return "Whoop" }
-        return repo.activeDeviceIsOura ? "Oura" : "On-device"
+        return "Estimated"
     }
 
     // MARK: - Provenance for the displayed night (COMPONENT 4, spec 2026-06-20)
@@ -766,12 +766,9 @@ struct SleepView: View {
     private func nightSource(_ night: Night) -> String {
         let wakeDay = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
         if repo.importedSleep[wakeDay] != nil { return String(localized: "Whoop") }
-        // An Oura ring PROVIDES the night's stages (its own SleepNet hypnogram, banked as the imported
-        // session that wins the merge), so name it "Oura" — not the generic "On-device" that implies a
-        // NOOP computation. WHOOP import still wins above; only a night surfaced under a live Oura strap
-        // reaches here as "Oura".
-        if repo.activeDeviceIsOura { return String(localized: "Oura") }
-        return String(localized: "On-device")
+        // The merged session has no source identifier. The active device cannot prove
+        // which source produced a historical record.
+        return String(localized: "Saved sleep record")
     }
 
     // MARK: - 0b. SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1)
