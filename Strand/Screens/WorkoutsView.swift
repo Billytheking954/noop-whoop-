@@ -1523,8 +1523,7 @@ struct WorkoutsView: View {
                     Text(compactRowSubtitle(row))
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 sourceBadge(row.source)
                 // Reserve the ••• column width inside the label; the interactive Menu is overlaid on top
@@ -1534,6 +1533,7 @@ struct WorkoutsView: View {
                 }
             }
             .padding(.horizontal, NoopMetrics.cardPadding)
+            .padding(.vertical, NoopMetrics.space2)
             .frame(minHeight: 56)
             .contentShape(Rectangle())
         }
