@@ -10,7 +10,9 @@ permissions:
 
 concurrency:
   group: measurement-integrity-${{ github.ref }}
-  cancel-in-progress: true
+  # Finish the running candidate so simulator screenshots and failures remain reviewable.
+  # New pushes queue the latest candidate instead of discarding that evidence mid-test.
+  cancel-in-progress: false
 
 jobs:
   packages:
