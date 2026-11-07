@@ -19,6 +19,7 @@ final class ReferenceJourneyUITests: XCTestCase {
             XCTAssertTrue(ring.waitForExistence(timeout: 30), key)
             ring.tap()
             XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 20), title)
+            capture(app, name: "detail-" + key)
             app.terminate()
         }
     }
@@ -32,6 +33,7 @@ final class ReferenceJourneyUITests: XCTestCase {
             XCTAssertTrue(button.exists, name)
             button.tap()
             XCTAssertTrue(button.isSelected, name)
+            capture(app, name: "tab-" + name.lowercased())
         }
     }
 

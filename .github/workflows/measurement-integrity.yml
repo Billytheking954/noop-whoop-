@@ -84,12 +84,20 @@ jobs:
           -resultBundlePath UIResults.xcresult
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
           -parallel-testing-enabled NO test
+      - name: Export screenshot attachments for visual review
+        if: always()
+        run: |
+          if [ -d UIResults.xcresult ]; then
+            xcrun xcresulttool export attachments --path UIResults.xcresult --output-path UIAttachments
+          fi
       - name: Save simulator test results and screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: classic-interface-results
-          path: UIResults.xcresult
+          path: |
+            UIResults.xcresult
+            UIAttachments
           retention-days: 7
 
   source:

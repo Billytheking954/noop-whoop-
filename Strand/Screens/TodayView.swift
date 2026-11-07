@@ -1578,12 +1578,14 @@ struct TodayView: View {
         // day-scoped, so navigating must re-fetch them for the newly selected window.
         .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset,
                               dayCycleMode: dayCycleModeRaw)) { await loadAll() }
+        #if os(iOS)
         .onAppear {
             if startupScoresReady { ColdLaunchTrace.mark("today-score-content-observed") }
         }
         .onChangeCompat(of: startupScoresReady) { ready in
             if ready { ColdLaunchTrace.mark("today-score-content-observed") }
         }
+        #endif
         // #989: hydration writes don't bump refreshSeq, so the card needs its own triggers, a logged /
         // edited / deleted drink (hydrationSeq) and the Settings feature toggle both re-read just the two
         // hydration fields. Cheap (one metricSeries row), never re-runs the heavy loads.
