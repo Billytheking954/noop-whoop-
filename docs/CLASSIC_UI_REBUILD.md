@@ -12,6 +12,7 @@ Supporting ports include snapshot-based cache reads, startup loading, daily-chan
 - Stage totals no longer generate a plausible-looking hypnogram. Only recorded segments can supply transition timing; totals remain available as a breakdown.
 - Sleep-stage captions do not infer a historical night's algorithm from the currently selected device.
 - Charge comparisons use the selected day's preceding records. The current scoring baseline is not presented as a reconstruction of a historical saved score.
+- Insight cards label associations beside the comparison. The unvalidated tomorrow-score forecast is replaced by a labelled illustrative model difference.
 - The HR banner retains the upstream emitted-value update, avoiding an extra read before Published assigns the new value.
 
 These changes improve presentation fidelity and data handling. They do not demonstrate physiological accuracy, improved sleep, or better sleep-stage classification.
@@ -22,4 +23,4 @@ The candidate workflow compiles both Apple apps, runs five affected package suit
 
 The prior measurement run's Apple jobs were cancelled without starting. No build or simulator success is claimed for this integration yet. Physical strap behavior and device upgrade/restore remain untested. Do not install this candidate over the current personal-data installation based on source checks alone.
 
-Scope is the user's Apple classic interface. Android's presentation and schema remain upstream 12; schema 48/49 interoperability with Android is not validated. Cross-platform backup transfer must not be claimed compatible for the added schema until reviewed and tested. No production scoring algorithm changes are included.
+Scope is the user's Apple classic interface. Android's presentation and schema remain upstream 12; both schema fixtures now explicitly declare the HealthKit identity tables Apple-only. Schema 48/49 backup interoperability with Android is not validated. Cross-platform backup transfer must not be claimed compatible for the added schema until reviewed and tested. No production scoring algorithm changes are included.

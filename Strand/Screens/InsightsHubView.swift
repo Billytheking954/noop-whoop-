@@ -49,10 +49,12 @@ struct InsightsHubView: View {
                 HStack {
                     Text("Insights").font(ReferenceStyle.title)
                     Spacer()
+                    #if os(iOS)
                     Button { showNotificationSettings = true } label: {
                         Image(systemName: "slider.horizontal.3")
                             .frame(minWidth: ReferenceStyle.touch, minHeight: ReferenceStyle.touch)
                     }.accessibilityLabel("Insights & Alerts")
+                    #endif
                 }
                 Picker("Category", selection: $category) {
                     ForEach(categories, id: \.self) { Text(LocalizedStringKey($0)).tag($0) }
