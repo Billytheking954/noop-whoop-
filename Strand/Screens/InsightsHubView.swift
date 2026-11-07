@@ -348,17 +348,13 @@ private extension ScoreState {
 
 // MARK: - Dose-response card
 //
-// The headline alcohol/caffeine surface: the prior-shrunk curve, the per-unit read,
-// the confidence pill, the honesty banner, and an evening "damage forecast" preview
-// driven by a tiny dose stepper. The forecast is a what-if on the user's own latest
-// Charge — "a 2nd drink tonight tends to line up with about −7 on tomorrow's Charge
-// for you" — never a recommendation to drink or abstain.
+// The fitted curve, its basis, and an illustrative model comparison.
+// No future personal score is forecast from this observational fit.
 
 private struct DoseResponseCardView: View {
     let card: InsightsHubViewModel.DoseCard
 
-    /// The "what if I have one more" preview dose, defaulting to one above the typical
-    /// starting point so the headline reads as a 2nd-drink forecast out of the box.
+    /// Illustrative input to the model comparison; never a recommended dose.
     @State private var previewDose: Int = 2
 
     private var domain: DomainTheme { card.outcomeName == "HRV" ? .rest : .charge }

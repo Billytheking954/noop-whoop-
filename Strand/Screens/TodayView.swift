@@ -1578,7 +1578,10 @@ struct TodayView: View {
         // day-scoped, so navigating must re-fetch them for the newly selected window.
         .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset,
                               dayCycleMode: dayCycleModeRaw)) { await loadAll() }
-        .onChange(of: startupScoresReady, initial: true) { _, ready in
+        .onAppear {
+            if startupScoresReady { ColdLaunchTrace.mark("today-score-content-observed") }
+        }
+        .onChangeCompat(of: startupScoresReady) { ready in
             if ready { ColdLaunchTrace.mark("today-score-content-observed") }
         }
         // #989: hydration writes don't bump refreshSeq, so the card needs its own triggers, a logged /
