@@ -1,0 +1,170 @@
+name: NOOP12 selective rebuild and unsigned iPhone IPA
+on:
+  push:
+    branches:
+      - 'rebuild/ryanbr-noop12-selective-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-packages:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - name: Source hygiene and five Swift package suites
+        run: |
+          set -euo pipefail
+          python3 Tools/doc_comment_lint.py
+          git diff --check HEAD^
+          for package in WhoopProtocol WhoopStore StrandAnalytics StrandImport StrandDesign; do
+            echo "::group::Testing $package"
+            ( cd "Packages/$package" && swift test )
+            echo "::endgroup::"
+          done
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build and test reference macOS app
+        run: |
+          xcodebuild -scheme Strand -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+
+  iphone-simulator:
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Select an available iPhone simulator
+        run: |
+          xcrun simctl list devices available -j > /tmp/noop-phones.json
+          python3 - <<'PY'
+          import json, os
+          devices = json.load(open('/tmp/noop-phones.json'))['devices']
+          phones = [d for group in devices.values() for d in group if d['name'].startswith('iPhone')]
+          assert phones, 'No iPhone simulator'
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('NOOP_SIMULATOR_ID=' + phones[0]['udid'] + '\n')
+          PY
+      - name: Run iPhone simulator tests
+        run: |
+          xcodebuild -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID" \
+            -resultBundlePath iPhoneResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            -parallel-testing-enabled NO test
+      - name: Export screenshot attachments
+        if: always()
+        run: |
+          if [ -d iPhoneResults.xcresult ]; then
+            xcrun xcresulttool export attachments --path iPhoneResults.xcresult --output-path iPhoneScreenshots || true
+          fi
+      - name: Save simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop12-selective-iphone-test-evidence
+          path: |
+            iPhoneResults.xcresult
+            iPhoneScreenshots
+          retention-days: 14
+
+  unsigned-iphone-ipa:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build unsigned iPhone Release device app with safe staging ID
+        run: |
+          xcodebuild -scheme NOOPiOS -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            BUNDLE_ID_PREFIX=com.noopapp.rebuild \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Inspect, prepare and package IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/dd/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -type d | head -1)
+          test -n "$APP"
+          test -d "$APP/PlugIns/NOOPWidgets.appex"
+          rm -rf "$APP/Watch"
+          python3 - "$APP" <<'PY'
+          import json, os, pathlib, plistlib, sys
+          app = pathlib.Path(sys.argv[1])
+          info = plistlib.loads((app/'Info.plist').read_bytes())
+          widget = plistlib.loads((app/'PlugIns/NOOPWidgets.appex/Info.plist').read_bytes())
+          assert info['CFBundleShortVersionString'] == widget['CFBundleShortVersionString'] == '12.0.0'
+          assert info['CFBundleVersion'] == widget['CFBundleVersion'] == '435'
+          assert info['AppGroupIdentifier'] == widget['AppGroupIdentifier']
+          assert info['CFBundleIdentifier'].startswith('com.noopapp.rebuild.')
+          assert info['UIDeviceFamily'] == [1]
+          (app/'NOOPBuildProvenance.json').write_text(json.dumps({
+              'repository':os.environ['GITHUB_REPOSITORY'],
+              'source_sha':os.environ['GITHUB_SHA'],
+              'upstream_v12_sha':'7acce06c3d22cb5dfe959f2c4a43902471d21332',
+              'edition':'Ryanbr 12 selective health test candidate',
+              'staging_identity':True,
+              'spo2_summary_decoder':'unverified research; NOT production scoring',
+              'physical_device_validated':False
+          }, sort_keys=True, indent=2)+'\n')
+          PY
+          bash Tools/prepare-ios-sideload-app.sh "$APP"
+          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          lipo -archs "$APP/$EXEC" | grep -qw arm64
+          mkdir -p release-out Payload
+          cp -R "$APP" Payload/
+          SHORT=$(printf '%s' "$GITHUB_SHA" | cut -c 1-12)
+          IPA="NOOP-Ryanbr12-selective-$SHORT-unsigned.ipa"
+          zip -qry "release-out/$IPA" Payload
+          python3 - "$IPA" <<'PY'
+          import hashlib, json, os, pathlib, plistlib, sys, zipfile
+          name=sys.argv[1]
+          file=pathlib.Path('release-out')/name
+          with zipfile.ZipFile(file) as z:
+              assert z.testzip() is None
+              names=z.namelist()
+              assert len(names)==len(set(names)), 'duplicate ZIP member name'
+              root='Payload/NOOP.app/'
+              app=plistlib.loads(z.read(root+'Info.plist'))
+              widgetRoot=root+'PlugIns/NOOPWidgets.appex/'
+              widget=plistlib.loads(z.read(widgetRoot+'Info.plist'))
+              provenance=json.loads(z.read(root+'NOOPBuildProvenance.json'))
+              assert provenance['source_sha']==os.environ['GITHUB_SHA']
+              assert root+app['CFBundleExecutable'] in names
+              assert widgetRoot+widget['CFBundleExecutable'] in names
+              assert app['AppGroupIdentifier']==widget['AppGroupIdentifier']
+              assert app['CFBundleVersion']==widget['CFBundleVersion']
+              assert not any('/Watch/' in n for n in names)
+              assert any(n.startswith(root+'_CodeSignature/') for n in names)
+              assert any(n.startswith(widgetRoot+'_CodeSignature/') for n in names)
+          digest=hashlib.sha256(file.read_bytes()).hexdigest()
+          (file.parent/(name+'.sha256.txt')).write_text(digest+'  '+name+'\n')
+          (file.parent/'manifest.json').write_text(json.dumps({
+              'filename':name,'sha256':digest,
+              'source_sha':os.environ['GITHUB_SHA'],
+              'upstream_v12_sha':'7acce06c3d22cb5dfe959f2c4a43902471d21332',
+              'unsigned':True,'requires_sideload_resigning':True,
+              'safe_for_in_place_data_migration':False,
+              'physical_device_validated':False
+          },sort_keys=True,indent=2)+'\n')
+          print('Verified IPA:',name,'SHA256:',digest)
+          PY
+      - name: Upload unsigned IPA and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop12-selective-unsigned-iphone
+          path: release-out/*
+          if-no-files-found: error
+          retention-days: 90
