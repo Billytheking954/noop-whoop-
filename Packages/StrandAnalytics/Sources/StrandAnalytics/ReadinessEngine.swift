@@ -93,7 +93,6 @@ public enum ReadinessEngine {
     private static let minBaseline    = 7    // need at least this many baseline nights
     private static let acuteWindow    = 7
     private static let chronicWindow  = 28
-    private static let minChronic     = 14   // need at least this much strain history for ACWR
 
     // MARK: Entry point
 
@@ -221,10 +220,12 @@ public enum ReadinessEngine {
         }
 
         // Training Stress Balance (ACWR) + monotony --------------------------
-        let strainSeries = sorted.compactMap { $0.strain }.filter { (0...100).contains($0) }
+        // Calendar-aware 7/28-day windows. Do not compress a missing day into an observed rest day
+        // or borrow a 14-day record to display a fictitious "28d" chronic comparison.
+        let strainSeries = contiguousStrains(endingOn: latest.day, days: sorted)
         var acwr: Double? = nil
         var monotony: Double? = nil
-        if strainSeries.count >= minChronic {
+        if strainSeries.count >= chronicWindow {
             let acute = mean(Array(strainSeries.suffix(acuteWindow)))!
             let chronic = mean(Array(strainSeries.suffix(chronicWindow)))!
             if chronic > 0 {
@@ -232,16 +233,18 @@ public enum ReadinessEngine {
                 acwr = ratio
                 signals.append(acwrSignal(ratio, acute: acute, chronic: chronic))
             }
-            // Foster monotony over the last week of strain.
+        }
+        if strainSeries.count >= acuteWindow {
+            // Foster monotony needs seven actual consecutive calendar-day observations.
             let week = Array(strainSeries.suffix(acuteWindow))
-            if week.count >= 4, let sd = sampleSD(week), sd > 0, let m = mean(week) {
+            if let sd = sampleSD(week), sd > 0, let m = mean(week) {
                 let mono = m / sd
                 monotony = mono
                 if mono >= 2.0 {
                     signals.append(Signal(key: "monotony", label: "Training variety",
                         evidence: "monotony \(String(format: "%.1f", mono))",
                         evidenceData: .monotony(mono),
-                        detail: "low - similar strain every day raises strain/illness risk", flag: .watch))
+                        detail: "recent loads are similar each day; review variety and recovery", flag: .watch))
                 }
             }
         }
@@ -301,6 +304,33 @@ public enum ReadinessEngine {
                          signals: signals, acwr: acwr, monotony: monotony,
                          score: scored.score, dataCompleteness: scored.completeness,
                          confidence: confidence)
+    }
+
+    /// A strict UTC-calendar suffix. Missing, invalid, duplicate (already de-duplicated upstream)
+    /// or non-finite rows stop the chain; a true measured zero remains a valid rest day.
+    /// Workload and readiness are estimates, not medically validated injury predictors.
+    private static func contiguousStrains(endingOn target: String, days: [DailyMetric]) -> [Double] {
+        let byDay = Dictionary(uniqueKeysWithValues: days.map { ($0.day, $0) })
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.isLenient = false
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let parsed = formatter.date(from: target),
+              formatter.string(from: parsed) == target else { return [] }
+        var date = parsed
+        var reversed: [Double] = []
+        for _ in 0..<chronicWindow {
+            let dayKey = formatter.string(from: date)
+            guard let row = byDay[dayKey], let value = row.strain,
+                  value.isFinite, (0...100).contains(value) else { break }
+            reversed.append(value)
+            guard let previous = formatter.calendar.date(byAdding: .day, value: -1, to: date)
+            else { break }
+            date = previous
+        }
+        return reversed.reversed()
     }
 
     // MARK: Signal builders
@@ -365,7 +395,7 @@ public enum ReadinessEngine {
             return Signal(key: "acwr", label: "Training load",
                 evidence: evidence,
                 evidenceData: .trainingLoad(acute: acute, chronic: chronic),
-                detail: "in the sweet spot (acute:chronic \(pct))", flag: .good)
+                detail: "within the reference range (acute:chronic \(pct))", flag: .good)
         case 1.3..<1.5:
             return Signal(key: "acwr", label: "Training load",
                 evidence: evidence,
@@ -375,7 +405,7 @@ public enum ReadinessEngine {
             return Signal(key: "acwr", label: "Training load",
                 evidence: evidence,
                 evidenceData: .trainingLoad(acute: acute, chronic: chronic),
-                detail: "spiking (acute:chronic \(pct)) - higher injury risk", flag: .bad)
+                detail: "spiking (acute:chronic \(pct)) - increased recent load; monitor fatigue", flag: .bad)
         }
     }
 
