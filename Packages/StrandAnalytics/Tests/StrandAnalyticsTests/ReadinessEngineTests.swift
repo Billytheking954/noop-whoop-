@@ -80,6 +80,23 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertNotEqual(ReadinessEngine.evaluate(days: days).level, .insufficient)
     }
 
+    func testMissingCalendarDayNeverMasqueradesAsObservedTrainingLoad() {
+        var days = baseline(todayHrv: 62, todayRhr: 52, todayStrain: 10)
+        days.removeAll { $0.day == "2024-03-25" }
+        let result = ReadinessEngine.evaluate(days: days, today: "2024-03-29")
+        XCTAssertNil(result.acwr)
+        XCTAssertNil(result.monotony)
+        XCTAssertFalse(result.signals.contains { $0.key == "acwr" })
+    }
+
+    func testObservedZeroRestDayRetainsCalendarContinuity() {
+        var days = baseline(todayHrv: 62, todayRhr: 52, todayStrain: 10)
+        let index = days.firstIndex { $0.day == "2024-03-25" }!
+        days[index] = d(25, hrv: 62, rhr: 52, strain: 0)
+        let result = ReadinessEngine.evaluate(days: days, today: "2024-03-29")
+        XCTAssertNotNil(result.acwr)
+    }
+
     func testStatsHelpers() {
         XCTAssertEqual(ReadinessEngine.mean([2, 4, 6]), 4)
         XCTAssertEqual(ReadinessEngine.sampleSD([2, 4, 6])!, 2.0, accuracy: 0.0001)
