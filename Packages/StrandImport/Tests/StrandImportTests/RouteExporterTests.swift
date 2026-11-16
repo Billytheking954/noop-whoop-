@@ -31,6 +31,31 @@ final class RouteExporterTests: XCTestCase {
         XCTAssertEqual(Int(a!.end.timeIntervalSince1970), endTs)
     }
 
+    func testRecordedGpxKeepsSourceMillisecondsWithoutInterpolation() throws {
+        let ms: Int64 = 1_723_000_000_000
+        let fixes = [
+            RouteExporter.RecordedGpxPoint(lat: 51.5, lon: -0.12, timestampMs: ms + 125),
+            RouteExporter.RecordedGpxPoint(lat: 51.501, lon: -0.119, timestampMs: ms + 1_875),
+            RouteExporter.RecordedGpxPoint(lat: 51.502, lon: -0.118, timestampMs: ms + 71_250)
+        ]
+        let data = try XCTUnwrap(RouteExporter.buildGpxRecorded(route: fixes, sport: "Running"))
+        let xml = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertTrue(xml.contains("<time>2024-08-07T19:06:40.125Z</time>") ||
+                      xml.contains(".125Z</time>"))
+        XCTAssertTrue(xml.contains(".875Z</time>"))
+        XCTAssertTrue(xml.contains(".250Z</time>"))
+        XCTAssertEqual(xml.components(separatedBy: "<trkpt ").count - 1, fixes.count)
+    }
+
+    func testRecordedGpxRefusesUnorderedOrInvalidSourceFixes() {
+        let one = RouteExporter.RecordedGpxPoint(lat: 51.5, lon: -0.1, timestampMs: 1_700_000_000_000)
+        let earlier = RouteExporter.RecordedGpxPoint(lat: 51.6, lon: -0.2, timestampMs: 1_699_999_999_000)
+        let invalid = RouteExporter.RecordedGpxPoint(lat: 91, lon: -0.2, timestampMs: 1_700_000_005_000)
+        XCTAssertNil(RouteExporter.buildGpxRecorded(route: [one], sport: "Walking"))
+        XCTAssertNil(RouteExporter.buildGpxRecorded(route: [one, earlier], sport: "Walking"))
+        XCTAssertNil(RouteExporter.buildGpxRecorded(route: [one, invalid], sport: "Walking"))
+    }
+
     func testFitRoundTripsThroughTheImporter() {
         let data = RouteExporter.render(.fit, route: route, startTs: startTs, endTs: endTs,
                                         sport: "cycling", distanceM: 1234.5, energyKcal: 210, avgHr: 142, maxHr: 171)
