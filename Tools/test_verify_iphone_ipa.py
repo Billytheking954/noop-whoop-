@@ -19,7 +19,8 @@ class VerifyIPhoneIPATests(unittest.TestCase):
     BUILD = "435"
     FILENAME = "NOOP-V2-12.0-base-aaaaaaa-iphone.ipa"
 
-    def make_ipa(self, directory: Path, *, sha: str | None = None, device_family=None, signed=True) -> Path:
+    def make_ipa(self, directory: Path, *, sha: str | None = None, device_family=None,
+                 signed=True, include_widget_executable=True) -> Path:
         sha = sha or self.SHA
         if device_family is None:
             device_family = [1]
@@ -57,7 +58,8 @@ class VerifyIPhoneIPATests(unittest.TestCase):
             zf.writestr(f"{app}/embedded.mobileprovision", b"profile")
             zf.writestr(f"{app}/NOOPReleaseProvenance.json", json.dumps(provenance))
             zf.writestr(f"{widget}/Info.plist", plistlib.dumps(widget_info))
-            zf.writestr(f"{widget}/NOOPWidgets", b"extension")
+            if include_widget_executable:
+                zf.writestr(f"{widget}/NOOPWidgets", b"extension")
             zf.writestr(f"{widget}/embedded.mobileprovision", b"profile")
             if signed:
                 zf.writestr(f"{app}/_CodeSignature/CodeResources", b"signature")
@@ -115,6 +117,24 @@ class VerifyIPhoneIPATests(unittest.TestCase):
             result = self.run_verifier(ipa)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("_CodeSignature", result.stderr)
+
+
+    def test_rejects_missing_widget_executable(self):
+        with tempfile.TemporaryDirectory() as td:
+            ipa = self.make_ipa(Path(td), include_widget_executable=False)
+            result = self.run_verifier(ipa)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing required IPA member", result.stderr)
+
+    def test_rejects_duplicate_archive_member(self):
+        with tempfile.TemporaryDirectory() as td:
+            ipa = self.make_ipa(Path(td))
+            with zipfile.ZipFile(ipa, "a") as zf:
+                # Duplicate ZIP paths are ambiguous to consumers and must fail preflight.
+                zf.writestr("Payload/NOOP.app/NOOP", b"second-executable-copy")
+            result = self.run_verifier(ipa)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate member names", result.stderr)
 
 
 if __name__ == "__main__":
