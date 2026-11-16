@@ -45,7 +45,7 @@ enum RouteExportFormatChoice: String, AppEnum, CaseIterable {
     // FIT carries a session summary that GPX has no element for, and the parts of it this path cannot
     // supply are named here rather than left for a wearer to discover in Strava. See the `render` call.
     static var caseDisplayRepresentations: [RouteExportFormatChoice: DisplayRepresentation] = [
-        .gpx: DisplayRepresentation(title: "GPX", subtitle: "Legacy format; timestamps are approximated"),
+        .gpx: DisplayRepresentation(title: "GPX", subtitle: "Recorded GPS positions and timestamps"),
         .fit: DisplayRepresentation(title: "FIT", subtitle: "Recorded GPS timestamps; no invented heart-rate samples"),
     ]
 
@@ -97,15 +97,14 @@ struct ExportWorkoutRouteIntent: AppIntent {
             guard encoded.stravaUploadReady else { throw RouteExportIntentError.noExportableRoute }
             data = encoded.data
         case .gpx:
-            // Legacy GPX interpolates time; retain for compatibility, not as a
-            // claim that timestamps came from the GPS sampler.
-            data = RouteExporter.render(
-                .gpx,
-                route: newest.points.map { RoutePoint(lat: $0.lat, lon: $0.lon) },
-                startTs: newest.startTs,
-                endTs: newest.endTs,
-                sport: newest.sport,
-                distanceM: newest.distanceM)
+            // Shortcuts only selects routes with real measured point metadata.
+            // Preserve the actual timestamps rather than interpolate a false pace.
+            let fixes = newest.points.map {
+                RouteExporter.RecordedGpxPoint(lat: $0.lat, lon: $0.lon, timestampMs: $0.tMs)
+            }
+            guard let encoded = RouteExporter.buildGpxRecorded(route: fixes, sport: newest.sport)
+            else { throw RouteExportIntentError.noExportableRoute }
+            data = encoded
         }
         // Named by the workout's start, matching the share sheet's `noop-route-<startTs>.<ext>` so the
         // same session exports to the same filename whichever path produced it.
