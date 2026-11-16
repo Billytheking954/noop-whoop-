@@ -2216,6 +2216,7 @@ struct TodayView: View {
                     // S4: the SEPARATE Readiness block now lives here, behind the Charge-ring tap, instead of
                     // a full-width card on the home screen (a one-word read stays on the hero, #205).
                     readinessSheetBody
+                    energyReserveSheetCard
 
                     // UX differentiation: everything above is what shaped YOUR Charge today; this opens the
                     // general METHOD behind the score, so the two are clearly separated, not conflated. It
@@ -2271,6 +2272,61 @@ struct TodayView: View {
                 #endif
             }
         }
+    }
+
+    // MARK: - Experimental energy context
+
+    /// Separate from Charge and training Readiness. This is a transparent on-device
+    /// wellness estimate, not a direct sensor reading or a continuous battery trace.
+    private var energyReserveSheetCard: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Energy Reserve", overline: "Experimental daily estimate")
+            NoopCard(tint: StrandPalette.chargeColor) {
+                if let value = energyReserveEstimate {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("\(value.score)/100")
+                            .font(StrandFont.number(28))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text("Approximation using \(value.coverage)% of available weighted inputs; separate from Charge and Readiness.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("This is not a measured battery level or medical assessment. No workout timestamps or minute-by-minute values have been inferred.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else {
+                    Text("Not enough recorded sleep and recovery context for an Energy Reserve estimate.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    /// Compute only when the Charge sheet opens. Use a *calendar* day interval, not
+    /// a fixed 24 hours: the March/October clock changes produce 23/25-hour days.
+    private var energyReserveEstimate: (score: Int, coverage: Int)? {
+        guard let day = chargeBreakdownRow,
+              let date = Self.dayKeyParser.date(from: day.day) else { return nil }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: date)
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start),
+              end > start else { return nil }
+        let estimated = EnergyReserveEngine.estimate(
+            days: repo.days,
+            targetDay: day.day,
+            dayInterval: start..<end,
+            wakeTime: nil,
+            activities: [],
+            currentStrain: day.strain,
+            evaluatedAt: Date()
+        )
+        guard let score = estimated.value else { return nil }
+        return (score, Int((estimated.completeness * 100).rounded()))
     }
 
     /// The honest fallback when the Charge ring is tapped but there is no value AND no running calibration
