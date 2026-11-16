@@ -1,4 +1,5 @@
 name: Unsigned iPhone sideload IPA
+# CI-only verification branch; app source remains identical to current main.
 
 on:
   workflow_dispatch:
