@@ -3352,6 +3352,16 @@ final class Repository: ObservableObject {
         return await hrBuckets(deviceIds: ids, from: from, to: to, bucketSeconds: bucket)
     }
 
+    /// Loss-aware FIT export gets the same WHOOP sample namespaces as this workout's
+    /// detail/zone read. Never mix the active strap into a second device's detected bout.
+    /// A bounded (50k) raw-sample read is enough for long sessions without unbounded DB work.
+    func workoutHrSamples(from: Int, to: Int, source: String) async -> [HRSample] {
+        guard to > from else { return [] }
+        let ids = Self.workoutHrDeviceIds(source: source, activeStrapId: deviceId,
+                                         importedIds: importedReadIds)
+        return await hrSamples(deviceIds: ids, from: from, to: to, limit: 50_000)
+    }
+
     /// Raw HR samples binned into per-zone MINUTES for a workout window, using the age-derived
     /// (Tanaka) %HRmax zones , the same display zone model `WorkoutsView` already uses for imported
     /// zone percentages, but computed here from the strap's own samples so a session WITHOUT imported
