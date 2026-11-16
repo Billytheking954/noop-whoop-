@@ -396,7 +396,7 @@ struct WorkoutDetailView: View {
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 .confirmationDialog("Export route", isPresented: $showRouteExport, titleVisibility: .visible) {
-                    Button("GPX — approximate route times") { exportRoute(.gpx) }
+                    Button("GPX — recorded times when available") { exportRoute(.gpx) }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("Save this route as a standard file you can import into Strava, Garmin Connect, and other apps.")
@@ -414,14 +414,28 @@ struct WorkoutDetailView: View {
     @MainActor private func exportRoute(_ format: RouteExporter.Format) {
         guard route.count >= 2 else { return }
         let points = route.map { RoutePoint(lat: $0.lat, lon: $0.lon) }
+        // The lightweight route map intentionally lacks measured timestamps.
+        // Try the separately stored fixes before taking the legacy GPX path.
+        let persisted = RouteStore.loadWithPoints(startTs: row.startTs, sport: row.sport)
+        let timedFixes: [RouteExporter.RecordedGpxPoint] = {
+            guard persisted?.hasExportableMeasurements == true else { return [] }
+            return (persisted?.points ?? []).map {
+                RouteExporter.RecordedGpxPoint(lat: $0.lat, lon: $0.lon, timestampMs: $0.tMs)
+            }
+        }()
         // Name the file by the workout's start (not export time) so it's stable + matches the Android twin.
         let name = "noop-route-\(row.startTs).\(format.ext)"
         let startTs = row.startTs, endTs = row.endTs, sport = row.sport
         let distanceM = row.distanceM, energyKcal = row.energyKcal, avgHr = row.avgHr, maxHr = row.maxHr
         Task.detached(priority: .userInitiated) {
-            let data = RouteExporter.render(
-                format, route: points, startTs: startTs, endTs: endTs, sport: sport,
-                distanceM: distanceM, energyKcal: energyKcal, avgHr: avgHr, maxHr: maxHr)
+            // New recordings retain exact millisecond GPS times; old polyline-only
+            // routes remain exportable using the explicitly approximate legacy path.
+            let data = (format == .gpx && !timedFixes.isEmpty
+                ? RouteExporter.buildGpxRecorded(route: timedFixes, sport: sport)
+                : nil) ?? RouteExporter.render(
+                    format, route: points, startTs: startTs, endTs: endTs, sport: sport,
+                    distanceM: distanceM, energyKcal: energyKcal, avgHr: avgHr, maxHr: maxHr
+                )
             let url = NoopScratch.file(name)
             do { try data.write(to: url) } catch { return }
             await MainActor.run { FileExport.exportFile(at: url, suggestedName: name) }
