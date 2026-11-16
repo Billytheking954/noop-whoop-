@@ -2243,7 +2243,7 @@ struct TodayView: View {
             } else {
                 NavigationLink(value: TabRoute.workouts) {
                     NoopCard {
-                        Text(repo.loaded
+                        Text(repo.loaded && loadedHistoryWideOnce
                              ? (selectedDayOffset == 0 ? "No recent activities · Open workouts" : "No workouts found")
                              : "Loading activities…")
                     }
