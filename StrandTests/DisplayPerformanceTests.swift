@@ -113,11 +113,24 @@ final class DisplayPerformanceTests: XCTestCase {
     // MARK: - Pure window stats (no display link needed).
 
     func testWindowStatsMeanAndP95() {
-        // 19 frames at 16 ms and one 100 ms hitch: mean is pulled up a little, p95 picks the hitch.
+        // One hitch among 20 frames is the maximum, not nearest-rank p95 (rank 19).
         let durations = Array(repeating: 16.0, count: 19) + [100.0]
         let stats = DisplayPerformanceMonitor.windowStats(durationsMs: durations)
         XCTAssertEqual(stats.mean, (16.0 * 19 + 100.0) / 20.0, accuracy: 0.001)
-        XCTAssertEqual(stats.p95, 100.0, accuracy: 0.001, "p95 of 20 frames is the worst (nearest-rank)")
+        XCTAssertEqual(stats.p95, 16.0, accuracy: 0.001, "p95 of 20 frames is the 19th smallest")
+    }
+
+    func testWindowStatsP95AtSixtyFrames() {
+        // 95th-percentile rank is ceil(0.95 * 60) = 57, not 58.
+        let durations = Array(repeating: 16.0, count: 56)
+            + Array(repeating: 40.0, count: 3) + [100.0]
+        let stats = DisplayPerformanceMonitor.windowStats(durationsMs: durations)
+        XCTAssertEqual(stats.p95, 40.0, accuracy: 0.001)
+    }
+
+    func testWindowStatsP95SingleFrame() {
+        let stats = DisplayPerformanceMonitor.windowStats(durationsMs: [42.0])
+        XCTAssertEqual(stats.p95, 42.0, accuracy: 0.001)
     }
 
     func testWindowStatsEmptyIsZero() {

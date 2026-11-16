@@ -32,6 +32,7 @@ enum TabRoute: Hashable {
     case dataSources
     case stress
     case sleep
+    case sleepDay(String)
     case charge(day: String?)
     case health
     case hydration
@@ -70,6 +71,7 @@ extension View {
             case .dataSources: DataSourcesView()
             case .stress: StressView()
             case .sleep: SleepView()
+            case .sleepDay(let day): SleepView(day: day)
             case .charge(let day): ChargeDetailView(day: day)
             case .health: HealthView()
             case .hydration: HydrationView()

@@ -181,13 +181,11 @@ final class DisplayPerformanceMonitor {
         guard !durationsMs.isEmpty else { return (0, 0) }
         let mean = durationsMs.reduce(0, +) / Double(durationsMs.count)
         let sorted = durationsMs.sorted()
-        // Nearest-rank p95 as a 0-based index: idx = ceil(0.95 * n), clamped to the last element. This
-        // counts the values that fall BELOW the percentile, so at least 95% of frames are at or below the
-        // returned value. For a hitch trace that matters: a window of 20 frames with one 5%-tail hitch
-        // lands p95 ON the hitch (idx = ceil(0.95 * 20) = 19 = the worst of 20), surfacing exactly the
-        // slow frame the user is reporting rather than hiding it under the 95% of healthy frames.
-        let idx = Int((0.95 * Double(sorted.count)).rounded(.up))
-        let p95 = sorted[min(idx, sorted.count - 1)]
+        // Nearest-rank p95 is the value at one-based rank ceil(0.95 * n), or zero-based
+        // index ceil(0.95 * n) - 1. The maximum and hitch count are reported separately:
+        // with 19 normal frames and one hitch, p95 is the normal duration, not the maximum.
+        let idx = max(0, Int((0.95 * Double(sorted.count)).rounded(.up)) - 1)
+        let p95 = sorted[idx]
         return (mean, p95)
     }
 

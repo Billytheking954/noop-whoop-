@@ -8,7 +8,7 @@ public enum WhoopStoreInfo {
     /// The store schema-version marker, bumped per migration. Surfaced in the backup manifest (#1410) so an
     /// export records the platform's schema version (a platform-scoped indicator — Android reports its Room
     /// version independently; the two numbering schemes are not expected to match).
-    public static let schemaVersion = 18
+    public static let schemaVersion = 49
 }
 
 /// Serializes `DatabasePool` creation + migration so two concurrent opens of the SAME file can never
@@ -32,15 +32,27 @@ private actor StoreOpenGate {
     static let shared = StoreOpenGate()
 
     func openAndMigrate(path: String, configuration config: Configuration) throws -> DatabasePool {
-        // Self-heal a foreign DB left in place by a bad cross-platform restore (#222): an Android
-        // (Room) backup that slipped past the import guard replaces our file with one that has our
-        // data tables but NO `grdb_migrations` bookkeeping. The migrator then thinks nothing is
-        // applied, re-runs v1, and crashes with `table "device" already exists` on every open — the
-        // store never bootstraps. Quarantine such a file BEFORE opening so we start fresh instead of
-        // looping forever. (A normal GRDB backup carries grdb_migrations and is left untouched.)
-        WhoopStore.quarantineIncompatibleDatabase(at: path)
+        try StoreWriteBarrier.withWritePermit {
+            try openAndMigrateImpl(path: path, configuration: config)
+        }
+    }
+
+    private func openAndMigrateImpl(path: String, configuration config: Configuration) throws -> DatabasePool {
+        try WhoopStore.refuseUnrecognizedDatabase(at: path)
         let pool = try DatabasePool(path: path, configuration: config)
-        try WhoopStore.makeMigrator().migrate(pool)
+        let migrator = WhoopStore.makeMigrator()
+        // Forward-only safety: a future app may have applied migrations we do
+        // not understand. Fail closed instead of writing with an older schema.
+        // Do not quarantine/reset an otherwise valid GRDB database to downgrade.
+        let hasFutureMigrations = try pool.read { db in
+            try migrator.hasBeenSuperseded(db)
+        }
+        guard !hasFutureMigrations else {
+            throw NSError(domain: "WhoopStore", code: 49,
+                          userInfo: [NSLocalizedDescriptionKey:
+                              "Local database was created by a newer NOOP build. Refusing an unsafe downgrade; your data has not been reset."])
+        }
+        try migrator.migrate(pool)
         return pool
     }
 }
@@ -58,6 +70,22 @@ private actor StoreOpenGate {
 /// caller's (main) thread; what changed is read/write CONCURRENCY at the SQLite layer, not the
 /// data or the query results.
 public actor WhoopStore {
+
+    /// Validate a disposable restore candidate without migrating or writing to it.
+    /// A future schema must be rejected before it can replace the current database.
+    public static func validateBackupSchema(at path: String) throws {
+        var configuration = Configuration()
+        configuration.readonly = true
+        let queue = try DatabaseQueue(path: path, configuration: configuration)
+        let superseded = try queue.read { db in
+            try makeMigrator().hasBeenSuperseded(db)
+        }
+        if superseded {
+            throw NSError(domain: "WhoopStore", code: 49,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "Local database was created by a newer NOOP build. Refusing an unsafe downgrade; your data has not been reset."])
+        }
+    }
 
     /// PPG waveform rows banked since its retention sweep last ran, PER DEVICE, for the same reason as
     /// `v18AuxRowsSincePrune` below: the sweep is per device, so a shared counter would let one strap
@@ -115,35 +143,26 @@ public actor WhoopStore {
         self.init(preMigrated: pool)
     }
 
-    /// Move aside a database file that has our data tables but no GRDB migration bookkeeping — the
-    /// signature of a foreign (Android/Room) DB dropped over ours by a bad restore (#222). Opening it
-    /// would make the migrator re-run v1 and throw `table "device" already exists` forever. Moving it
-    /// to a `.incompatible-<ts>` sidecar lets the next open create a clean store. A valid GRDB DB
-    /// (has `grdb_migrations`) and a fresh/empty file are both left untouched. Best-effort + silent.
-    static func quarantineIncompatibleDatabase(at path: String) {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: path) else { return }
-        let names: Set<String>
-        do {
-            // Read-only probe of sqlite_master; a raw queue does NOT run migrations.
-            let probe = try DatabaseQueue(path: path)
-            names = try probe.read { db in
-                try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
-            }
-        } catch {
-            return // unreadable/locked → let the real open + migrator deal with it
+    /// Refuse a populated database without GRDB bookkeeping in place. Missing
+    /// metadata is not permission to move health data or discard WAL sidecars.
+    static func refuseUnrecognizedDatabase(at path: String) throws {
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        var configuration = Configuration()
+        configuration.readonly = true
+        // Another handle may be finishing a WAL checkpoint or closing while a
+        // second store opens. The preflight must wait for that transient lock;
+        // treating it as an invalid database hides otherwise intact history.
+        configuration.busyMode = .timeout(5)
+        let probe = try DatabaseQueue(path: path, configuration: configuration)
+        let names = try probe.read { db in
+            try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        let isForeign = !names.contains("grdb_migrations")
-            && (names.contains("device") || names.contains("hrSample"))
-        guard isForeign else { return }
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        let quarantine = "\(path).incompatible-\(stamp)"
-        try? fm.removeItem(atPath: quarantine)
-        do { try fm.moveItem(atPath: path, toPath: quarantine) } catch { return }
-        // Drop the now-orphaned WAL/SHM sidecars so the fresh DB starts clean.
-        for suffix in ["-wal", "-shm"] { try? fm.removeItem(atPath: path + suffix) }
+        let userTables = names.filter { !$0.hasPrefix("sqlite_") }
+        guard !userTables.isEmpty && !userTables.contains("grdb_migrations") else { return }
+        throw NSError(domain: "WhoopStore", code: 48,
+                      userInfo: [NSLocalizedDescriptionKey:
+                        "Local database migration metadata is missing. Your database has been preserved in place; automatic reset is disabled."])
     }
-
     /// An in-memory store (migrations applied). For tests.
     ///
     /// Backed by a `DatabaseQueue`, not a `DatabasePool`: GRDB has no in-memory `DatabasePool`
@@ -169,7 +188,9 @@ public actor WhoopStore {
 
     @inline(__always)
     func syncWrite<T>(_ block: (Database) throws -> T) throws -> T {
-        try dbWriter.write(block)
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.write(block)
+        }
     }
 
     // MARK: - Maintenance
@@ -196,8 +217,10 @@ public actor WhoopStore {
     /// Non-async so GRDB's synchronous `writeWithoutTransaction` overload is chosen (mirrors the
     /// syncRead/syncWrite pattern). Runs on the actor's executor, off the main thread.
     private func checkpointWALImpl() throws {
-        try dbWriter.writeWithoutTransaction { db in
-            try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.writeWithoutTransaction { db in
+                try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+            }
         }
     }
 
