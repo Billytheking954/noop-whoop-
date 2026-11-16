@@ -2,6 +2,7 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 import StrandImport
+import WhoopProtocol
 import WhoopStore
 import Foundation
 #if canImport(MapKit)
@@ -63,6 +64,9 @@ struct WorkoutDetailView: View {
 
     /// Drives the GPX/FIT export chooser for the recorded route.
     @State private var showRouteExport = false
+    @State private var fitExportBusy = false
+    @State private var showFitExportError = false
+    @State private var fitExportErrorMessage = ""
 
     /// Steps over the session window for an on-foot sport (#398): the count plus whether it came from the
     /// strap's own counter (MG/5.0) or the phone pedometer (fallback for WHOOP 4.0 / not-yet-synced / CSV
@@ -85,6 +89,7 @@ struct WorkoutDetailView: View {
                        topBackground: liquidScaffoldSky()) {
             headerCard
             statStrip
+            recordedFitCard
             routeCard
             hrCurveCard
             zonesCard
@@ -100,6 +105,11 @@ struct WorkoutDetailView: View {
             }
         }
         .task { await load() }
+        .alert("FIT export unavailable", isPresented: $showFitExportError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(fitExportErrorMessage)
+        }
     }
 
     // MARK: - Load
@@ -277,6 +287,77 @@ struct WorkoutDetailView: View {
         }
     }
 
+    // MARK: - Source-faithful workout export
+
+    /// FIT export is not the legacy polyline-only route export. It uses timed
+    /// samples from the recording strap and GPS point metadata, when present.
+    @ViewBuilder private var recordedFitCard: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Workout export", overline: "Recorded data only")
+            NoopCard(tint: StrandPalette.effortColor) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Export actual recorded HR and GPS timestamps in FIT format. Missing measurements stay missing.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        exportRecordedFit()
+                    } label: {
+                        Label(fitExportBusy ? "Preparing FIT…" : "Export recorded workout (FIT)",
+                              systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                    .disabled(!loaded || fitExportBusy)
+                }
+            }
+        }
+    }
+
+    @MainActor private func exportRecordedFit() {
+        guard !fitExportBusy, row.endTs > row.startTs else { return }
+        fitExportBusy = true
+        Task {
+            let samples = await repo.workoutHrSamples(from: row.startTs, to: row.endTs,
+                                                      source: row.source)
+            // RouteStore deliberately strips the expensive point list into a separate
+            // per-workout key. The drawable polyline is NOT proof of recorded timestamps.
+            var storedRoute = RouteStore.load(startTs: row.startTs, sport: row.sport)
+            if storedRoute != nil {
+                let key = RouteStore.key(startTs: row.startTs, sport: row.sport)
+                storedRoute?.points = RoutePointStore.load(for: key)
+            }
+            guard let canonical = CanonicalWorkoutExportBuilder.build(
+                row: row, deviceID: repo.deviceId, heartRateSamples: samples,
+                route: storedRoute
+            ) else {
+                fitExportBusy = false
+                fitExportErrorMessage = "This workout has no usable timed HR or GPS records. A summary alone cannot become a recorded FIT track."
+                showFitExportError = true
+                return
+            }
+            let fileName = CanonicalWorkoutExportBuilder.fitFilename(
+                sport: row.sport, startTimestamp: row.startTs
+            )
+            do {
+                let url = try await Task.detached(priority: .userInitiated) { () throws -> URL in
+                    let encoded = CanonicalFitExporter.render(canonical)
+                    guard encoded.stravaUploadReady else {
+                        throw CocoaError(.fileWriteUnknown)
+                    }
+                    let url = NoopScratch.file(fileName)
+                    try encoded.data.write(to: url, options: .atomic)
+                    return url
+                }.value
+                fitExportBusy = false
+                FileExport.exportFile(at: url, suggestedName: fileName)
+            } catch {
+                fitExportBusy = false
+                fitExportErrorMessage = "Unable to create a FIT file from the recorded samples: \(error.localizedDescription)"
+                showFitExportError = true
+            }
+        }
+    }
+
     // MARK: - GPS route (#524)
 
     /// The captured-route card: a MapKit map of the polyline with start/end markers, plus distance and
@@ -315,8 +396,7 @@ struct WorkoutDetailView: View {
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 .confirmationDialog("Export route", isPresented: $showRouteExport, titleVisibility: .visible) {
-                    Button("GPX — Strava, Garmin, most apps") { exportRoute(.gpx) }
-                    Button("FIT — Garmin Connect") { exportRoute(.fit) }
+                    Button("GPX — approximate route times") { exportRoute(.gpx) }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("Save this route as a standard file you can import into Strava, Garmin Connect, and other apps.")
@@ -325,7 +405,7 @@ struct WorkoutDetailView: View {
         }
     }
 
-    /// Write the route to a GPX/FIT file and hand it to the system share sheet (or a Save panel on macOS).
+    /// Legacy GPX compatibility path. It interpolates times, so never present it as measured GPS timing.
     /// Points are decoded lat/lon only (the stored polyline), so the exporter interpolates per-point times
     /// across the session window and carries the workout's summary (sport, distance, calories, HR).
     ///
