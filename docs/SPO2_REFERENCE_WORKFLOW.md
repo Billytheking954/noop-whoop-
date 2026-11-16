@@ -80,6 +80,10 @@ Each retained row witnesses only its own second. Gaps are not filled. Sleep-stat
 code 2 remains the existing research selection. The exploratory 70–100 range is
 reported for diagnostics but is no longer used to remove nonzero evidence before
 independent pairing. These are research choices, not physiological claims.
+The `hourly_evidence` bins show retained seconds, missing/zero bytes and asleep
+candidate codes throughout the requested window, including empty hours. This helps
+distinguish missing history from a banked night with no candidate readings; it does
+not identify whether a gap was caused by the strap, connection or iOS execution.
 
 ## Independent reference input
 

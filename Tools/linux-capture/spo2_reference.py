@@ -163,6 +163,30 @@ def analyze(records: Sequence[dict], start: int, end: int,
     gaps = [stamps[0] - start, end - stamps[-1] - 1] if stamps else [end - start]
     gaps.extend(right - left - 1 for left, right in zip(stamps, stamps[1:]))
 
+    # Include empty bins so a stopped offload cannot resemble a shorter night.
+    hourly = []
+    cursor = 0
+    for bin_start in range(start, end, 3600):
+        bin_end = min(bin_start + 3600, end)
+        segment = []
+        while cursor < len(stamps) and stamps[cursor] < bin_end:
+            segment.append((stamps[cursor], *observed[stamps[cursor]]))
+            cursor += 1
+        hourly.append({
+            "start_unix": bin_start,
+            "end_unix_exclusive": bin_end,
+            "retained_seconds": len(segment),
+            "retained_fraction": len(segment) / (bin_end - bin_start),
+            "missing_field_seconds": sum(raw is None for _, raw, _ in segment),
+            "recorded_zero_seconds": sum(raw == 0 for _, raw, _ in segment),
+            "asleep_in_band_seconds": sum(raw in candidate.INBAND and state == candidate.SLEEP_ASLEEP
+                                          for _, raw, state in segment),
+            "asleep_out_of_band_nonzero_seconds": sum(raw is not None and raw != 0
+                                                     and raw not in candidate.INBAND
+                                                     and state == candidate.SLEEP_ASLEEP
+                                                     for _, raw, state in segment),
+        })
+
     # IMPORTANT: do not pre-filter comparison evidence to the hypothesised 70..100
     # range. A nonzero asleep value outside that range is evidence *against* the
     # direct-percent interpretation and must remain in the denominator and pairs.
@@ -183,6 +207,7 @@ def analyze(records: Sequence[dict], start: int, end: int,
         "promotion_allowed": False,
         "candidate_range_consistent": not asleep_out_of_band,
         "window": {"start_unix": start, "end_unix_exclusive": end},
+        "hourly_evidence": hourly,
         "observations": {
             "retained_seconds": len(observed),
             "retained_fraction": len(observed) / (end - start),
@@ -241,7 +266,9 @@ def analyze(records: Sequence[dict], start: int, end: int,
                               statistics.fmean(pair[1] for pair in matches)))
     coverage_complete = bool(paired) and fraction >= MIN_MATCHED_FRACTION
     sample_count_sufficient = len(paired) >= MIN_PAIRED_SECONDS
-    metrics_allowed = coverage_complete and sample_count_sufficient
+    # Keep disconfirming codes in the denominator, but do not emit agreement
+    # statistics when the direct-percent hypothesis fails its own range gate.
+    metrics_allowed = coverage_complete and sample_count_sufficient and not asleep_out_of_band
     result["comparison"] = {
         "valid_reference_seconds_in_window": sum(start <= ts < end for ts in reference),
         "paired_seconds": len(paired),

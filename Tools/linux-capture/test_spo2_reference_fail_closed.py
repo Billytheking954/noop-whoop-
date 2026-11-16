@@ -24,9 +24,8 @@ class FailClosedComparisonTests(unittest.TestCase):
         self.assertFalse(comparison["candidate_range_consistent"])
         self.assertEqual(result["observations"]["asleep_out_of_band_nonzero_seconds"], 1)
         self.assertEqual(result["availability"], "candidate_range_violation")
-        self.assertGreater(
-            comparison["matched_sample_differences"]["mean_absolute_difference"], 0
-        )
+        self.assertIsNone(comparison["matched_sample_differences"])
+        self.assertIsNone(comparison["equal_run_differences"])
 
     def test_single_pair_is_explicitly_insufficient(self):
         result = research.analyze([row(START, 97)], START, START + 1, {START: 97})
