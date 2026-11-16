@@ -74,6 +74,53 @@ public enum RouteExporter {
         return s
     }
 
+    /// A GPS fix with its recorded millisecond timestamp. Use this instead of
+    /// `buildGpx` for new workouts that retained real fixes in RoutePointStore.
+    /// The older polyline API remains for legacy tracks without source timestamps.
+    public struct RecordedGpxPoint: Sendable, Equatable {
+        public let lat: Double
+        public let lon: Double
+        public let timestampMs: Int64
+
+        public init(lat: Double, lon: Double, timestampMs: Int64) {
+            self.lat = lat
+            self.lon = lon
+            self.timestampMs = timestampMs
+        }
+    }
+
+    /// Strict recorded-time GPX. Never interpolate or silently discard damaged
+    /// points: reject the track instead of producing an apparently authentic path.
+    public static func buildGpxRecorded(route: [RecordedGpxPoint], sport: String?) -> Data? {
+        guard route.count >= 2 else { return nil }
+        var previous: Int64?
+        for point in route {
+            guard point.lat.isFinite, (-90...90).contains(point.lat),
+                  point.lon.isFinite, (-180...180).contains(point.lon),
+                  point.timestampMs > 0 else { return nil }
+            if let previous, point.timestampMs <= previous { return nil }
+            previous = point.timestampMs
+        }
+        let canon = canonicalSport(sport)
+        var output = ""
+        output += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        output += "<gpx version=\"1.1\" creator=\"NOOP\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n"
+        output += "  <metadata>\n    <time>\(iso(Int(route[0].timestampMs / 1000)))</time>\n  </metadata>\n"
+        output += "  <trk>\n"
+        output += "    <name>\(xmlEscape(displaySport(canon)))</name>\n"
+        output += "    <type>\(xmlEscape(canon))</type>\n"
+        output += "    <trkseg>\n"
+        for p in route {
+            let seconds = Int(p.timestampMs / 1000)
+            let milli = Int(p.timestampMs % 1000)
+            let stamp = String(iso(seconds).dropLast()) + String(format: ".%03dZ", milli)
+            output += "      <trkpt lat=\"\(coord(p.lat))\" lon=\"\(coord(p.lon))\">"
+            output += "<time>\(stamp)</time></trkpt>\n"
+        }
+        output += "    </trkseg>\n  </trk>\n</gpx>\n"
+        return Data(output.utf8)
+    }
+
     /// A minimal but well-formed FIT activity file: file_id, one record per point, lap, session, activity,
     /// and the trailing CRC-16. Decodes back through ``ActivityFileImporter`` and imports into Strava /
     /// Garmin Connect.
