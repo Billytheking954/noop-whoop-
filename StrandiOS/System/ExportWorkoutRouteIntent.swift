@@ -45,8 +45,8 @@ enum RouteExportFormatChoice: String, AppEnum, CaseIterable {
     // FIT carries a session summary that GPX has no element for, and the parts of it this path cannot
     // supply are named here rather than left for a wearer to discover in Strava. See the `render` call.
     static var caseDisplayRepresentations: [RouteExportFormatChoice: DisplayRepresentation] = [
-        .gpx: DisplayRepresentation(title: "GPX"),
-        .fit: DisplayRepresentation(title: "FIT", subtitle: "Route and GPS distance, without the heart-rate and calorie summary"),
+        .gpx: DisplayRepresentation(title: "GPX", subtitle: "Legacy format; timestamps are approximated"),
+        .fit: DisplayRepresentation(title: "FIT", subtitle: "Recorded GPS timestamps; no invented heart-rate samples"),
     ]
 
     var exporterFormat: RouteExporter.Format { self == .gpx ? .gpx : .fit }
@@ -84,13 +84,29 @@ struct ExportWorkoutRouteIntent: AppIntent {
         // and a later offload fills heart rate for a window after the route was saved. A stored snapshot
         // would then disagree with the workout, which is the failure the project forbids outright. So the
         // FIT written here is a route plus its GPS distance, and the format picker says so.
-        let data = RouteExporter.render(
-            format.exporterFormat,
-            route: newest.points.map { RoutePoint(lat: $0.lat, lon: $0.lon) },
-            startTs: newest.startTs,
-            endTs: newest.endTs,
-            sport: newest.sport,
-            distanceM: newest.distanceM)
+        let data: Data
+        switch format {
+        case .fit:
+            // The canonical encoder records only genuine timestamped fixes. A
+            // route's display polyline is never enough to invent a FIT track.
+            guard let canonical = CanonicalWorkoutExportBuilder.buildRouteOnly(
+                startTs: newest.startTs, endTs: newest.endTs, sport: newest.sport,
+                distanceM: newest.distanceM, points: newest.points
+            ) else { throw RouteExportIntentError.noExportableRoute }
+            let encoded = CanonicalFitExporter.render(canonical)
+            guard encoded.stravaUploadReady else { throw RouteExportIntentError.noExportableRoute }
+            data = encoded.data
+        case .gpx:
+            // Legacy GPX interpolates time; retain for compatibility, not as a
+            // claim that timestamps came from the GPS sampler.
+            data = RouteExporter.render(
+                .gpx,
+                route: newest.points.map { RoutePoint(lat: $0.lat, lon: $0.lon) },
+                startTs: newest.startTs,
+                endTs: newest.endTs,
+                sport: newest.sport,
+                distanceM: newest.distanceM)
+        }
         // Named by the workout's start, matching the share sheet's `noop-route-<startTs>.<ext>` so the
         // same session exports to the same filename whichever path produced it.
         let name = "noop-route-\(newest.startTs).\(format.rawValue)"
@@ -118,8 +134,16 @@ struct ExportWorkoutRouteIntent: AppIntent {
     static func newestExportableRoute(from map: [String: WorkoutRoute]? = nil) -> Resolved? {
         let routes = map ?? RouteStore.loadMap()
         var best: Resolved?
-        for (key, route) in routes where route.hasExportableMeasurements {
-            guard let points = route.points, let last = points.last,
+        for (key, saved) in routes {
+            // RouteStore stores the lightweight polyline in a map and moves real
+            // fixes into RoutePointStore. Previous code inspected saved.points
+            // (almost always nil) and falsely reported "no exportable route".
+            var route = saved
+            if route.points == nil, map == nil {
+                route.points = RoutePointStore.load(for: key)
+            }
+            guard route.hasExportableMeasurements,
+                  let points = route.points, let last = points.last,
                   let parsed = Self.parseKey(key) else { continue }
             let endTs = Int(last.tMs / 1_000)
             guard endTs > parsed.startTs else { continue }
