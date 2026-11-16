@@ -135,7 +135,9 @@ jobs:
           EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
           lipo -archs "$APP/$EXEC" | grep -qw arm64
           mkdir -p release-out Payload
-          cp -R "$APP" Payload/
+          # Xcode PRODUCT_NAME is "NOOP Staging", not "NOOP"; normalise the
+          # archive directory without changing the bundle identifier.
+          cp -R "$APP" "Payload/NOOP.app"
           SHORT=$(printf '%s' "$GITHUB_SHA" | cut -c 1-12)
           IPA="NOOP-Ryanbr12-selective-$SHORT-unsigned.ipa"
           zip -qry "release-out/$IPA" Payload
