@@ -256419,6 +256419,1098 @@
     },
     "Oura": {
       "shouldTranslate": false
+    },
+    "%@, %@, %lld percent": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %lld Prozent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %lld por ciento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %lld pour cent"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %lld por cento"
+          }
+        }
+      }
+    },
+    "An overnight heart-rate trace is unavailable for this night.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "F\u00fcr diese Nacht ist kein n\u00e4chtlicher Herzfrequenzverlauf verf\u00fcgbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay una gr\u00e1fica de frecuencia card\u00edaca nocturna para esta noche."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune courbe de fr\u00e9quence cardiaque nocturne n\u2019est disponible pour cette nuit."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N\u00e3o existe um gr\u00e1fico de frequ\u00eancia card\u00edaca noturna para esta noite."
+          }
+        }
+      }
+    },
+    "Detailed sleep metrics and historical trends": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaillierte Schlafwerte und historische Trends"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M\u00e9tricas detalladas del sue\u00f1o y tendencias hist\u00f3ricas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesures d\u00e9taill\u00e9es du sommeil et tendances historiques"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M\u00e9tricas detalhadas do sono e tend\u00eancias hist\u00f3ricas"
+          }
+        }
+      }
+    },
+    "Double tap to highlight on Night Map": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppeltippen, um im Nachtverlauf hervorzuheben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca dos veces para resaltar en el mapa nocturno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez deux fois pour mettre en \u00e9vidence sur la carte de nuit"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque duas vezes para real\u00e7ar no mapa da noite"
+          }
+        }
+      }
+    },
+    "Drag across the map to inspect recorded intervals and missing periods.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u00dcber den Verlauf ziehen, um aufgezeichnete Abschnitte und Datenl\u00fccken zu pr\u00fcfen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza sobre el mapa para examinar los intervalos registrados y las lagunas de datos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser le doigt sur la carte pour examiner les p\u00e9riodes enregistr\u00e9es et les donn\u00e9es manquantes."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste pelo mapa para examinar intervalos registados e per\u00edodos sem dados."
+          }
+        }
+      }
+    },
+    "Expand Night Map": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachtverlauf vergr\u00f6\u00dfern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar el mapa nocturno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrandir la carte de nuit"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir mapa da noite"
+          }
+        }
+      }
+    },
+    "Gaps present": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datenl\u00fccken vorhanden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay lagunas de datos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donn\u00e9es manquantes"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Existem falhas nos dados"
+          }
+        }
+      }
+    },
+    "HEART RATE \u00b7 BPM": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HERZFREQUENZ \u00b7 BPM"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FRECUENCIA CARD\u00cdACA \u00b7 LPM"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FR\u00c9QUENCE CARDIAQUE \u00b7 BPM"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FREQU\u00caNCIA CARD\u00cdACA \u00b7 BPM"
+          }
+        }
+      }
+    },
+    "Individual stage times were not recorded for this night. The breakdown shows totals, not reconstructed timing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "F\u00fcr diese Nacht wurden keine einzelnen Schlafphasenzeiten aufgezeichnet. Die \u00dcbersicht zeigt Summen und keinen rekonstruierten Verlauf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se registraron los tiempos de cada fase para esta noche. El desglose muestra totales, no tiempos reconstruidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les horaires de chaque phase n\u2019ont pas \u00e9t\u00e9 enregistr\u00e9s cette nuit. La r\u00e9partition pr\u00e9sente des totaux, pas des horaires reconstitu\u00e9s."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os hor\u00e1rios de cada fase n\u00e3o foram registados nesta noite. A distribui\u00e7\u00e3o mostra totais, n\u00e3o hor\u00e1rios reconstru\u00eddos."
+          }
+        }
+      }
+    },
+    "Lowest": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedrigster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M\u00ednima"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimum"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M\u00ednima"
+          }
+        }
+      }
+    },
+    "Nearby measured heart rate: %lld bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nahezu zeitgleiche Herzfrequenzmessung: %lld bpm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia card\u00edaca medida cercana: %lld lpm"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fr\u00e9quence cardiaque mesur\u00e9e \u00e0 proximit\u00e9 : %lld bpm"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequ\u00eancia card\u00edaca medida pr\u00f3xima: %lld bpm"
+          }
+        }
+      }
+    },
+    "Night Insights": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachtanalysen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An\u00e1lisis nocturno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyses nocturnes"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An\u00e1lises noturnas"
+          }
+        }
+      }
+    },
+    "Night Insights, detailed sleep metrics and trends": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachtanalysen, detaillierte Schlafwerte und Trends"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An\u00e1lisis nocturno, m\u00e9tricas detalladas del sue\u00f1o y tendencias"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyses nocturnes, mesures et tendances d\u00e9taill\u00e9es du sommeil"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An\u00e1lises noturnas, m\u00e9tricas e tend\u00eancias detalhadas do sono"
+          }
+        }
+      }
+    },
+    "Night Map": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachtverlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa nocturno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte de nuit"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa da noite"
+          }
+        }
+      }
+    },
+    "No continuous overnight heart-rate record is available.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "F\u00fcr diese Nacht ist keine durchgehende Herzfrequenzaufzeichnung verf\u00fcgbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay un registro continuo de frecuencia card\u00edaca nocturna."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun enregistrement continu de la fr\u00e9quence cardiaque nocturne n\u2019est disponible."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N\u00e3o existe um registo cont\u00ednuo da frequ\u00eancia card\u00edaca noturna."
+          }
+        }
+      }
+    },
+    "No interval selected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Abschnitt ausgew\u00e4hlt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ning\u00fan intervalo seleccionado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune p\u00e9riode s\u00e9lectionn\u00e9e"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum intervalo selecionado"
+          }
+        }
+      }
+    },
+    "No nearby heart-rate sample": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine zeitnahe Herzfrequenzmessung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin muestra cercana de frecuencia card\u00edaca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune mesure de fr\u00e9quence cardiaque proche"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem amostra pr\u00f3xima de frequ\u00eancia card\u00edaca"
+          }
+        }
+      }
+    },
+    "No recorded stage": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine aufgezeichnete Schlafphase"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin fase registrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune phase enregistr\u00e9e"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem fase registada"
+          }
+        }
+      }
+    },
+    "No recorded stage at %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine aufgezeichnete Schlafphase um %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin fase registrada a las %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune phase enregistr\u00e9e \u00e0 %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem fase registada \u00e0s %@"
+          }
+        }
+      }
+    },
+    "No stage observation at %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Schlafphasenmessung um %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin observaci\u00f3n de fase a las %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune phase observ\u00e9e \u00e0 %@."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem observa\u00e7\u00e3o de fase \u00e0s %@."
+          }
+        }
+      }
+    },
+    "Only stage totals are available": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Schlafphasensummen verf\u00fcgbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo est\u00e1n disponibles los totales por fase"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seuls les totaux par phase sont disponibles"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas est\u00e3o dispon\u00edveis os totais por fase"
+          }
+        }
+      }
+    },
+    "Overnight heart rate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N\u00e4chtliche Herzfrequenz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia card\u00edaca nocturna"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fr\u00e9quence cardiaque nocturne"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequ\u00eancia card\u00edaca noturna"
+          }
+        }
+      }
+    },
+    "Previous": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur\u00fcck"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pr\u00e9c\u00e9dent"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anterior"
+          }
+        }
+      }
+    },
+    "RECORDED STAGES": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AUFGEZEICHNETE SCHLAFPHASEN"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FASES REGISTRADAS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PHASES ENREGISTR\u00c9ES"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FASES REGISTADAS"
+          }
+        }
+      }
+    },
+    "Raw on-device stage estimates": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rohsch\u00e4tzungen der Schlafphasen vom Ger\u00e4t"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimaciones de fases sin procesar del dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimations brutes des phases par l\u2019appareil"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimativas brutas de fases do dispositivo"
+          }
+        }
+      }
+    },
+    "Recorded one-minute heart-rate buckets. Gaps are not interpolated.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgezeichnete Herzfrequenzwerte pro Minute. L\u00fccken werden nicht interpoliert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valores de frecuencia card\u00edaca por minuto. No se interpolan los huecos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesures de fr\u00e9quence cardiaque par minute. Les lacunes ne sont pas interpol\u00e9es."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valores de frequ\u00eancia card\u00edaca por minuto. As falhas n\u00e3o s\u00e3o interpoladas."
+          }
+        }
+      }
+    },
+    "Recorded overnight heart rate, with gaps in missing samples": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgezeichnete n\u00e4chtliche Herzfrequenz, fehlende Messwerte bleiben als L\u00fccken sichtbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia card\u00edaca nocturna registrada, con huecos donde faltan muestras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fr\u00e9quence cardiaque nocturne enregistr\u00e9e, avec des interruptions lorsque des mesures manquent"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequ\u00eancia card\u00edaca noturna registada, com falhas nas amostras em falta"
+          }
+        }
+      }
+    },
+    "Recorded sleep stage timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitverlauf der aufgezeichneten Schlafphasen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronolog\u00eda de las fases de sue\u00f1o registradas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chronologie des phases de sommeil enregistr\u00e9es"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronologia das fases de sono registadas"
+          }
+        }
+      }
+    },
+    "Recorded timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgezeichneter Verlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronolog\u00eda registrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chronologie enregistr\u00e9e"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronologia registada"
+          }
+        }
+      }
+    },
+    "SLEEP REPORT": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SCHLAFBERICHT"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "INFORME DEL SUE\u00d1O"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAPPORT DE SOMMEIL"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RELAT\u00d3RIO DO SONO"
+          }
+        }
+      }
+    },
+    "Score source: NOOP Rest composite": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertungsquelle: kombinierter NOOP-Erholungswert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen de la puntuaci\u00f3n: \u00edndice combinado de descanso de NOOP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source du score : indice de repos composite de NOOP"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem da pontua\u00e7\u00e3o: \u00edndice composto de descanso do NOOP"
+          }
+        }
+      }
+    },
+    "Score source: imported WHOOP performance": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertungsquelle: importierte WHOOP-Schlafleistung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen de la puntuaci\u00f3n: rendimiento importado de WHOOP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source du score : performance import\u00e9e de WHOOP"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem da pontua\u00e7\u00e3o: desempenho importado do WHOOP"
+          }
+        }
+      }
+    },
+    "Score unavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertung nicht verf\u00fcgbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puntuaci\u00f3n no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Score indisponible"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pontua\u00e7\u00e3o indispon\u00edvel"
+          }
+        }
+      }
+    },
+    "Sleep performance unavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlafleistung nicht verf\u00fcgbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendimiento del sue\u00f1o no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Performance du sommeil indisponible"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desempenho do sono indispon\u00edvel"
+          }
+        }
+      }
+    },
+    "Sleep stages are estimates; not a clinical sleep study.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlafphasen sind Sch\u00e4tzungen, keine klinische Schlafuntersuchung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las fases de sue\u00f1o son estimaciones, no un estudio cl\u00ednico del sue\u00f1o."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les phases de sommeil sont des estimations et ne constituent pas une \u00e9tude clinique du sommeil."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As fases de sono s\u00e3o estimativas, n\u00e3o um estudo cl\u00ednico do sono."
+          }
+        }
+      }
+    },
+    "Stage intervals are device estimates. Blank spans indicate missing records, not wakefulness.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlafphasen sind Ger\u00e4tesch\u00e4tzungen. Leere Abschnitte bedeuten fehlende Daten, nicht Wachsein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las fases son estimaciones del dispositivo. Los espacios vac\u00edos indican datos ausentes, no vigilia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les phases sont estim\u00e9es par l\u2019appareil. Les zones vides indiquent des donn\u00e9es manquantes, pas un \u00e9veil."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As fases s\u00e3o estimativas do dispositivo. Os espa\u00e7os vazios indicam dados em falta, n\u00e3o vig\u00edlia."
+          }
+        }
+      }
+    },
+    "Stage source: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle der Schlafphasen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen de las fases: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source des phases : %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem das fases: %@"
+          }
+        }
+      }
+    },
+    "Stage totals only": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Schlafphasensummen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo totales por fase"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Totaux des phases uniquement"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas totais por fase"
+          }
+        }
+      }
+    },
+    "Swipe up or down to inspect the next or previous stage interval": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach oben oder unten wischen, um die n\u00e4chste oder vorherige Schlafphase zu pr\u00fcfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza hacia arriba o abajo para examinar el intervalo siguiente o anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balayez vers le haut ou le bas pour examiner la p\u00e9riode suivante ou pr\u00e9c\u00e9dente"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslize para cima ou para baixo para examinar o intervalo seguinte ou anterior"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
