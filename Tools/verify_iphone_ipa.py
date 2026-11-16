@@ -67,6 +67,8 @@ def main() -> int:
         names = zf.namelist()
         if not names:
             fail("IPA archive is empty")
+        if len(names) != len(set(names)):
+            fail("IPA archive contains duplicate member names")
 
         # Reject path traversal or absolute members even though the verifier never extracts them.
         for raw in names:
@@ -136,6 +138,12 @@ def main() -> int:
             fail("widget marketing version does not match the app")
         if str(widget_info.get("CFBundleVersion", "")) != args.build:
             fail("widget build number does not match the app")
+        widget_executable = widget_info.get("CFBundleExecutable")
+        if (not isinstance(widget_executable, str) or not widget_executable
+                or PurePosixPath(widget_executable).name != widget_executable
+                or "\\" in widget_executable):
+            fail("widget CFBundleExecutable is missing or invalid")
+        read_member(zf, f"{widget_root}/{widget_executable}")
         read_member(zf, f"{widget_root}/embedded.mobileprovision")
         if not any(name.startswith(f"{widget_root}/_CodeSignature/") for name in names):
             fail("widget extension has no _CodeSignature directory")
