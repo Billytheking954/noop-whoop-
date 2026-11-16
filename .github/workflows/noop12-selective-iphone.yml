@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Only the newest source SHA needs a build. Older queued candidates must not
+# consume macOS runners or produce an IPA that appears to be the final revision.
+concurrency:
+  group: noop12-selective-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   source-and-packages:
     runs-on: macos-15
