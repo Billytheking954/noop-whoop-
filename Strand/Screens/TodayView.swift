@@ -5,6 +5,14 @@ import WhoopStore
 import WhoopProtocol
 import Foundation
 
+/// The repository cache and the workout history complete independently during startup.
+/// Only show a confirmed empty activity state once both have finished loading.
+enum TodayWorkoutEmptyStateGate {
+    static func canShowEmpty(repositoryLoaded: Bool, workoutHistoryLoaded: Bool) -> Bool {
+        repositoryLoaded && workoutHistoryLoaded
+    }
+}
+
 // MARK: - Control Center (the home dashboard), HomeDensity rewrite
 //
 // The owner's complaint was "cards then random space". This rebuild is a tight,
@@ -2243,7 +2251,9 @@ struct TodayView: View {
             } else {
                 NavigationLink(value: TabRoute.workouts) {
                     NoopCard {
-                        Text(repo.loaded && loadedHistoryWideOnce
+                        Text(TodayWorkoutEmptyStateGate.canShowEmpty(
+                                 repositoryLoaded: repo.loaded,
+                                 workoutHistoryLoaded: loadedHistoryWideOnce)
                              ? (selectedDayOffset == 0 ? "No recent activities · Open workouts" : "No workouts found")
                              : "Loading activities…")
                     }
