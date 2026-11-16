@@ -573,7 +573,7 @@ struct DataSourcesView: View {
                 // timestamped HR (a pure GPS track) — nothing to store, so day Effort stays honestly dark.
                 if !activity.hrSamples.isEmpty {
                     let hr = activity.hrSamples.map { HRSample(ts: $0.ts, bpm: $0.bpm) }
-                    _ = try? await store.insert(Streams(hr: hr), deviceId: ActivityFileImporter.sourceId)
+                    _ = try await store.insert(Streams(hr: hr), deviceId: ActivityFileImporter.sourceId)
                 }
                 // #1058: recompute the day's activity-file step total as the SUM over ALL that day's
                 // sessions (now that each carries its own steps), so a second file for the same day ADDS
@@ -585,10 +585,10 @@ struct DataSourcesView: View {
                     let dayStart = Calendar.current.startOfDay(for: activity.start)
                     let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)
                         ?? dayStart.addingTimeInterval(86_400)
-                    let daySteps = (try? await store.sumWorkoutSteps(
+                    let daySteps = try await store.sumWorkoutSteps(
                         deviceId: ActivityFileImporter.sourceId,
                         from: Int(dayStart.timeIntervalSince1970),
-                        to: Int(dayEnd.timeIntervalSince1970))) ?? 0
+                        to: Int(dayEnd.timeIntervalSince1970))
                     if daySteps > 0 {
                         let metric = DailyMetric(
                             day: Repository.localDayKey(activity.start),
@@ -605,7 +605,7 @@ struct DataSourcesView: View {
                             exerciseCount: nil,
                             steps: daySteps
                         )
-                        try? await store.upsertDailyMetrics([metric], deviceId: ActivityFileImporter.sourceId)
+                        try await store.upsertDailyMetrics([metric], deviceId: ActivityFileImporter.sourceId)
                     }
                 }
 

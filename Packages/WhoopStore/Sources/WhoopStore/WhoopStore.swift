@@ -8,7 +8,7 @@ public enum WhoopStoreInfo {
     /// The store schema-version marker, bumped per migration. Surfaced in the backup manifest (#1410) so an
     /// export records the platform's schema version (a platform-scoped indicator — Android reports its Room
     /// version independently; the two numbering schemes are not expected to match).
-    public static let schemaVersion = 18
+    public static let schemaVersion = 47
 }
 
 /// Serializes `DatabasePool` creation + migration so two concurrent opens of the SAME file can never
@@ -169,7 +169,9 @@ public actor WhoopStore {
 
     @inline(__always)
     func syncWrite<T>(_ block: (Database) throws -> T) throws -> T {
-        try dbWriter.write(block)
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.write(block)
+        }
     }
 
     // MARK: - Maintenance
@@ -196,8 +198,10 @@ public actor WhoopStore {
     /// Non-async so GRDB's synchronous `writeWithoutTransaction` overload is chosen (mirrors the
     /// syncRead/syncWrite pattern). Runs on the actor's executor, off the main thread.
     private func checkpointWALImpl() throws {
-        try dbWriter.writeWithoutTransaction { db in
-            try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.writeWithoutTransaction { db in
+                try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+            }
         }
     }
 

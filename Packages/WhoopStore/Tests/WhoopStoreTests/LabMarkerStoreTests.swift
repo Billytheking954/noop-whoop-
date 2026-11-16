@@ -42,7 +42,8 @@ final class LabMarkerStoreTests: XCTestCase {
     }
 
     func testSchemaVersionIs18() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 18)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, WhoopStore.makeMigrator().migrations.count,
+                       "schema provenance must match the registered GRDB migration chain")
     }
 
     // MARK: - helpers

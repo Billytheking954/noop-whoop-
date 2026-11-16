@@ -482,13 +482,31 @@ enum DataBackup {
 
         let dbURL = URL(fileURLWithPath: dbPath)
 
+        // AUDIT-BACKUP-02: every existing GRDB pool still points at the current inode. If we unlink/swap
+        // the SQLite path while one of those pools is writing, that write can succeed against the detached
+        // old inode and disappear on relaunch. Close the mutation gate BEFORE the snapshot/swap and wait
+        // for all already-started store/registry writes to finish. Failed restores reopen the gate; a
+        // successful restore intentionally leaves it closed until the process is relaunched, because the
+        // old pools must never accept another mutation.
+        StoreWriteBarrier.suspendAndDrainForRestore()
+        var restoredSuccessfully = false
+        defer {
+            if !restoredSuccessfully {
+                StoreWriteBarrier.resumeAfterFailedRestore()
+            }
+        }
+
         do {
             // Snapshot the current DB (+ sidecars) to a timestamped side file so the user can roll back.
             var sidecar = dbURL.deletingLastPathComponent()
                 .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
                 if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
-                try fm.copyItem(at: dbURL, to: sidecar)
+                // The live store runs in WAL mode. A plain file copy can omit committed pages that
+                // still live only in `-wal`, leaving the rollback snapshot silently stale. Use
+                // SQLite's online backup API so the sidecar is a consistent, self-contained snapshot
+                // of the logical database while the app's pool remains open.
+                try snapshotLiveDatabase(from: dbURL, to: sidecar)
             } else {
                 // Nothing to preserve (fresh install); report a placeholder so the message reads sensibly.
                 sidecar = dbURL
@@ -567,9 +585,11 @@ enum DataBackup {
                     }
                 }
             }
-            // #57 debug: record when a restore swapped the DB, so the export can correlate a restore with a
-            // later write stall (a restore not followed by a relaunch is the #57 failure).
+            // #57 / AUDIT-BACKUP-02: record when a restore swapped the DB. The process-wide write
+            // barrier remains CLOSED from this point until relaunch, so no old DatabasePool can accept a
+            // mutation against the detached pre-restore inode.
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "backup.lastRestoreAt")
+            restoredSuccessfully = true
             return .imported(sidecar: sidecar)
         } catch {
             return .failure(String(localized: "Import failed: \(error.localizedDescription)"))
@@ -638,6 +658,57 @@ enum DataBackup {
             return .android
         }
         return .unknown
+    }
+
+    /// Create a transactionally consistent, self-contained copy of a live SQLite database.
+    /// SQLite's online backup API reads through WAL, so committed pages that have not yet checkpointed
+    /// into the main file are included. This is the correct primitive for the pre-restore rollback
+    /// sidecar while the app's DatabasePool is still open.
+    private static func snapshotLiveDatabase(from source: URL, to destination: URL) throws {
+        var sourceDB: OpaquePointer?
+        var destinationDB: OpaquePointer?
+
+        guard sqlite3_open_v2(source.path, &sourceDB, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let sourceDB else {
+            if sourceDB != nil { sqlite3_close(sourceDB) }
+            throw NSError(domain: "DataBackup", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't open the current NOOP database for a safe rollback snapshot."])
+        }
+        defer { sqlite3_close(sourceDB) }
+
+        guard sqlite3_open_v2(destination.path, &destinationDB,
+                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+              let destinationDB else {
+            if destinationDB != nil { sqlite3_close(destinationDB) }
+            throw NSError(domain: "DataBackup", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't create the rollback snapshot database."])
+        }
+        defer { sqlite3_close(destinationDB) }
+
+        guard let backup = sqlite3_backup_init(destinationDB, "main", sourceDB, "main") else {
+            throw NSError(domain: "DataBackup", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't start the rollback snapshot: \(String(cString: sqlite3_errmsg(destinationDB)))."])
+        }
+        let stepResult = sqlite3_backup_step(backup, -1)
+        let finishResult = sqlite3_backup_finish(backup)
+        guard stepResult == SQLITE_DONE, finishResult == SQLITE_OK else {
+            throw NSError(domain: "DataBackup", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't finish the rollback snapshot: \(String(cString: sqlite3_errmsg(destinationDB)))."])
+        }
+
+        // sqlite3_backup copies the source database header as well as its pages. When the live
+        // database is in WAL mode, leaving that header intact can make a later read-only open of
+        // this sidecar depend on a writable `-shm` file. A rollback sidecar must stand on its own,
+        // including when it is opened read-only while recovery is deciding whether to restore it.
+        var journalError: UnsafeMutablePointer<CChar>?
+        let journalResult = sqlite3_exec(destinationDB, "PRAGMA journal_mode=DELETE", nil, nil, &journalError)
+        let journalDescription = journalError.map { String(cString: $0) }
+            ?? String(cString: sqlite3_errmsg(destinationDB))
+        if let journalError { sqlite3_free(journalError) }
+        guard journalResult == SQLITE_OK else {
+            throw NSError(domain: "DataBackup", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey: "Couldn't finalize the rollback snapshot journal: \(journalDescription)."])
+        }
     }
 
     /// Every table name in a SQLite file, opened READ-ONLY through the system SQLite so the probed

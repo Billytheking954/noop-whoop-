@@ -69,10 +69,15 @@ struct AutoWorkoutCard: View {
                    avgHr: candidate.avgBpm, energyKcal: nil) {
                 ManualWorkoutSheet(editing: draft) { row, _ in
                     Task {
-                        await repo.saveManualWorkout(row)
-                        repo.dismissDetectedSuggestion(candidate)
-                        handledThisSession = true
-                        await repo.refresh()
+                        let saved = await repo.saveManualWorkout(row)
+                        if saved {
+                            repo.dismissDetectedSuggestion(candidate)
+                            handledThisSession = true
+                            await repo.refresh()
+                        } else {
+                            handledThisSession = false
+                            saveError = true
+                        }
                     }
                 }
             }

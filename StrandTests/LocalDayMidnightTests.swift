@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 @testable import Strand
 import StrandAnalytics
 
@@ -41,4 +42,56 @@ final class LocalDayMidnightTests: XCTestCase {
             XCTAssertLessThan(ts - mid, 86_400, "floor must be within the same local day")
         }
     }
+    private func utc(_ value: String) -> Int {
+        Int(ISO8601DateFormatter().date(from: value)!.timeIntervalSince1970)
+    }
+
+    func testProductionWindowsUseTwentyFiveHourFallBackDay() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let windows = IntelligenceEngine.localDayWindows(
+            now: utc("2025-11-02T17:00:00Z"), maxDays: 1, timeZone: zone)
+        let window = try XCTUnwrap(windows.first)
+        XCTAssertEqual(window.date.key, "2025-11-02")
+        XCTAssertEqual(Int(window.start.timeIntervalSince1970), utc("2025-11-02T04:00:00Z"))
+        XCTAssertEqual(Int(window.nextStart.timeIntervalSince1970), utc("2025-11-03T05:00:00Z"))
+        XCTAssertEqual(Int(window.duration), 25 * 3_600)
+    }
+
+    func testProductionWindowsUseTwentyThreeHourSpringForwardDay() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/London"))
+        let windows = IntelligenceEngine.localDayWindows(
+            now: utc("2025-03-30T12:00:00Z"), maxDays: 1, timeZone: zone)
+        let window = try XCTUnwrap(windows.first)
+        XCTAssertEqual(window.date.key, "2025-03-30")
+        XCTAssertEqual(Int(window.start.timeIntervalSince1970), utc("2025-03-30T00:00:00Z"))
+        XCTAssertEqual(Int(window.nextStart.timeIntervalSince1970), utc("2025-03-30T23:00:00Z"))
+        XCTAssertEqual(Int(window.duration), 23 * 3_600)
+    }
+
+    func testProductionWindowsKeepOrdinaryDayAtTwentyFourHours() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Asia/Kathmandu"))
+        let windows = IntelligenceEngine.localDayWindows(
+            now: utc("2025-06-15T12:00:00Z"), maxDays: 1, timeZone: zone)
+        XCTAssertEqual(Int(try XCTUnwrap(windows.first).duration), 86_400)
+    }
+
+    func testDelayedRecalculationAfterFallBackKeepsHistoricalMidnight() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let windows = IntelligenceEngine.localDayWindows(
+            now: utc("2025-11-10T17:00:00Z"), maxDays: 23, timeZone: zone)
+        let historical = try XCTUnwrap(windows.first { $0.date.key == "2025-10-19" })
+        XCTAssertEqual(Int(historical.start.timeIntervalSince1970), utc("2025-10-19T04:00:00Z"))
+        XCTAssertNotEqual(Int(historical.start.timeIntervalSince1970), utc("2025-10-19T05:00:00Z"))
+    }
+
+    func testSleepReadEndUsesResolvedNextMidnightInsteadOfFixedTwentyFourHours() {
+        let start = utc("2025-11-02T04:00:00Z")
+        let next = utc("2025-11-03T05:00:00Z")
+        XCTAssertEqual(
+            IntelligenceEngine.sleepReadWindowEnd(dayStart: start, nextDayStart: next,
+                                                  nowLocalMidnight: next, now: next + 3_600),
+            next
+        )
+    }
+
 }

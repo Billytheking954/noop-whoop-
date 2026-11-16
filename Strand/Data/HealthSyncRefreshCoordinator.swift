@@ -4,8 +4,8 @@ import Foundation
 /// HealthKit writes to the local store first; only then is the visible repository refreshed.
 @MainActor
 enum HealthSyncRefreshCoordinator {
-    static func run(sync: () async -> Void, refresh: () async -> Void) async {
-        await sync()
-        await refresh()
+    static func run(sync: () async -> Bool, refresh: (Bool) async -> Void) async {
+        let succeeded = await sync()
+        await refresh(succeeded)
     }
 }

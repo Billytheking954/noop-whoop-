@@ -1,0 +1,457 @@
+# NOOP V2 12.0.0 Reliability Audit — Live Checkpoint
+
+Status: IN PROGRESS  
+Audit branch: audit/noop-v2-12-full-bug-review  
+Current audit source head before this report update: de8930b25a7f5be8060a626ecac22ed605135f10  
+Frozen main baseline: af9079012ddd4c9023720f4e9eb7ef12c0cd33d4  
+Release baseline: 12.0.0 (435)
+
+## Guardrails
+
+- `af9079012ddd4c9023720f4e9eb7ef12c0cd33d4` remains the frozen 12.0.0 audit/release baseline.
+- Live `main` later advanced outside this audit to `583225d25f6a815f405881d3de8b7ed354a05234` with the FIT/Strava export work. This audit did not write to or merge into `main`.
+- To validate the product users would actually sideload, current `main` was fast-forward-merged into the existing audit branch only at `47b968ffd911f5e7a007673aeb2647fbfc0d2785`. Audit fixes remain confined to `audit/noop-v2-12-full-bug-review`.
+- Production SpO₂ scoring has not been changed.
+- The audit continues after the two initial findings; 12.0.1 is not justified merely by the existence of a bug fix.
+
+## Resolved / classified findings
+
+| ID | Component | Severity | Confidence | Classification | Current state |
+|---|---|---:|---:|---|---|
+| AUDIT-TIME-01 | Physiological local-day bucketing across DST | P2 | 0.98 | CONFIRMED | FIXED on audit branch at `50555ef`; regression coverage added; package CI, iPhone app build/tests and unsigned IPA workflow all pass. |
+| AUDIT-CI-01 | Insight-alert relaunch UI test / notification authorization | P3 | 0.85 | PROBABLE TEST-HARNESS / ENVIRONMENT DEPENDENCY | Original app job attempt failed only `ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch()`; rerun of the same `af9079` source passed. Test was hardened at `91ecdce` to treat granted and denied notification authorization as supported outcomes; branch-head iPhone-hosted test now passes. No production defect established. |
+| AUDIT-TIME-02 | Physiological-day synthetic/calendar midnight resolver still uses one fixed offset | P3 | 0.95 | CONFIRMED | Rule-aware calendar-day scoring is fixed, but `DayCycleResolver` remains fixed-offset. A DST transition can move its reconstructed midnight by one hour. Current production integration reaches the synthetic fallback only after the open-cycle cap, so impact is narrower than AUDIT-TIME-01. Documented; not auto-fixed pending parity review. |
+| AUDIT-SIGN-01 | Unsigned IPA template omitted HealthKit background delivery | P3 | 0.99 | CONFIRMED | The app entitlement requests background delivery but the sideload template dropped it. Fixed at `6ed228e`; packaging now asserts it survives the ad-hoc template. This does not grant the capability to an unsupported signing profile. |
+| AUDIT-HK-01 | HealthKit day-key helper freezes the process-start timezone | P2 | 0.97 | CONFIRMED | A static `DateFormatter` captured `TimeZone.current` once, while HealthKit daily queries use the live local calendar. A timezone change without process restart could label new HealthKit buckets using the old zone. Fixed at `263a0b6`; deterministic London/New York DST and zone-difference tests added at `fed83bf`. CI pending. |
+
+## AUDIT-CI-01 evidence
+
+- Workflow run `37651029136`, attempt 1 job `112894089378`: iPhone-hosted test step failed, with the log naming only `ReferenceJourneyUITests.testInsightAlertPreferenceSurvivesRelaunch()`.
+- Workflow run `37651029136`, attempt 2 job `112911485898`: passed all steps.
+- Both attempts checked out `af9079012ddd4c9023720f4e9eb7ef12c0cd33d4`; the rerun did not contain a source fix.
+- The old UI test assumed that tapping the switch would necessarily change its value after at most a short SpringBoard permission prompt.
+- Production behavior legitimately resets the switch when notification authorization is denied.
+- Commit `91ecdce33a8525f8e1b856619260ba3f3799c53b` changes only the UI test so it waits for and accepts either the authorized persisted-on state or the denied/reset-with-guidance state.
+- Exact XCTest assertion text from the first failed `.xcresult` is still unavailable through the currently exposed evidence route; therefore authorization-state causality is probable rather than claimed as proven fact.
+- Because an unchanged rerun passed, the evidence rejects a deterministic production regression.
+
+## AUDIT-TIME-01 root cause and fix
+
+Root cause:
+
+- Production score enumeration used a single current fixed GMT offset and advanced historical local-day boundaries in fixed 86,400-second increments.
+- Across DST, a civil day is 23 or 25 hours. Delayed sync/recalculation could therefore shift a historical local midnight by one hour and include or omit samples around the boundary.
+
+Fix at `50555efd5e1bacfcc2ee0eeea6d42af9cc56cf1c`:
+
+- Production scoring now enumerates dates with `LocalDayWindows` using `TimeZone.current` and the time zone's rule-aware calendar boundaries.
+- `AnalyticsEngine.analyzeDay` accepts exact `calendarDayBounds` for production callers while retaining the legacy fixed-offset fallback for pure callers that do not own a `TimeZone`.
+- Daily HR/step reads, sleep read-window end, edited-sleep day assignment, cache windows, legacy score snapshots and step-calibration windows now use the resolved next local midnight rather than blindly adding 86,400 seconds.
+- The cache signature now includes `timeZone` as well as the legacy offset, preventing reuse across a zone-identity change with the same instantaneous offset.
+- No unrelated scoring architecture was refactored.
+
+Regression coverage includes:
+
+- America/New_York fall-back: 25-hour day.
+- Europe/London spring-forward: 23-hour day.
+- Asia/Kathmandu ordinary non-DST day: unchanged 24-hour behavior.
+- Delayed recalculation after New York fall-back retaining the historical 04:00Z midnight rather than recomputing it as 05:00Z.
+- Samples in the repeated fall-back hour and samples just beyond the spring-forward day's real next midnight.
+- Sleep read-window end using the actual next local midnight.
+
+## Validation at audit head 50555ef
+
+All observed branch-head workflows completed successfully:
+
+- Swift Packages CI — run `37663060299`: PASS.
+- App build (iPhone) — run `37663060277`: PASS.
+  - `iphone-build-and-tests` job `112935198224`: PASS.
+- Unsigned iPhone sideload IPA — run `37663060388`: PASS.
+- Source Hygiene — run `37663060392`: PASS.
+- iPhone i18n Coverage — run `37663060358`: PASS.
+- Tools Python CI — run `37663060265`: PASS.
+
+This is sufficient CI evidence to treat AUDIT-TIME-01 as fixed on the audit branch, not merely patched.
+
+## Persistence / deduplication review
+
+Reviewed:
+
+- `WhoopStore` file-backed open/migration serialization through `StoreOpenGate`.
+- WAL-backed `DatabasePool` use and single-writer GRDB semantics.
+- Natural-key/idempotent inserts for decoded streams.
+- R-R duplicate handling, sequence keys, emission ordering and source-channel promotion.
+- Sleep-session merge/dedup and timestamp-heal protections reviewed in the prior checkpoint.
+- Cross-stream analysis fingerprints used to force rescoring after delayed non-HR data lands.
+
+Current classification:
+
+- No new P0/P1/P2 persistence corruption or duplicate-scoring defect confirmed in this pass.
+- Existing R-R migration/test coverage explicitly pins equal-beat retention, emission order, legacy rows and the known batch-local ordering behavior.
+
+### AUDIT-STORE-01 — instrumentation retention cap can drift across repeated short process lifetimes
+
+- Component: `ppgWaveformSample` / `v18AuxSample` retention.
+- Severity: P4.
+- Confidence: 0.95.
+- Classification: CONFIRMED design limitation, low severity.
+- Evidence: retention sweeps are triggered by in-memory per-store row counters. A process that repeatedly writes fewer than the prune threshold before termination can reset the counter each launch and remain above the nominal newest-N cap indefinitely. The source comments explicitly acknowledge this behavior.
+- Impact: storage growth only; no score, sleep, recovery, strain, stress or SpO₂ production calculation is changed.
+- Action: documented, not fixed under the audit's automatic-fix threshold. A once-per-session/open bounded sweep would be the narrow future remedy if storage growth becomes material.
+
+## Migration registration / safety review
+
+Reviewed the ordered GRDB migrator through current schema migrations, including the higher-risk rebuild/update migrations:
+
+- v24 R-R PK rebuild copies every previously representable row with `seq = 0` before replacing the table.
+- v26 efficiency heal is predicate-scoped to values (> 1.5), leaving valid 0–1 fractions unchanged and has dedicated upgrade testing.
+- Later schema changes are predominantly additive nullable columns/new tables, preserving old rows and absence semantics.
+- Migration tests pin R-R primary-key shape, equal-beat preservation, v30 ordering behavior, legacy-null behavior and the v26 data heal.
+- Concurrent file open/migration is serialized before construction of a pre-migrated `WhoopStore`.
+
+Current classification:
+
+- No migration-registration or destructive-upgrade P0/P1/P2 defect confirmed.
+- Continue auditing latest migration tails and backup/restore compatibility, but no speculative production change is justified.
+
+## Rejected / downgraded false positives
+
+- Pre-merge → release merge changed zero files, so the first UI-test failure was not caused by merge content.
+- `SleepStagerV2.respRegularity` forced unwraps are guarded by the minimum beat count.
+- A theoretical future-sleep empty/reversed active window is blocked by upstream timestamp plausibility/heal gates on the production ingest paths reviewed so far.
+- The experimental `HealthKitObservationProvider` is not wired into the shipping bridge and is not a production defect.
+- The first insight-alert UI-test failure is not evidence of a deterministic app regression because the unchanged-source rerun passed.
+
+## Audit areas completed or substantially reviewed
+
+- BLE core review from the earlier audit phase; not repeated.
+- DST/local-day scoring path and production fix.
+- Insight-alert UI-test nondeterminism.
+- Core persistence natural keys, dedupe, open serialization and R-R storage invariants.
+- Migration registration and representative destructive/data-heal migrations.
+- Activity-detector decision paths and deterministic tests.
+- Core score-input guards.
+- Initial HealthKit bridge sequencing/write guards from the earlier checkpoint.
+
+## Remaining priority work
+
+1. Finish persistence mutation call-site review outside the core stream insert path.
+2. Finish backup/restore + migration edge compatibility.
+3. Re-check end-to-end timezone/cycle assignment after the DST change, including travel/time-zone changes.
+4. Complete sleep-pipeline recalculation and edit/merge edge cases.
+5. Complete HealthKit authorization/revocation/read/write behavior.
+6. Audit Swift concurrency warnings, cancellation and race boundaries.
+7. Revisit activity overlap/retry and automatic detection edge cases.
+8. Verify scoring-input integrity after delayed/off-order sync.
+9. Audit background lifecycle and reconnect-triggered rescoring.
+10. Remaining BLE edge cases not already covered.
+11. Sideload/re-signing, entitlements, widget/app-group behavior.
+12. UI state reliability.
+
+## Timezone / physiological-cycle follow-up
+
+### AUDIT-TIME-02 — fixed-offset day-cycle boundary remains outside the DST fix
+
+- Severity: P3; confidence 0.95; CONFIRMED.
+- `DayCycleResolver.calendarWindow`, `fallbackMidnight` and `activeWindow` still derive local midnight from one `offsetSec` with 86,400-second arithmetic.
+- On a DST transition date that can move the resolved midnight by one hour. The normal calendar-day scoring loop no longer uses this logic after AUDIT-TIME-01.
+- The shipping physiological-cycle integration reaches the synthetic-midnight branch only after its 40-hour absolute open-cycle cap, so the practical impact is narrower.
+- The subsystem documents a Kotlin twin. No one-platform production correction is being made until parity can be reviewed.
+
+### Time-zone travel semantics — evidence gap, not yet a defect
+
+- A scoring pass binds `TimeZone.current` at recomputation time; the inspected raw/persisted day model does not persist a source-zone identifier per historical sample/day.
+- A major device-zone change can therefore make historical wall-clock heuristics use the new zone. The day cache does invalidate on zone identifier changes, so this is not stale-cache behavior.
+- The intended product invariant for historical acquisition-zone versus current-zone interpretation is not stated in the inspected contract. This remains an architectural/evidence question rather than a confirmed bug.
+
+## HealthKit timezone / day-assignment review
+
+### AUDIT-HK-01 — HealthKit day labels could remain in the old timezone until relaunch
+
+- Severity: P2; confidence 0.97; CONFIRMED.
+- The bridge used one static `DateFormatter` whose `timeZone` was assigned `TimeZone.current` at first access.
+- HealthKit aggregate queries construct `Calendar.current` for each sync, so after a live device-zone change query buckets and NOOP's day labels could disagree until process restart.
+- Commit `263a0b632b4baa1f605206ed380211b032e0dc34` removes the process-frozen formatter. Day-keying now uses `LocalDayWindows` with an auto-updating zone, matching the rule-aware scoring boundary contract; reverse day-to-date conversion resolves the actual local midnight through the same helper.
+- Commit `fed83bfd6a43352d347ae99763bcb222f00725cf` adds deterministic regression coverage proving the same instant maps to different civil dates in London/New York and proving real spring-forward/fall-back midnights.
+- The change is confined to HealthKit civil-day labelling/parsing. It does not change BLE, workout detection, production SpO2 scoring, recovery, strain, stress or sleep algorithms.
+- Validation is pending on the new audit head; do not treat the fix as release-ready until the iPhone-hosted tests and app build are green.
+
+## Sideload / re-signing review
+
+### AUDIT-SIGN-01 — HealthKit background-delivery entitlement dropped by unsigned IPA template
+
+- Severity: P3; confidence 0.99; CONFIRMED.
+- `StrandiOS/Resources/NOOP.entitlements` requests `com.apple.developer.healthkit.background-delivery = true`.
+- `Tools/prepare_iphone_sideload.sh` preserved App Group and base HealthKit but omitted background delivery.
+- Commit `6ed228e2798704608fd29d72eb468bc2981b1bdc` adds the entitlement and a packaging-time assertion.
+- This preserves a requested capability only. A sideloader/signing profile can still strip HealthKit or App Group entitlements when that profile is not entitled to them; the runtime HealthKit check correctly reports `.entitlementMissing` in the no-HealthKit case.
+
+## WHOOP trial evidence to collect while still available
+
+Useful normal-device comparisons, if encountered during the next 2–3 days:
+
+- One ordinary overnight sleep: official WHOOP sleep start/end vs NOOP after morning sync.
+- One ordinary workout: start/end and HR trace/summary comparison.
+- One force-close/relaunch followed by reconnect and sync.
+- One delayed sync after wearing the strap disconnected for a while.
+
+No artificial physiological or unsafe test is required.
+
+## Release recommendation
+
+Keep 12.0.0 on `main` unchanged for now.
+
+The audit branch has a CI-validated fix for the confirmed DST P2, but a 12.0.1 candidate should wait until the remaining high-priority audit areas have been checked for additional high-confidence P0/P1/P2 defects and any such findings are fixed or consciously deferred.
+
+## Persistence / backup follow-up
+
+### AUDIT-BACKUP-01 — pre-restore rollback snapshot omitted committed WAL-only pages
+
+- Severity: P2; confidence 0.99; CONFIRMED.
+- The restore path documented a snapshot of the current database "+ sidecars" but copied only the main `.sqlite` file before deleting the live `-wal` / `-shm` files.
+- NOOP's production store uses WAL. A committed transaction can therefore be visible to SQLite while still existing only in `-wal`; copying the main file alone yields a valid but stale rollback snapshot.
+- Independent SQLite reproduction confirmed the failure shape: after a checkpoint, a committed row held in WAL disappeared from a main-file-only copy.
+- Regression commit `91ac97b364150d96ac6f66e0ab66cabf7b104aeb` adds a real WAL-backed restore test and requires the returned sidecar to contain the WAL-only committed row.
+- Fix commit `8b7b0deb819648ff41820df9b7777bd6761cdfcb` replaces the raw main-file copy with SQLite's online backup API, producing a transactionally consistent self-contained sidecar while the live DatabasePool remains open.
+- This changes only pre-import rollback preservation. It does not alter scoring, BLE, sleep, workout detection, HealthKit ingestion/write-back, or SpO₂ behaviour.
+- CI validation is pending at this checkpoint; do not treat the fix as release-ready until the targeted iPhone test/build and relevant package/full workflows are green.
+
+## HealthKit authorization follow-up
+
+### AUDIT-HK-02 — read-only HealthKit grants were not resumed after relaunch
+
+- Severity: P2; confidence 0.98; CONFIRMED.
+- A successful HealthKit authorization request is treated as `.authorized` in-process because Apple deliberately does not expose read authorization state.
+- On the next launch, however, `refreshAuthIfPreviouslyGranted()` resumed only when at least one SHARE/write type reported `.sharingAuthorized`.
+- A user who allowed reads but denied every write could therefore sync successfully until relaunch, then remain `.unknown`; foreground sync and live delivery would never start automatically even though the prior consent flow completed.
+- The bridge already persists the authorization-type signature only after a successful request. Commit `a601dcba7e0d09be9146c5bda92c3d1071904933` uses that durable prior-request evidence in addition to the legacy any-write-granted signal.
+- Commit `6093b79141e5d05e1add65bde0b2e54337385657` adds deterministic coverage for read-only prior grants, fresh installs and legacy write-grant resumes.
+- This does not claim HealthKit can reveal whether reads are currently allowed; it preserves the existing honest contract that successful consent permits queries, which may return empty if the user denied or later revoked reads.
+- CI validation is pending on the current audit head.
+
+## Migration/provenance follow-up
+
+### AUDIT-MIG-01 — backup/version provenance reported stale GRDB schema version
+
+- Severity: P3; confidence 1.00; CONFIRMED.
+- The live GRDB migrator is pinned by the schema oracle as a unique sequential chain through `v47-rr-whoop5-fill`, but `WhoopStoreInfo.schemaVersion` still reported `18`.
+- That marker is written into `manifest.json` for every `.noopbak` and into `APP_VERSION_CHANGED` events, so forensic/export provenance could falsely claim schema 18 for a database actually migrated through v47.
+- This does not change migration execution or stored physiological data; GRDB's own `grdb_migrations` bookkeeping remains authoritative.
+- Commit `7a61b8de7680c2a46ec891926c9d806657081cb0` updates the platform-scoped provenance marker to 47.
+- Commit `11dd086c226128424279b52ca9fb69d6f245a7f9` replaces the stale literal test with an invariant requiring the marker to equal the registered migration count, preventing the same drift on the next migration.
+- Classified as an isolated, low-risk P3 metadata fix; no scoring, BLE, HealthKit, sleep, workout, or SpO₂ logic changed.
+
+
+## HealthKit read / scoring-integrity follow-up
+
+### AUDIT-HK-03 — failed sleep query could erase the last good imported sleep
+
+- Severity: P2; confidence 0.99; CONFIRMED.
+- Quantity reads already classify a HealthKit query error as `.failed` and abort the whole daily write, because `dailyMetric` conflict updates replace columns with the incoming values.
+- `collectSleep` was the exception: it ignored the `HKSampleQuery` error, treated `samples ?? []` as an authoritative empty result, and never entered the failed-read ledger.
+- If any other Health metric populated a day in that pass, the resulting `DailyMetric` carried nil sleep fields and could overwrite previously imported sleep after a transient sleep-query failure.
+- Commit `6c487431c3d03f0152b92b30ba4f22d4317086ac` makes sleep return the same `HealthRead` outcome contract as the quantity collectors and aborts the write on query failure.
+- Commit `3f9f5d21be1c940fe83c625fc1c56452eeace526` pins failed-vs-empty semantics.
+- A successful-but-empty Health read cannot by itself prove absence because HealthKit hides denied read authorization. AUDIT-HK-06 therefore preserves last-good values for nil fields; genuine deletion remains AUDIT-HK-05.
+
+### AUDIT-HK-04 — successful Apple Health import invalidated Watch recovery without immediately rebuilding it
+
+- Severity: P2; confidence 0.97; CONFIRMED.
+- Live HealthKit import reconstructs observation-only `DailyMetric` rows with `recovery = nil`. The ordinary whole-row upsert therefore invalidates any previously folded Apple-Watch recovery, which is correct if the imported HRV/RHR history changed.
+- The ordinary foreground sync path then refreshed repository/UI state but did not run `IntelligenceEngine.analyzeRecent`, so the invalidated Watch recovery could remain nil until an unrelated later scoring trigger.
+- A first attempted fix preserved computed fields during the Health upsert (`94d544e`, `840f410`, `ef844d5`). That was rejected before validation because Watch recovery depends on trailing historical HRV/RHR, not just today's values: blindly preserving it can retain a stale score when an earlier baseline day changes.
+- The invalid preservation approach was explicitly reverted by `34bd451`, `13fda63` and `dc2c3da`.
+- The correct-layer fix carries the Health sync success result through `HealthSyncRefreshCoordinator` (`5df6142`, `827861b`) and queues one forced `analyzeRecent(triggerLabel: "apple-health-sync")` after a successful import (`726fa63`, refined at `14c87bc`). First-time source adoption suppresses its internal duplicate rescore when that Health rescore is already owed.
+- The rescore is deliberately launched independently of the sequential foreground Health/widget/watch refresh: large stores have documented multi-minute analysis passes, and blocking that chain would create a UI freshness regression. `analyzeRecent` already queues a forced trigger behind any pass that currently holds its scoring lock.
+- Commit `7f532d4e515f6f79f6682297a2ff4ee6e17120f3` pins success/failure ordering through the coordinator. Failed/no-op Health syncs still refresh visible state but do not trigger the expensive rescore.
+
+### AUDIT-HK-05 — HealthKit deletions are not fully reconciled
+
+- Severity: P2; confidence 0.99; CONFIRMED, PARTIALLY HARDENED / NOT FULLY FIXED.
+- The original anchored observer callback ignored `deletedObjects` and derived its touched window only from added samples. A deletion-only wake could therefore look empty and advance the anchor past the tombstone.
+- Commit `43f39abfdc7db8c14451d67646d7c7e7230d80d9` now retains the deletion signal and refuses to advance the anchor on an anchored-query error. Commits `32dced2b73e660539d6b1ed5cb558616413294ba` and `51f735a2eaf3ec020ee6fdabd20a08a2c33bd440` isolate and test the deletion-only touched-window rule.
+- A first implementation attempted to replace the entire visible `apple-health` source window (`8a1c609` through `671ebc0`). That design was challenged and REJECTED before validation: Apple documents that denied HealthKit read access deliberately appears as no matching data, so a whole-window delete/reinsert can erase last-good data merely because permission became unreadable. The production caller was removed at `89d846a`, and the experimental replacement helper/tests were removed at `0113072` / `0b940e7`.
+- Full deletion reconciliation therefore remains open. A deletion tombstone identifies the HealthKit type and deleted UUID but does not provide the original timestamp, while NOOP's daily aggregate/workout cache does not persist enough HealthKit object identity to map every tombstone safely back to its exact cached day/session. Limited-history authorization makes a blind 31-day clear unsafe as well.
+- Current safe behavior: deletion-bearing wakes are no longer silently classified as ordinary empty wakes, but ordinary persistence remains non-destructive. Missing rows are NOT source-window-deleted solely from an empty read.
+- Residual impact: deleting the last visible Health sample for a metric or deleting a previously imported workout can still leave a stale cached value/session. Route-side deletion for a workout that itself remains present is also not safely distinguishable from route-query denial/failure.
+- This remains release-relevant and should be consciously deferred or solved with a durable HealthKit identity/tombstone reconciliation design. Do not revive the rejected whole-window replacement.
+
+### AUDIT-HK-06 — hidden/denied HealthKit reads could clobber last-good scored inputs
+
+- Severity: P2; confidence 0.99; CONFIRMED, FIX IMPLEMENTED — CI VALIDATION PENDING.
+- Apple's HealthKit privacy contract intentionally prevents an app from learning whether read permission was denied: a denied query can look exactly like there is no matching data. The prior bridge nevertheless treated every successful-but-empty aggregate read as authoritative absence.
+- `appleDaily` and `dailyMetric` used whole-row conflict updates. If one readable metric populated a day while another metric was hidden/denied, the incoming nil for the hidden metric could replace its previously imported value. A later rescore could therefore consume a permission-shaped hole as if it were real physiology.
+- The rejected AUDIT-HK-05 whole-window replacement would have amplified this into broad deletion, which is why it was removed before validation.
+- Commit `8fcec8841363298d69b20ac3ac3f595594e7d5de` adds `mergeAppleHealthReadRows`: visible non-nil Health values update normally, while nil/absent fields preserve the last good cached value. Tall `metricSeries` still upserts only points actually returned.
+- Commit `25fd1841d793d6b18053e8078dd00d48883ba86c` adds regression coverage proving a sparse read updates visible fields without erasing prior sleep/RHR/recovery/SpO2/respiration/weight values, and that sparse new days still insert normally.
+- Commit `c4eb659615aa7eaa5f0fab75429a3c10e48ac525` routes live Health persistence through the non-destructive merge.
+- This deliberately does NOT convert missing values into deletion. Real deletion remains AUDIT-HK-05 and needs affirmative tombstone reconciliation.
+- Production SpO₂ scoring logic is unchanged; this only prevents an absent/hidden Health read from overwriting cached inputs with nil.
+
+## Sleep / timezone follow-up
+
+### AUDIT-TIME-03 — historical sleep clock-time heuristics still use one current GMT offset
+
+- Severity: P3; confidence 0.95; CONFIRMED, documented/deferred.
+- Calendar-day inclusion is rule-aware after AUDIT-TIME-01, but historical sleep-selection helpers such as `SleepStageTotals` are still fed one `TimeZone.current.secondsFromGMT()` value for historical sessions.
+- Around DST, that can shift a historical onset/midsleep by one hour for clock-time heuristics. Example: a London summer onset at 11:30 BST is 10:30Z; evaluating it after fall-back with the current +00 offset makes it appear 10:30 local, crossing the cold-start overnight cutoff.
+- The practical impact is narrower than AUDIT-TIME-01: day membership remains correct, but main-night / bridge timing heuristics near their clock boundaries can change after DST or travel.
+- Correcting this needs a rule-aware `TimeZone`/date-aware selector contract and Kotlin parity review, not another fixed-offset patch. No one-platform production edit is justified in this audit pass.
+
+## Swift concurrency review
+
+### AUDIT-CONCURRENCY-01 — Swift 6 isolation diagnostics are migration debt, not a proven current race
+
+- Severity: P3 build-compatibility risk; confidence 0.90; PROBABLE.
+- The passing iPhone job `112935198224` reports multiple diagnostics that become errors under Swift 6 language mode: main-actor-isolated static constants referenced from nonisolated code and non-Sendable `UNUserNotificationCenter` captures in Sendable callbacks.
+- `project.yml` explicitly builds the app with `SWIFT_VERSION: "5.0"`.
+- The inspected static values are predominantly immutable constants; the warnings do not by themselves prove a runtime data race under the current build.
+- No broad concurrency refactor is being made under this reliability audit. The warnings should be a dedicated Swift-6 migration task, with runtime race fixes only where independent evidence establishes mutable cross-actor state.
+
+## Additional rejected false positive
+
+- The remaining fixed-`86_400` expression in step-calibration history is only a nil fallback after `localDayWindows(... maxDays: 60)`. For the production positive-count call the rule-aware helper returns a window, so this expression is not another reachable DST boundary bug and was not changed.
+
+
+
+### AUDIT-BG-01 — read-only Health consent unnecessarily armed the write-back BGTask
+
+- Severity: P3; confidence 0.99; CONFIRMED.
+- AUDIT-HK-02 correctly allows a prior read-only HealthKit consent flow to resume imports after relaunch, so bridge `auth == .authorized` no longer implies that any share/write type is granted.
+- The periodic `HealthWritebackBackgroundScheduler` still used that coarse auth state. A read-only user could therefore keep a best-effort write-back BGTask armed even though every write would be skipped by per-type HealthKit authorization checks.
+- Commit `826fb6bf24051330a227ec7c3ffd0d5dfb708c0f` exposes the bridge's actual any-write-granted state separately from read consent and reuses it in cold-launch authorization logic.
+- Commits `2d1726cc5ba1624ee9f6e10e79ed681a8af3751f` and `343938139e532b83a300faaa4186236c02601a99` schedule/cancel the write-back BGTask from the write grant, while read-only foreground import remains authorized.
+- Impact is unnecessary background wake/battery budget, not physiological scoring corruption; fixed because the change is isolated and low risk.
+
+
+### AUDIT-BACKUP-02 — writes after restore and before relaunch went to the detached old store
+
+- Severity: P2; confidence 0.99; CONFIRMED, FIX IMPLEMENTED — CI VALIDATION IN PROGRESS.
+- Restore deliberately swaps the SQLite file while the app's existing `DatabasePool` remains open and tells the user to fully quit/reopen.
+- On POSIX/SQLite semantics, an already-open connection keeps the unlinked old database alive. A write made by that pool after the path swap can succeed against the detached old inode while a new connection to the restored path sees the replacement database.
+- A local WAL-mode reproduction confirmed that exact behavior: replace the database pathname while the old connection remains open, commit another row through the old connection, and the replacement database remains valid but does not contain that post-restore row.
+- Production impact: a BLE offload, edit or other write that lands after restore but before the user relaunches can appear to succeed in the current process and then disappear on relaunch.
+- The rejected alternative was a partial live-store rebind: production has multiple independently held store/registry handles (repository, BLE backfill and source coordinator), so re-opening only one owner would leave other writers detached. Programmatically terminating the iOS app is also not acceptable.
+- Commit `61b2892665e61c8ae410510ddec92a0890d9c712` adds a process-wide `StoreWriteBarrier`. Ordinary store mutations obtain a short-lived permit; restore can suspend new permits and drain already-running writers.
+- Commit `d797dd80572f4d0ce39bfafd33d2a6e7fbe427fd` routes the WhoopStore mutation spine and WAL checkpoint through the barrier.
+- Commit `b6ad5cdccf91fd4ed1466255726387c22573e5c1` routes the synchronous `DeviceRegistryStore` mutation spine through the same barrier.
+- Commit `8d986101593409a971bc688b1973f3752262a7ea` suspends+drains writes BEFORE the rollback snapshot/path swap, resumes writes after a failed restore, and deliberately leaves writes suspended after a successful restore until process relaunch.
+- Commit `eeede652c823f7a460d91a77fb9cb330f1aea7a4` adds deterministic coverage that actor-backed and registry writes are rejected while suspended, a failed restore resumes writes, and suspension waits for an already-started writer to finish.
+- Reads remain available in the old process so the existing restore-complete UI can render its relaunch instruction; the important invariant is that no mutation can report success against the detached old inode.
+- Validation status at this checkpoint: Source Hygiene, iPhone i18n Coverage and Tools Python CI are green; Swift Packages CI, iPhone build/tests and unsigned IPA are still pending/running. Do not call this release-ready until those workflows finish green.
+
+
+## Combined-product follow-up — 2026-10-08
+
+### Branch/release provenance
+
+- The audit branch now contains current `main` as an ancestor via merge commit `47b968ffd911f5e7a007673aeb2647fbfc0d2785`, while `main` itself is unchanged by the audit.
+- This was necessary because the unsigned IPA workflow intentionally checks out the pull request HEAD SHA rather than GitHub's temporary merge ref. Without the branch merge, an audit-head IPA would have omitted the newer FIT/Strava export commits already present on `main`.
+- The combined branch is therefore the release-candidate source for final iPhone-only unsigned-IPA validation.
+
+### CI/test debt found while validating the combined product
+
+The following failures were challenged against production behavior and classified as test/integration debt rather than product regressions:
+
+- `60865acff8df60c5abe3d3c4756c77f98639ca9c`: fixes the Apple Health refresh closure to forward the actual sync-success result required by `HealthSyncRefreshCoordinator`.
+- `1943e0763c9b1303a84dd8868b1727882a5fbced`: awaits the async GRDB reads/writes in `AppleHealthMergeTests`.
+- `45376083f217a0189c0424e372d4217f9e56b95c`: adds the missing 32-bit FIT test inspector used by the newer FIT regression coverage.
+- `8bc2c9f17d45c3fa78d2b2de494f9195fc80ff90`, `c496eb3ab1083eb2b4f73a3ca61ebdc244ba7621`, `4b9b1070fb91ed9635b3905eff412b3bc0fc3caf`, and `5949530504e0c0522fe35c3b1e13f843e95c1533`: replace stale schema-version-18 assertions with the registered-migration-count invariant. Production correctly reports schema 47.
+- `32d6b9a9356906337bf3f7f99f7f25cfb24a7ccf`: fixes an XCTest harness violation that waited on the same expectation twice; the production store write barrier was not implicated.
+
+### AUDIT-HK-07 — HealthKit workout routes were selected by time overlap instead of workout ownership
+
+- Severity: P2; confidence 0.99; CONFIRMED and FIXED.
+- `fetchWorkoutRoute` queried every `HKWorkoutRoute` whose timestamps overlapped the workout. Two overlapping HealthKit workouts could therefore contribute each other's route samples, producing a mixed/wrong map and allowing that incorrect route to flow into the new FIT export.
+- Apple HealthKit defines workout routes as objects associated with a specific `HKWorkout` and documents `HKQuery.predicateForObjects(from: workout)` as the ownership predicate for reading route data.
+- Commit `fb9aaa2acdf6fb69ed611682341d85d5da466a7a` changes only the route-sample predicate to the owning-workout association. Heart-rate association already used this rule.
+- Device-independent unit testing cannot populate a real HealthKit route store; final iPhone compile/test CI is therefore the executable validation layer for this one-line ownership correction.
+
+### AUDIT-HK-05 final classification for this candidate
+
+- Severity remains P2; confidence 0.99; CONFIRMED, PARTIALLY HARDENED, CONSCIOUSLY DEFERRED.
+- HealthKit deletion tombstones expose deleted object UUIDs but do not provide the deleted sample's original timestamp. NOOP's current aggregate-import rows do not retain the source HealthKit object identities needed to subtract an exact deleted contribution.
+- HealthKit also deliberately makes denied read access appear as an empty result. Therefore treating an empty re-query as proof of deletion can erase valid last-good data after a permission change.
+- The current branch retains deletion signals, widens deletion-bearing observer wakes to a bounded 31-day re-read, does not advance anchors on query failure, and preserves last-good values on ambiguous empty/denied reads.
+- A complete fix requires durable source-object identity/contribution bookkeeping (or an equivalent non-ambiguous replacement contract). That is migration/architecture work and is not safe to improvise into this release candidate.
+- This is consciously deferred under the audit rule rather than hidden behind a destructive workaround. The failure mode is stale Apple-Health-imported data after the user deletes source records, not silent deletion of valid NOOP/WHOOP data.
+
+## Further audit coverage completed
+
+- Sleep recalculation/edit/merge review: user-edited rows outrank re-detection, delete tombstones are overlap-based, fuller sleep rows are protected from thinner re-syncs, and failed core sleep persistence aborts the score pass rather than claiming success. No new P0/P1/P2 defect confirmed.
+- Forced-rescore/concurrency review: a forced update arriving during an active scoring pass sets `pendingForcedRescore` and is re-run after the lock clears. History-repair completion callbacks are only launched when no scoring pass already owns the lock. No lost-update P0/P1/P2 confirmed.
+- Activity detection review: the opt-in auto detector is suggestion-only, has explicit HR-gap and saved-workout-overlap guards, and does not persist a detected session without user confirmation. No new P0/P1/P2 defect confirmed.
+- Background lifecycle review: real-update rescoring records owed work before BGTask scheduling, expiry re-arms owed work, Health write-back scheduling is gated by actual share/write authorization, and task completion is single-shot guarded. No new P0/P1/P2 defect confirmed.
+- Sideload/widget capability review: the release target and ad-hoc capability template agree on iPhone-only scope, App Group, base HealthKit and HealthKit background delivery. A third-party/free signing profile can still strip capabilities it is not entitled to grant; that is a signing-profile limitation rather than something an unsigned IPA can override.
+- FIT export review: canonical export preserves genuine timestamps, omits untimed route points rather than inventing time, emits required FIT activity structures and CRC, and has round-trip coverage for HR-only, GPS, missing-HR, partial and realistic 30-minute activity shapes. Live Strava server acceptance remains an account-side/device validation, not a compile-time claim.
+
+## Current release-candidate gate
+
+A final unsigned IPA may be treated as the audited candidate only after the combined audit head passes:
+
+1. Swift package tests, including `WhoopStore`, `StrandAnalytics`, and `StrandImport`.
+2. iPhone simulator build and iPhone-hosted tests.
+3. Source hygiene and i18n coverage.
+4. Tools CI.
+5. Fresh physical-iPhone archive, sideload packaging checks and artifact upload.
+6. Verification that production SpO₂ scoring remains disabled/unchanged.
+
+Do not merge this audit branch to `main` merely because the candidate is green. The requested deliverable is the validated unsigned IPA; release/merge remains a separate decision.
+
+
+## Release-gate follow-up — 2026-10-08 late pass
+
+### CI harness correction after combined-product validation
+
+- App build run `37741802938`, job `113194449393`, reached the iPhone-hosted test compile step and failed because `RepositoryLocalDayTests` synchronously called `@MainActor` Repository helpers from a nonisolated XCTest class.
+- This was a test-isolation defect, not a production regression: the simulator app build itself had already passed and the failing diagnostics named only the test call sites.
+- Commit `d59cc6a98f3cccb51847d01c63122ab11b835d78` marks the regression test class `@MainActor`, matching the isolation of the production API it exercises.
+- A fresh release-gate run was started from that commit; later code changes supersede it, so only the final branch-head runs count toward the candidate.
+
+### AUDIT-IMPORT-01 — workout-file import could report success after partial persistence failure
+
+- Severity: P3; confidence 0.98; CONFIRMED and FIXED.
+- The workout row write already threw into the import's outer error handler, but three dependent persistence operations did not: per-sample HR insertion, the read used to recompute day steps, and the resulting daily-step upsert all used `try?`.
+- A storage error after the workout row landed could therefore leave an incomplete activity-file source while the card still reported “1 workout imported”. The next score/read pass could see the workout but miss the HR or step inputs that were supposed to accompany it.
+- Commit `de8930b25a7f5be8060a626ecac22ed605135f10` makes those three operations propagate errors through the existing import failure path. Normal successful imports are byte-for-byte equivalent at the persistence layer; retry remains idempotent because the workout and sample stores already upsert by stable keys.
+- This is deliberately not a new cross-table transaction: a retry can safely repair a partial import, and the smallest reliability correction is to stop claiming success when one of the required writes failed.
+- Final branch-head iPhone/package/IPA validation is pending.
+
+### Restore write-barrier bypass audit
+
+- Re-checked the post-restore `StoreWriteBarrier` after AUDIT-BACKUP-02 rather than assuming one wrapper covered the whole store.
+- `WhoopStore.syncWrite` acquires the barrier permit around the underlying GRDB writer, and `checkpointWALImpl` separately gates its non-transactional WAL checkpoint.
+- The separate synchronous `DeviceRegistryStore` mutation path uses `gatedWrite`, which acquires the same process-wide barrier.
+- The reviewed WhoopStore extension mutation surfaces — Apple Health merge, Apple step hours, coach messages, cursors, workout/Apple cache, lab markers, lifting, live sessions, metric series/cache, Oura raw data, raw outbox, score-input provenance and stream storage — all route through `syncWrite`; no direct mutation bypass was found.
+- Classification remains CONFIRMED/FIXED for AUDIT-BACKUP-02, subject to final branch-head CI.
+
+### Release-sensitive guardrails re-verified
+
+- The unsigned-IPA workflow still archives `generic/platform=iOS`, asserts iPhone device family only, arm64, one widget extension, no Watch payload and no macOS payload.
+- The sideload preparation script preserves the shared App Group plus HealthKit and HealthKit background-delivery entitlement templates before ad-hoc signing.
+- Experimental SpO₂ candidate data remains behind its display experiment, is persisted only as the `spo2_candidate` metric-series key, and is not substituted into `DailyMetric.spo2Pct` or a production recovery/strain score.
+- The release workflow independently asserts `spo2.production_scoring == false` in the release provenance configuration.
+
+
+
+## Stage checkpoint — live state and failing iPhone tests
+
+- Checked live main: 583225d25f6a815f405881d3de8b7ed354a05234; no writes were made to it.
+- Existing audit branch was afcf90c9d4a5fc0ef58fd84869b851f872080bf2, PR #37 open; diagnostic-only CI commit f584b256bfd2caabe6bf6dad2755efd6aefe6d0e adds failure-summary output to the existing app-build workflow.
+- At afcf90c, Swift Packages CI, Source Hygiene, iPhone i18n, Tools Python CI, and unsigned IPA all passed. App build compiled and simulator-built, then failed in the iPhone-hosted XCTest phase with dozens of cases across unrelated suites. The quiet log named failures but did not include assertion messages; no product defect or harness cause is yet established.
+- Failed test run: 37806676790, job 113412930745; XCTest result artifact 11565836985 (https://github.com/Billytheking954/noop-whoop-/actions/runs/37806676790/artifacts/11565836985).
+- Fallback IPA run: 37806677582, artifact 11564515697, source SHA afcf90c9d4a5fc0ef58fd84869b851f872080bf2. It is preserved as a fallback only; the app-test gate failed on the same source, so it is not the final validated candidate.
+- The artifact connector returned a temporary downloadable ZIP reference, but direct workspace retrieval was blocked by the unavailable browser proxy. The ZIP contents and IPA SHA-256 have not been independently inspected in this session. The workflow source itself validates ZIP integrity, Payload layout, provenance/source SHA, arm64 iPhone-only device family, widget payload, and ad-hoc signing before upload.
+- Changed files in this diagnostic stage: .github/workflows/app-build.yml only. No production scoring, BLE, SpO2, HealthKit or feature code changed.
+- Next action: inspect the next app-build job's emitted xcresulttool failure summary, classify the root cause, then make only an evidence-backed correction and run required checks on the final exact candidate head.
+
+## Stage checkpoint — iPhone XCTest root-cause classification
+
+- Candidate before focused test-harness corrections: 48b9dca97619adb838b1807db9e8c63e27390b51; branch and PR #37 both pointed here. main remained 583225d25f6a815f405881d3de8b7ed354a05234.
+- iPhone app run 37838032038, job 113520554848: simulator build PASS; XCTest FAIL (2,252 passed, 47 failed, 2 skipped). The emitted xcresult summary shows 45 failures caused by the process-wide StoreWriteBarrier remaining suspended after successful restore tests. That closed state is intentional in production until relaunch, but the shared XCTest process did not simulate a relaunch between restore cases. The fix is confined to BackupSyncRoundTripTests setup/teardown, which resets the barrier between test processes and asserts that an individual successful restore does suspend it.
+- One additional HealthKitDayKey test fixture used epoch 1,767,247,400 while its comment/expected boundary was 2026-01-01 00:30:00Z; that value is 20,000 seconds later. Corrected the test instant to 1,767,227,400. Production day-key code is unchanged.
+- The remaining WAL-sidecar test fails with only a generic SQLite prepare error while reading the captured sidecar. Its production-versus-fixture cause is still unclassified; the test helper now includes SQLite's exact status and errmsg for the next run. No production restore change is made without that evidence.
+- The XCTest result artifact is 11578735366 (https://github.com/Billytheking954/noop-whoop-/actions/runs/37838032038/artifacts/11578735366).
+- On the same pre-fix candidate, Swift Packages CI run 37838032404, Source Hygiene 37838032050, iPhone i18n 37838032033, Tools Python CI 37838032339 and fresh unsigned IPA run 37838032345 passed. The IPA artifact 11576933287 is preserved but is not release-validated because iPhone-hosted XCTest failed on that same head.
+- Changed files for this checkpoint: StrandTests/BackupSyncRoundTripTests.swift and StrandTests/HealthKitDayKeyTests.swift; production scoring, BLE, SpO2 and HealthKit production paths are unchanged.
+- Next action: run the corrected XCTest suite and all required candidate gates on the next exact audit-branch head. If the sidecar test still fails, use its precise SQLite error to make or defer the narrowest justified correction.

@@ -1,6 +1,7 @@
 import XCTest
 import SQLite3
 import ZIPFoundation
+import WhoopStore
 @testable import Strand
 
 /// Real file-I/O tests for the Backup & Sync restore path - not string logic (must-fix #5).
@@ -17,6 +18,10 @@ final class BackupSyncRoundTripTests: XCTestCase {
     private var suites: [String] = []
 
     override func setUpWithError() throws {
+        // Each XCTest method models a fresh test process. A real successful restore keeps this
+        // process-wide gate closed until relaunch; reset it here so one restore test cannot poison
+        // unrelated tests running later in the same test bundle.
+        StoreWriteBarrier.resumeAfterFailedRestore()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("backupsync-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -26,6 +31,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
         for name in suites { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
         suites = []
+        // Simulate the relaunch that production requires after a successful restore.
+        StoreWriteBarrier.resumeAfterFailedRestore()
     }
 
     /// A suite-scoped UserDefaults for the settings half of a restore, so these tests NEVER write into
@@ -58,6 +65,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         XCTAssertEqual(try deviceRows(in: liveDB), ["my-whoop", "watch"],
                        "Restored DB should hold exactly the backed-up rows")
+        XCTAssertTrue(StoreWriteBarrier.isSuspended,
+                      "A successful restore must keep the old live store closed until relaunch")
     }
 
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
@@ -259,6 +268,43 @@ final class BackupSyncRoundTripTests: XCTestCase {
                        "The live DB must be unchanged after the integrity rejection")
     }
 
+    // MARK: - Restore safety: pre-import snapshot must include committed WAL pages
+
+    func testRestoreSidecarIncludesCommittedWalPages() throws {
+        // The live app uses WAL. A committed row may therefore exist only in -wal while the main
+        // sqlite file is still stale. The pre-restore sidecar promises to preserve the current store,
+        // so it must represent the logical SQLite database, not merely memcpy the main file.
+        let liveDB = tmp.appendingPathComponent("live-wal.sqlite")
+        var live: OpaquePointer?
+        guard sqlite3_open(liveDB.path, &live) == SQLITE_OK else { throw TestError("open live WAL DB failed") }
+        defer { sqlite3_close(live) }
+        try exec(live, "PRAGMA journal_mode=WAL")
+        try exec(live, "PRAGMA wal_autocheckpoint=0")
+        try exec(live, "CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY)")
+        try exec(live, "INSERT INTO grdb_migrations (identifier) VALUES ('v1')")
+        try exec(live, "CREATE TABLE device (id TEXT NOT NULL PRIMARY KEY)")
+        // Flush the schema, then add a row that stays committed in WAL.
+        var checkpointLog: Int32 = 0
+        var checkpointed: Int32 = 0
+        XCTAssertEqual(sqlite3_wal_checkpoint_v2(live, nil, SQLITE_CHECKPOINT_TRUNCATE,
+                                                  &checkpointLog, &checkpointed), SQLITE_OK)
+        try exec(live, "INSERT INTO device (id) VALUES ('latest-live-row')")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: liveDB.path + "-wal"),
+                      "precondition: latest committed row should be represented by WAL state")
+
+        let replacement = tmp.appendingPathComponent("replacement.sqlite")
+        try makeNoopDatabase(at: replacement, deviceRows: ["replacement"])
+        let backup = tmp.appendingPathComponent("replacement.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: replacement, to: backup)
+
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path)
+        guard case .imported(let sidecar) = result else {
+            return XCTFail("Restore should succeed, got \(result)")
+        }
+        XCTAssertEqual(try deviceRows(in: sidecar), ["latest-live-row"],
+                       "Pre-restore sidecar must include committed rows that had not checkpointed out of WAL")
+    }
+
     // MARK: - Prune deletes the oldest files past keep-N (real files)
 
     func testPruneDeletesOldestRealFilesPastKeepN() throws {
@@ -346,8 +392,10 @@ final class BackupSyncRoundTripTests: XCTestCase {
         }
         defer { sqlite3_close(db) }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT id FROM device ORDER BY id", -1, &stmt, nil) == SQLITE_OK else {
-            throw TestError("prepare failed")
+        let prepareStatus = sqlite3_prepare_v2(db, "SELECT id FROM device ORDER BY id", -1, &stmt, nil)
+        guard prepareStatus == SQLITE_OK else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "database handle unavailable"
+            throw TestError("prepare failed (SQLite \(prepareStatus)): \(message)")
         }
         defer { sqlite3_finalize(stmt) }
         var rows: [String] = []
