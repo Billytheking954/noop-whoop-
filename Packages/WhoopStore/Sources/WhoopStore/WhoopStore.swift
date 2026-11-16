@@ -169,7 +169,9 @@ public actor WhoopStore {
 
     @inline(__always)
     func syncWrite<T>(_ block: (Database) throws -> T) throws -> T {
-        try dbWriter.write(block)
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.write(block)
+        }
     }
 
     // MARK: - Maintenance
@@ -196,8 +198,10 @@ public actor WhoopStore {
     /// Non-async so GRDB's synchronous `writeWithoutTransaction` overload is chosen (mirrors the
     /// syncRead/syncWrite pattern). Runs on the actor's executor, off the main thread.
     private func checkpointWALImpl() throws {
-        try dbWriter.writeWithoutTransaction { db in
-            try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+        try StoreWriteBarrier.withWritePermit {
+            try dbWriter.writeWithoutTransaction { db in
+                try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+            }
         }
     }
 
