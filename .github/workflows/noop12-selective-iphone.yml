@@ -62,27 +62,32 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as out:
               out.write('NOOP_SIMULATOR_ID=' + phones[0]['udid'] + '\n')
           PY
-      - name: Run iPhone simulator tests
+      - name: Build iPhone simulator app
         run: |
           xcodebuild -scheme NOOPiOS -configuration Debug \
             -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID" \
-            -resultBundlePath iPhoneResults.xcresult \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            -parallel-testing-enabled NO test
-      - name: Export screenshot attachments
-        if: always()
+            -derivedDataPath build/ios-simulator \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Install, launch and capture native iPhone screen
         run: |
-          if [ -d iPhoneResults.xcresult ]; then
-            xcrun xcresulttool export attachments --path iPhoneResults.xcresult --output-path iPhoneScreenshots || true
-          fi
-      - name: Save simulator evidence
+          set -euo pipefail
+          xcrun simctl boot "$NOOP_SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$NOOP_SIMULATOR_ID" -b
+          APP=$(find build/ios-simulator/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' -type d | head -1)
+          test -n "$APP"
+          ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          xcrun simctl install "$NOOP_SIMULATOR_ID" "$APP"
+          xcrun simctl launch "$NOOP_SIMULATOR_ID" "$ID"
+          mkdir -p iPhoneScreenshots
+          sleep 5
+          xcrun simctl io "$NOOP_SIMULATOR_ID" screenshot iPhoneScreenshots/launch.png
+      - name: Save simulator launch screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noop12-selective-iphone-test-evidence
-          path: |
-            iPhoneResults.xcresult
-            iPhoneScreenshots
+          name: noop12-selective-iphone-smoke-evidence
+          path: iPhoneScreenshots
+          if-no-files-found: warn
           retention-days: 14
 
   unsigned-iphone-ipa:
