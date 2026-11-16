@@ -1741,11 +1741,17 @@ struct TodayView: View {
                                 .foregroundStyle(StrandPalette.textPrimary)
                                 .accessibilityLabel("Readiness: \(levelWord(r.level)). \(headline)")
                             Spacer()
-                            if let acwr = r.acwr {
-                                Text("load \(String(format: "%.2f", locale: AppLanguage.activeLocale, acwr))")
-                                    .font(StrandFont.captionNumber)
-                                    .foregroundStyle(StrandPalette.textTertiary)
-                                    .help("Acute (7-day) vs chronic (28-day) training load. 0.8–1.3 is the sweet spot.")
+                            if let score = r.score {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("\(score)/100")
+                                        .font(StrandFont.captionNumber)
+                                        .foregroundStyle(StrandPalette.textPrimary)
+                                    Text("estimate")
+                                        .font(StrandFont.footnote)
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                }
+                                .accessibilityElement(children: .combine)
+                                .accessibilityLabel("Estimated training readiness, \(score) out of 100")
                             }
                         }
                         // #1405: mark this as a DIFFERENT axis from the home Synthesis word (the Charge-%
@@ -1755,6 +1761,12 @@ struct TodayView: View {
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if r.score != nil {
+                            Text("Estimate from \(Int((r.dataCompleteness * 100).rounded()))% available signal coverage; not a medical measurement.")
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         Text(summary).font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1832,6 +1844,9 @@ struct TodayView: View {
         case "respRate": return String(localized: "Respiratory rate")
         case "acwr": return String(localized: "Training load")
         case "monotony": return String(localized: "Training variety")
+        case "sleepDuration": return String(localized: "Sleep duration")
+        case "sleepConsistency": return String(localized: "Sleep consistency")
+        case "recovery": return String(localized: "Recovery")
         default: return key
         }
     }
@@ -1843,6 +1858,8 @@ struct TodayView: View {
             let valueText = readinessNumber(value, decimals: decimals)
             let baselineText = readinessNumber(baseline, decimals: decimals)
             return String(localized: "\(valueText) vs \(baselineText) \(unit)")
+        case .value(let value, let unit, let decimals):
+            return String(localized: "\(readinessNumber(value, decimals: decimals)) \(unit)")
         case .trainingLoad(let acute, let chronic):
             let acuteText = readinessNumber(acute, decimals: 1)
             let chronicText = readinessNumber(chronic, decimals: 1)
@@ -1857,12 +1874,12 @@ struct TodayView: View {
            case .trainingLoad(let acute, let chronic) = evidence {
             let ratio = readinessNumber(chronic > 0 ? acute / chronic : 0, decimals: 2)
             switch signal.flag {
-            case .good: return String(localized: "in the sweet spot (acute:chronic \(ratio))")
-            case .bad: return String(localized: "spiking (acute:chronic \(ratio)) - higher injury risk")
+            case .good: return String(localized: "within a reference band (acute:chronic \(ratio))")
+            case .bad: return String(localized: "spiking (acute:chronic \(ratio)) - recent load is elevated; monitor fatigue")
             case .watch: return acute < chronic
                 ? String(localized: "ramping down (acute:chronic \(ratio)) - room to build")
                 : String(localized: "building fast (acute:chronic \(ratio)) - watch fatigue")
-            case .neutral: return String(localized: "in the sweet spot (acute:chronic \(ratio))")
+            case .neutral: return String(localized: "within a reference band (acute:chronic \(ratio))")
             }
         }
         switch (signal.key, signal.flag) {
