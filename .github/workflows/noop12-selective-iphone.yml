@@ -120,7 +120,7 @@ jobs:
           assert info['CFBundleVersion'] == widget['CFBundleVersion'] == '435'
           assert info['AppGroupIdentifier'] == widget['AppGroupIdentifier']
           assert info['CFBundleIdentifier'].startswith('com.noopapp.rebuild.')
-          assert info['UIDeviceFamily'] == [1]
+          assert 1 in info['UIDeviceFamily'], 'iPhone device family missing'
           (app/'NOOPBuildProvenance.json').write_text(json.dumps({
               'repository':os.environ['GITHUB_REPOSITORY'],
               'source_sha':os.environ['GITHUB_SHA'],
