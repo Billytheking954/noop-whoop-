@@ -17,6 +17,8 @@ import WhoopStore
 ///   band is the "sweet spot"; >1.5 is associated with higher injury risk (Gabbett 2016).
 /// - **Training monotony** — mean/SD of daily strain over a week; high monotony (low variety) is
 ///   associated with higher strain and illness (Foster 1998).
+/// - **Sleep and recovery context** — duration, duration consistency and NOOP Charge add transparent
+///   context, with weights renormalised when an observation is missing.
 ///
 /// Not medical advice. These are approximations from a consumer strap; they describe trends in
 /// *your own* data, nothing more.
@@ -32,13 +34,14 @@ public enum ReadinessEngine {
         case insufficient // not enough history yet
     }
 
-    public enum Flag: String, Sendable, Equatable {
+    public enum Flag: String, Sendable, Equatable, Hashable {
         case good, neutral, watch, bad
     }
 
     /// Locale-free numeric evidence. Clients format and localize it at the display boundary.
     public enum Evidence: Sendable, Equatable {
         case metric(value: Double, baseline: Double, unit: String, decimals: Int)
+        case value(Double, unit: String, decimals: Int)
         case trainingLoad(acute: Double, chronic: Double)
         case monotony(Double)
     }
@@ -66,14 +69,20 @@ public enum ReadinessEngine {
         public let acwr: Double?
         /// Foster training monotony over the last week (nil if not enough strain history).
         public let monotony: Double?
+        /// Transparent 0...100 wellness estimate. nil when fewer than two usable inputs exist.
+        public let score: Int?
+        /// Share of the documented signal weights supported by usable observations, in 0...1.
+        public let dataCompleteness: Double
         /// How much history backs this read (HRV/RHR baseline density) — so the card can show
         /// calibrating / building / solid instead of a confident number off a 7-night baseline.
         public let confidence: ScoreConfidence
         public init(level: Level, headline: String, summary: String,
                     signals: [Signal], acwr: Double?, monotony: Double?,
+                    score: Int? = nil, dataCompleteness: Double = 0,
                     confidence: ScoreConfidence = .calibrating) {
             self.level = level; self.headline = headline; self.summary = summary
             self.signals = signals; self.acwr = acwr; self.monotony = monotony
+            self.score = score; self.dataCompleteness = dataCompleteness
             self.confidence = confidence
         }
     }
@@ -96,7 +105,7 @@ public enum ReadinessEngine {
         // a Compose recompose) re-runs the full-history sort on each ~1 Hz live-HR tick. The Today view also
         // memoizes this at the View layer (its `todayInputKey`); this engine-level cache additionally shields
         // every OTHER caller and the first/uncached read. Key = `today` + a fingerprint over ONLY the row
-        // fields the synthesis reads (day + avgHrv/restingHr/respRateBpm/strain), so a new sync re-keys but a
+        // fields the synthesis reads, so a new sync re-keys but a
         // cosmetic reorder does not. Result is a small `Readiness`; no row arrays are retained.
         let key = ReadinessKey(today: today, rows: Self.rowsFingerprint(days))
         return evaluateCache.value(key) { evaluateUncached(days: days, today: today) }
@@ -119,6 +128,8 @@ public enum ReadinessEngine {
             h = (h &* 1099511628211) ^ (d.restingHr.map { UInt64(bitPattern: Int64($0)) } ?? .max)
             h = (h &* 1099511628211) ^ (d.respRateBpm ?? -1).bitPattern
             h = (h &* 1099511628211) ^ (d.strain ?? -1).bitPattern
+            h = (h &* 1099511628211) ^ (d.totalSleepMin ?? -1).bitPattern
+            h = (h &* 1099511628211) ^ (d.recovery ?? -1).bitPattern
             sum ^= h                                   // commutative fold → order-independent
             let dh = d.day.hashValue
             if i == 0 { minDayHash = dh; maxDayHash = dh } else { minDayHash = min(minDayHash, dh); maxDayHash = max(maxDayHash, dh) }
@@ -127,7 +138,9 @@ public enum ReadinessEngine {
     }
 
     private static func evaluateUncached(days: [DailyMetric], today: String?) -> Readiness {
-        let sorted = days.sorted { $0.day < $1.day }
+        // A repeated sync can surface the same logical day more than once to a caller. Pick the more
+        // complete row before any baseline/window math so a duplicate cannot count as another night.
+        let sorted = deduplicated(days).sorted { $0.day < $1.day }
         // When an explicit `today` is given (the dashboard passes the device's real local day key), use
         // the row for THAT day and nothing else: a stale historical import has no row for today, so the
         // readiness card reads "insufficient" rather than synthesizing off the newest stored — possibly
@@ -147,8 +160,8 @@ public enum ReadinessEngine {
 
         // HRV readiness ------------------------------------------------------
         let hrvSignal = zSignal(
-            value: latest.avgHrv,
-            baseline: history.suffix(baselineWindow).compactMap { $0.avgHrv },
+            value: latest.avgHrv.flatMap { (5...300).contains($0) ? $0 : nil },
+            baseline: history.suffix(baselineWindow).compactMap { $0.avgHrv }.filter { (5...300).contains($0) },
             key: "hrv", label: "HRV",
             unit: "ms",
             decimals: 0,
@@ -163,8 +176,9 @@ public enum ReadinessEngine {
 
         // Resting-HR drift ---------------------------------------------------
         let rhrSignal = zSignal(
-            value: latest.restingHr.map(Double.init),
-            baseline: history.suffix(baselineWindow).compactMap { $0.restingHr.map(Double.init) },
+            value: latest.restingHr.map(Double.init).flatMap { (25...220).contains($0) ? $0 : nil },
+            baseline: history.suffix(baselineWindow).compactMap { $0.restingHr.map(Double.init) }
+                .filter { (25...220).contains($0) },
             key: "rhr", label: "Resting HR",
             unit: "bpm",
             decimals: 0,
@@ -183,6 +197,7 @@ public enum ReadinessEngine {
         // can't flip RUNDOWN. Mirrors the Kotlin reference (#78) for cross-platform parity.
         if let rr = latest.respRateBpm, SleepStager.respPlausibleRangeBpm.contains(rr) {
             let base = history.suffix(baselineWindow).compactMap { $0.respRateBpm }
+                .filter { SleepStager.respPlausibleRangeBpm.contains($0) }
             if base.count >= minBaseline, let m = mean(base),
                SleepStager.respPlausibleRangeBpm.contains(m), let sd = sampleSD(base), sd > 0 {
                 let z = (rr - m) / sd
@@ -196,12 +211,17 @@ public enum ReadinessEngine {
                         evidence: evidence(value: rr, baseline: m, unit: "rpm", decimals: 1),
                         evidenceData: .metric(value: rr, baseline: m, unit: "rpm", decimals: 1),
                         detail: "slightly raised vs baseline", flag: .watch))
+                } else {
+                    signals.append(Signal(key: "respRate", label: "Respiratory rate",
+                        evidence: evidence(value: rr, baseline: m, unit: "rpm", decimals: 1),
+                        evidenceData: .metric(value: rr, baseline: m, unit: "rpm", decimals: 1),
+                        detail: "in your normal range", flag: .neutral))
                 }
             }
         }
 
         // Training Stress Balance (ACWR) + monotony --------------------------
-        let strainSeries = sorted.compactMap { $0.strain }
+        let strainSeries = sorted.compactMap { $0.strain }.filter { (0...100).contains($0) }
         var acwr: Double? = nil
         var monotony: Double? = nil
         if strainSeries.count >= minChronic {
@@ -226,17 +246,60 @@ public enum ReadinessEngine {
             }
         }
 
+        // Sleep duration ----------------------------------------------------
+        // There is no reliable bedtime timestamp in DailyMetric, so "consistency" here explicitly means
+        // night-to-night DURATION consistency. We do not claim schedule consistency from absent data.
+        if let sleep = latest.totalSleepMin, (30...960).contains(sleep) {
+            let flag: Flag
+            let detail: String
+            switch sleep {
+            case 420...600: flag = .good; detail = "duration supports training today"
+            case 360..<420: flag = .neutral; detail = "a little short, but within a usable range"
+            case 300..<360: flag = .watch; detail = "short sleep may limit harder training"
+            default: flag = .bad; detail = "very short or unusually long sleep lowers confidence"
+            }
+            signals.append(Signal(key: "sleepDuration", label: "Sleep duration",
+                                  evidence: "\(String(format: "%.1f", sleep / 60)) h",
+                                  evidenceData: .value(sleep / 60, unit: "h", decimals: 1),
+                                  detail: detail, flag: flag))
+        }
+
+        let recentSleep = Array((history + [latest]).suffix(7))
+            .compactMap { $0.totalSleepMin }.filter { (30...960).contains($0) }
+        if recentSleep.count >= 4, let variation = sampleSD(recentSleep) {
+            let flag: Flag = variation <= 45 ? .good : (variation <= 90 ? .watch : .bad)
+            let detail = variation <= 45 ? "sleep duration has been consistent"
+                : (variation <= 90 ? "sleep duration has varied recently" : "sleep duration has varied widely")
+            signals.append(Signal(key: "sleepConsistency", label: "Sleep consistency",
+                                  evidence: "\(Int(variation.rounded())) min variation",
+                                  evidenceData: .value(variation, unit: "min variation", decimals: 0),
+                                  detail: detail, flag: flag))
+        }
+
+        if let recovery = latest.recovery, (0...100).contains(recovery) {
+            let flag: Flag = recovery >= 67 ? .good : (recovery >= 34 ? .neutral : .bad)
+            let detail = recovery >= 67 ? "today's Charge supports training"
+                : (recovery >= 34 ? "today's Charge is moderate" : "low Charge favours recovery")
+            signals.append(Signal(key: "recovery", label: "Recovery",
+                                  evidence: "\(Int(recovery.rounded()))%",
+                                  evidenceData: .value(recovery, unit: "%", decimals: 0),
+                                  detail: detail, flag: flag))
+        }
+
         let (level, headline, summary) = synthesize(signals: signals,
                                                     hasHistory: !history.isEmpty || acwr != nil)
         // RD-confidence: surface how much history backs the read (HRV baseline density, the primary
         // readiness driver). A read off a 7-night baseline must not look as certain as one off the full
         // 30-night window. Insufficient reads carry .calibrating.
-        let hrvBaselineNights = history.suffix(baselineWindow).compactMap { $0.avgHrv }.count
+        let hrvBaselineNights = history.suffix(baselineWindow).compactMap { $0.avgHrv }
+            .filter { (5...300).contains($0) }.count
+        let scored = weightedScore(signals)
         let confidence = ScoreConfidence.readiness(hasRead: level != .insufficient,
                                                    baselineNights: hrvBaselineNights,
                                                    fullWindow: baselineWindow)
         return Readiness(level: level, headline: headline, summary: summary,
                          signals: signals, acwr: acwr, monotony: monotony,
+                         score: scored.score, dataCompleteness: scored.completeness,
                          confidence: confidence)
     }
 
@@ -249,7 +312,8 @@ public enum ReadinessEngine {
                                 cfg: MetricCfg,
                                 goodText: String, neutralText: String,
                                 watchText: String, badText: String) -> Signal? {
-        guard let v = value, baseline.count >= minBaseline else { return nil }
+        guard let v = value, v.isFinite,
+              baseline.count >= minBaseline, baseline.allSatisfy(\.isFinite) else { return nil }
         // RD1: right-skewed metrics (HRV/RMSSD) are z-scored in the LOG domain — lnRMSSD is closer to
         // normal, so a symmetric z is statistically valid, whereas a raw-ms z over-weights the long
         // upper tail and misstates tail rarity (Plews/Altini; the app's own HRVReadiness works this
@@ -335,7 +399,9 @@ public enum ReadinessEngine {
         let bad = signals.filter { $0.flag == .bad }
         let watch = signals.filter { $0.flag == .watch }
         let good = signals.filter { $0.flag == .good }
-        let recoveryDown = signals.contains { ["hrv", "rhr", "respRate"].contains($0.key) && ($0.flag == .bad) }
+        let recoveryDown = signals.contains {
+            ["hrv", "rhr", "respRate", "sleepDuration", "recovery"].contains($0.key) && $0.flag == .bad
+        }
         let loadHigh = signals.contains { $0.key == "acwr" && $0.flag == .bad }
 
         if bad.count >= 2 || (recoveryDown && loadHigh) {
@@ -352,6 +418,59 @@ public enum ReadinessEngine {
         }
         return (.balanced, "Balanced",
                 "Nothing's flagging. Train to feel - your body's holding steady.")
+    }
+
+    /// Weighted score kept separate from the categorical synthesis so the long-standing Push/Maintain/Rest
+    /// behavior remains stable. Missing signals are excluded and the remaining weights are renormalised.
+    private static func weightedScore(_ signals: [Signal]) -> (score: Int?, completeness: Double) {
+        let weights: [String: Double] = [
+            "hrv": 0.20, "rhr": 0.15, "respRate": 0.05,
+            "acwr": 0.15, "monotony": 0.05,
+            "sleepDuration": 0.15, "sleepConsistency": 0.10, "recovery": 0.15,
+        ]
+        let values: [Flag: Double] = [.good: 85, .neutral: 65, .watch: 45, .bad: 20]
+        var used = Set<String>()
+        var weighted = 0.0
+        var totalWeight = 0.0
+        for signal in signals where used.insert(signal.key).inserted {
+            guard let weight = weights[signal.key], let value = values[signal.flag] else { continue }
+            weighted += value * weight
+            totalWeight += weight
+        }
+        let completeness = min(1, max(0, totalWeight))
+        guard used.count >= 2, totalWeight >= 0.25 else { return (nil, completeness) }
+        return (Int(min(100, max(0, weighted / totalWeight)).rounded()), completeness)
+    }
+
+    private static func deduplicated(_ days: [DailyMetric]) -> [DailyMetric] {
+        var chosen: [String: DailyMetric] = [:]
+        for day in days where !day.day.isEmpty {
+            guard let existing = chosen[day.day] else { chosen[day.day] = day; continue }
+            let candidate = (quality(day), stableKey(day))
+            let current = (quality(existing), stableKey(existing))
+            if candidate.0 > current.0 || (candidate.0 == current.0 && candidate.1 > current.1) {
+                chosen[day.day] = day
+            }
+        }
+        return Array(chosen.values)
+    }
+
+    private static func quality(_ day: DailyMetric) -> Int {
+        var count = 0
+        if let value = day.totalSleepMin, (30...960).contains(value) { count += 1 }
+        if let value = day.avgHrv, (5...300).contains(value) { count += 1 }
+        if let value = day.recovery, (0...100).contains(value) { count += 1 }
+        if let value = day.strain, (0...100).contains(value) { count += 1 }
+        if let value = day.respRateBpm, SleepStager.respPlausibleRangeBpm.contains(value) { count += 1 }
+        if let value = day.restingHr, (25...220).contains(value) { count += 1 }
+        return count
+    }
+
+    private static func stableKey(_ day: DailyMetric) -> String {
+        [day.totalSleepMin, day.avgHrv, day.recovery, day.strain,
+         day.respRateBpm, day.restingHr.map(Double.init)]
+            .map { $0.map { String(format: "%020.8f", $0) } ?? "-" }
+            .joined(separator: "|")
     }
 
     // MARK: Stats helpers

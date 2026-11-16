@@ -4,10 +4,11 @@ import WhoopStore
 
 final class ReadinessEngineTests: XCTestCase {
 
-    private func d(_ i: Int, hrv: Double?, rhr: Int?, strain: Double?, resp: Double? = nil) -> DailyMetric {
-        DailyMetric(day: String(format: "2024-03-%02d", i), totalSleepMin: nil, efficiency: nil,
+    private func d(_ i: Int, hrv: Double?, rhr: Int?, strain: Double?, resp: Double? = nil,
+                   sleep: Double? = nil, recovery: Double? = nil) -> DailyMetric {
+        DailyMetric(day: String(format: "2024-03-%02d", i), totalSleepMin: sleep, efficiency: nil,
                     deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil, restingHr: rhr,
-                    avgHrv: hrv, recovery: nil, strain: strain, exerciseCount: nil,
+                    avgHrv: hrv, recovery: recovery, strain: strain, exerciseCount: nil,
                     spo2Pct: nil, skinTempDevC: nil, respRateBpm: resp)
     }
 
@@ -37,6 +38,8 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertEqual(r.signals.first { $0.key == "hrv" }?.evidence, "72 vs 60 ms")
         XCTAssertEqual(r.signals.first { $0.key == "rhr" }?.evidence, "46 vs 52 bpm")
         XCTAssertEqual(r.signals.first { $0.key == "acwr" }?.evidence, "7d 10.0 / 28d 10.0")
+        XCTAssertNotNil(r.score)
+        XCTAssertGreaterThan(r.dataCompleteness, 0)
     }
 
     func testRundownWhenTwoRecoverySignalsDown() {
@@ -82,5 +85,34 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertEqual(ReadinessEngine.sampleSD([2, 4, 6])!, 2.0, accuracy: 0.0001)
         XCTAssertNil(ReadinessEngine.sampleSD([5]))
         XCTAssertNil(ReadinessEngine.mean([]))
+    }
+
+    func testSleepDurationConsistencyAndRecoveryExplainScore() {
+        var days = baseline(todayHrv: 60, todayRhr: 52, todayStrain: 10)
+        days = days.enumerated().map { offset, row in
+            d(offset + 1, hrv: row.avgHrv, rhr: row.restingHr, strain: row.strain,
+              resp: row.respRateBpm, sleep: 480, recovery: offset == 28 ? 82 : 70)
+        }
+        let result = ReadinessEngine.evaluate(days: days)
+        XCTAssertNotNil(result.score)
+        XCTAssertTrue(result.signals.contains { $0.key == "sleepDuration" && $0.flag == .good })
+        XCTAssertTrue(result.signals.contains { $0.key == "sleepConsistency" && $0.flag == .good })
+        XCTAssertTrue(result.signals.contains { $0.key == "recovery" && $0.flag == .good })
+        XCTAssertGreaterThanOrEqual(result.score!, 70)
+    }
+
+    func testDuplicateDaysDoNotChangeResult() {
+        let days = baseline(todayHrv: 72, todayRhr: 46, todayStrain: 10)
+        XCTAssertEqual(ReadinessEngine.evaluate(days: days),
+                       ReadinessEngine.evaluate(days: days + Array(days.reversed())))
+    }
+
+    func testImplausibleHrvAndRestingHrAreNotScored() {
+        var days = baseline(todayHrv: 900, todayRhr: 5, todayStrain: 10)
+        days[days.count - 1] = d(29, hrv: 900, rhr: 5, strain: 10, sleep: 480, recovery: 70)
+        let result = ReadinessEngine.evaluate(days: days)
+        XCTAssertFalse(result.signals.contains { $0.key == "hrv" })
+        XCTAssertFalse(result.signals.contains { $0.key == "rhr" })
+        XCTAssertNotNil(result.score, "Valid sleep and recovery may still support an explicitly partial estimate")
     }
 }
