@@ -396,7 +396,7 @@ struct WorkoutDetailView: View {
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 .confirmationDialog("Export route", isPresented: $showRouteExport, titleVisibility: .visible) {
-                    Button("Export GPX") { exportRouteGPX() }
+                    Button("Export GPX") { exportRoute() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("GPX uses recorded GPS times when available. Older routes saved without timed GPS points use approximate times.")
@@ -407,7 +407,7 @@ struct WorkoutDetailView: View {
 
     /// Only legacy polylines may use approximate timing. Validation, encoding and disk I/O run
     /// off the main actor so a long GPS track doesn't stall the screen.
-    @MainActor private func exportRouteGPX() {
+    @MainActor private func exportRoute() {
         guard route.count >= 2 else { return }
         let points = route.map { RoutePoint(lat: $0.lat, lon: $0.lon) }
         let startTs = row.startTs, endTs = row.endTs, sport = row.sport

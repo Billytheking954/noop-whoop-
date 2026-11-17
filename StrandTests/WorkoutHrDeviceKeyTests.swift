@@ -70,4 +70,14 @@ final class WorkoutHrDeviceKeyTests: XCTestCase {
                                           importedIds: ["my-whoop", "whoop-zzz"]),
             ["whoop-aabbcc"])
     }
+    func testFITDoesNotAttributeOverlappingStrapSamplesToImportedWorkouts() {
+        let strapIds = ["whoop-active", "my-whoop"]
+        for source in ["apple-health", "apple_health", "activity-file", "whoop", "lifting"] {
+            XCTAssertEqual(Repository.workoutFitHrDeviceIds(source: source, strapReadIds: strapIds), [], source)
+        }
+        XCTAssertEqual(Repository.workoutFitHrDeviceIds(source: "manual", strapReadIds: strapIds), strapIds)
+        XCTAssertEqual(Repository.workoutFitHrDeviceIds(source: "whoop-origin-noop", strapReadIds: strapIds),
+                       ["whoop-origin"])
+    }
+
 }

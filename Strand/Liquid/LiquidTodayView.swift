@@ -137,6 +137,7 @@ struct LiquidTodayView: View {
     // Resolve both ONCE per data/day change in load() and read the cache in body (O(1)).
     @State private var cachedDisplayDay: DailyMetric?
     @State private var cachedReadiness: ReadinessEngine.Readiness?
+    @State private var cachedEnergyReserve: EnergyReserveEngine.Estimate?
     /// The recovery-INDEPENDENT prior-day vitals carry (HRV / RHR / respiratory), resolved ONCE in load()
     /// alongside cachedDisplayDay. Fixes the v8 rollover blank: after 04:00, before tonight's sleep scores,
     /// today's row has no vitals yet, so these fall back to the last night that recorded them. Never
@@ -1236,12 +1237,43 @@ struct LiquidTodayView: View {
                             Text(LocalizedStringKey(readiness.summary)).font(StrandFont.caption)
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                            synthesisEstimates
                         }
                     }
                 }
             }
             .buttonStyle(LiquidPressStyle())
         }
+    }
+
+    private var synthesisEstimates: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let score = readiness.score {
+                let coverage = Int((readiness.dataCompleteness * 100).rounded())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Training readiness estimate · \(score)/100")
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("\(coverage)% signal coverage")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            if let estimate = cachedEnergyReserve, let score = estimate.value {
+                let coverage = Int((estimate.completeness * 100).rounded())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Energy Reserve estimate · \(score)/100")
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Experimental daily estimate · \(coverage)% signal coverage")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Recovery vitals
@@ -1641,7 +1673,8 @@ struct LiquidTodayView: View {
         let day = resolveDisplayDay()
         cachedDisplayDay = day
         await reloadRRUnitPolicy()
-        cachedReadiness = ReadinessEngine.evaluate(days: repo.days, today: day?.day)
+        cachedReadiness = ReadinessEngine.evaluate(days: repo.days, today: day?.day ?? selectedDayKey)
+        cachedEnergyReserve = estimateEnergyReserve(for: day)
         // Prior-day vitals carry, resolved ONCE here (never in body). Bound to today's own key so it can't
         // echo today's still-forming row; only on today (a past day's own row is the whole story).
         let tkey = cachedDisplayDay?.day ?? selectedDayKey
@@ -1923,7 +1956,18 @@ struct LiquidTodayView: View {
     /// pass (readinessWord + synthLine + readiness.summary). The fallback runs only in the brief window
     /// before the first load() populates the cache.
     private var readiness: ReadinessEngine.Readiness {
-        cachedReadiness ?? ReadinessEngine.evaluate(days: repo.days, today: cachedDisplayDay?.day)
+        cachedReadiness ?? ReadinessEngine.evaluate(days: repo.days, today: cachedDisplayDay?.day ?? selectedDayKey)
+    }
+
+    private func estimateEnergyReserve(for day: DailyMetric?) -> EnergyReserveEngine.Estimate? {
+        guard let day, let date = Self.dayKeyParser.date(from: day.day) else { return nil }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: date)
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else { return nil }
+        return EnergyReserveEngine.estimate(days: repo.days, targetDay: day.day,
+                                            dayInterval: start..<end, wakeTime: nil,
+                                            activities: [], currentStrain: day.strain,
+                                            evaluatedAt: Date())
     }
 
     /// One card-level provenance label. Identical winners collapse to one name; mixed scores show at most

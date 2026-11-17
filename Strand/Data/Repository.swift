@@ -3352,14 +3352,24 @@ final class Repository: ObservableObject {
         return await hrBuckets(deviceIds: ids, from: from, to: to, bucketSeconds: bucket)
     }
 
-    /// Loss-aware FIT export gets the same WHOOP sample namespaces as this workout's
-    /// detail/zone read. Never mix the active strap into a second device's detected bout.
-    /// A bounded (50k) raw-sample read is enough for long sessions without unbounded DB work.
+    /// Imported workouts lack a source-owned timed HR stream in this query. The chart's
+    /// overlapping strap readings are for display and cannot supply FIT sample provenance.
     func workoutHrSamples(from: Int, to: Int, source: String) async -> [HRSample] {
         guard to > from else { return [] }
-        let ids = Self.workoutHrDeviceIds(source: source, activeStrapId: deviceId,
-                                         importedIds: importedReadIds)
+        let ids = Self.workoutFitHrDeviceIds(source: source, strapReadIds: importedReadIds)
+        guard !ids.isEmpty else { return [] }
         return await hrSamples(deviceIds: ids, from: from, to: to, limit: 50_000)
+    }
+
+    nonisolated static func workoutFitHrDeviceIds(source: String, strapReadIds: [String]) -> [String] {
+        switch WorkoutSource.classify(source) {
+        case .detected:
+            return [String(source.dropLast(5))]
+        case .manual:
+            return strapReadIds
+        case .whoop, .apple, .lifting, .activityFile:
+            return []
+        }
     }
 
     /// Raw HR samples binned into per-zone MINUTES for a workout window, using the age-derived
