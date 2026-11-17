@@ -132,12 +132,16 @@ struct ExportWorkoutRouteIntent: AppIntent {
     /// rather than being assumed, which is why only routes with point metadata qualify.
     static func newestExportableRoute(from map: [String: WorkoutRoute]? = nil) -> Resolved? {
         let routes = map ?? RouteStore.loadMap()
-        let keys = routes.keys.compactMap { key in
-            parseKey(key).map { (key: key, startTs: $0.startTs, sport: $0.sport) }
-        }.sorted {
-            $0.startTs == $1.startTs ? $0.key < $1.key : $0.startTs > $1.startTs
+        var candidates: [(key: String, startTs: Int, sport: String)] = []
+        for key in routes.keys {
+            guard let parsed = parseKey(key) else { continue }
+            candidates.append((key, parsed.startTs, parsed.sport))
         }
-        for candidate in keys {
+        candidates.sort { lhs, rhs in
+            if lhs.startTs == rhs.startTs { return lhs.key < rhs.key }
+            return lhs.startTs > rhs.startTs
+        }
+        for candidate in candidates {
             guard var route = routes[candidate.key] else { continue }
             if route.points == nil, map == nil {
                 route.points = RoutePointStore.load(for: candidate.key)
