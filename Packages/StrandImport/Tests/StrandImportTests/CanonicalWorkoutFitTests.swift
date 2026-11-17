@@ -143,7 +143,9 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         XCTAssertNotNil(session.fields[8], "session total_timer_time is required")
         XCTAssertNotNil(lap.fields[7], "lap total_elapsed_time is required")
         XCTAssertNotNil(lap.fields[8], "lap total_timer_time is required")
-        XCTAssertEqual(session.u32(8), session.u32(7),
+        let elapsedMilliseconds: [UInt8] = [0xA0, 0xBB, 0x0D, 0x00] // 900,000 ms in FIT little-endian order
+        XCTAssertEqual(session.fields[7], elapsedMilliseconds)
+        XCTAssertEqual(session.fields[8], elapsedMilliseconds,
                        "without separate pause data, timer time deterministically equals elapsed time")
     }
 

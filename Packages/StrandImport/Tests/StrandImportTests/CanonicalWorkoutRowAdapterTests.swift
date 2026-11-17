@@ -46,12 +46,11 @@ final class CanonicalWorkoutRowAdapterTests: XCTestCase {
         XCTAssertEqual(canonical.provenance[.strain]?.status, .derived)
     }
 
-    func testLegacyHealthKeyRecognitionDoesNotMatchCurrentKeys() {
-        XCTAssertTrue(HealthWriteback.isLegacyDeviceScopedAppleHealthKey("noop:my-whoop:workout:1800000000"))
-        XCTAssertTrue(HealthWriteback.isLegacyDeviceScopedAppleHealthKey("noop:whoop-abc:sleep:1800000000"))
-        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey("noop:workout:1800000000"))
-        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey("noop:sleep:1800000000"))
-        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey("foreign:device:workout:1800000000"))
-        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey("noop::workout:1800000000"))
+    func testRecognizesBothAppleHealthWorkoutSourceSpellings() {
+        for spelling in ["apple-health", "apple_health"] {
+            let origin = CanonicalWorkout.storedSource(spelling)
+            XCTAssertEqual(origin.source, .appleHealth)
+            XCTAssertEqual(origin.status, .imported)
+        }
     }
 }
