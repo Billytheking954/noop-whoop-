@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - name: Source hygiene and five Swift package suites
         run: |
           set -euo pipefail

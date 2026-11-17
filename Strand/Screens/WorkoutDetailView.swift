@@ -62,11 +62,11 @@ struct WorkoutDetailView: View {
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
     @State private var route: [RouteMath.LatLng] = []
 
-    /// Drives the GPX/FIT export chooser for the recorded route.
+    /// Drives the GPX export confirmation for the recorded route.
     @State private var showRouteExport = false
     @State private var fitExportBusy = false
-    @State private var showFitExportError = false
-    @State private var fitExportErrorMessage = ""
+    @State private var showExportError = false
+    @State private var exportErrorMessage = ""
 
     /// Steps over the session window for an on-foot sport (#398): the count plus whether it came from the
     /// strap's own counter (MG/5.0) or the phone pedometer (fallback for WHOOP 4.0 / not-yet-synced / CSV
@@ -105,10 +105,10 @@ struct WorkoutDetailView: View {
             }
         }
         .task { await load() }
-        .alert("FIT export unavailable", isPresented: $showFitExportError) {
+        .alert("Workout export unavailable", isPresented: $showExportError) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text(fitExportErrorMessage)
+            Text(exportErrorMessage)
         }
     }
 
@@ -331,8 +331,8 @@ struct WorkoutDetailView: View {
                 route: storedRoute
             ) else {
                 fitExportBusy = false
-                fitExportErrorMessage = "This workout has no usable timed HR or GPS records. A summary alone cannot become a recorded FIT track."
-                showFitExportError = true
+                exportErrorMessage = "This workout has no usable timed HR or GPS records. A summary alone cannot become a recorded FIT track."
+                showExportError = true
                 return
             }
             let fileName = CanonicalWorkoutExportBuilder.fitFilename(
@@ -352,8 +352,8 @@ struct WorkoutDetailView: View {
                 FileExport.exportFile(at: url, suggestedName: fileName)
             } catch {
                 fitExportBusy = false
-                fitExportErrorMessage = "Unable to create a FIT file from the recorded samples: \(error.localizedDescription)"
-                showFitExportError = true
+                exportErrorMessage = "Unable to create a FIT file from the recorded samples: \(error.localizedDescription)"
+                showExportError = true
             }
         }
     }
@@ -396,49 +396,54 @@ struct WorkoutDetailView: View {
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 .confirmationDialog("Export route", isPresented: $showRouteExport, titleVisibility: .visible) {
-                    Button("GPX — recorded times when available") { exportRoute(.gpx) }
+                    Button("Export GPX") { exportRouteGPX() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Save this route as a standard file you can import into Strava, Garmin Connect, and other apps.")
+                    Text("GPX uses recorded GPS times when available. Older routes saved without timed GPS points use approximate times.")
                 }
             }
         }
     }
 
-    /// Legacy GPX compatibility path. It interpolates times, so never present it as measured GPS timing.
-    /// Points are decoded lat/lon only (the stored polyline), so the exporter interpolates per-point times
-    /// across the session window and carries the workout's summary (sport, distance, calories, HR).
-    ///
-    /// The build + disk write run OFF the main actor (a long route is a non-trivial encode, and blocking
-    /// file IO must never stall the UI); only the share-sheet present hops back to the main actor.
-    @MainActor private func exportRoute(_ format: RouteExporter.Format) {
+    /// Only legacy polylines may use approximate timing. Validation, encoding and disk I/O run
+    /// off the main actor so a long GPS track doesn't stall the screen.
+    @MainActor private func exportRouteGPX() {
         guard route.count >= 2 else { return }
         let points = route.map { RoutePoint(lat: $0.lat, lon: $0.lon) }
-        // The lightweight route map intentionally lacks measured timestamps.
-        // Try the separately stored fixes before taking the legacy GPX path.
-        let persisted = RouteStore.loadWithPoints(startTs: row.startTs, sport: row.sport)
-        let timedFixes: [RouteExporter.RecordedGpxPoint] = {
-            guard persisted?.hasExportableMeasurements == true else { return [] }
-            return (persisted?.points ?? []).map {
-                RouteExporter.RecordedGpxPoint(lat: $0.lat, lon: $0.lon, timestampMs: $0.tMs)
-            }
-        }()
-        // Name the file by the workout's start (not export time) so it's stable + matches the Android twin.
-        let name = "noop-route-\(row.startTs).\(format.ext)"
         let startTs = row.startTs, endTs = row.endTs, sport = row.sport
-        let distanceM = row.distanceM, energyKcal = row.energyKcal, avgHr = row.avgHr, maxHr = row.maxHr
-        Task.detached(priority: .userInitiated) {
-            // New recordings retain exact millisecond GPS times; old polyline-only
-            // routes remain exportable using the explicitly approximate legacy path.
-            let data = (format == .gpx && !timedFixes.isEmpty
-                ? RouteExporter.buildGpxRecorded(route: timedFixes, sport: sport)
-                : nil) ?? RouteExporter.render(
-                    format, route: points, startTs: startTs, endTs: endTs, sport: sport,
-                    distanceM: distanceM, energyKcal: energyKcal, avgHr: avgHr, maxHr: maxHr
-                )
-            let url = NoopScratch.file(name)
-            do { try data.write(to: url) } catch { return }
-            await MainActor.run { FileExport.exportFile(at: url, suggestedName: name) }
+        let name = "noop-route-\(startTs).gpx"
+        Task {
+            do {
+                let url = try await Task.detached(priority: .userInitiated) { () throws -> URL? in
+                    let data: Data
+                    switch RouteStore.exportTiming(startTs: startTs, sport: sport) {
+                    case .legacy:
+                        data = RouteExporter.render(.gpx, route: points, startTs: startTs,
+                                                    endTs: endTs, sport: sport)
+                    case .recorded(let measurements):
+                        let fixes = measurements.map {
+                            RouteExporter.RecordedGpxPoint(lat: $0.lat, lon: $0.lon, timestampMs: $0.tMs)
+                        }
+                        guard let recorded = RouteExporter.buildGpxRecorded(route: fixes, sport: sport)
+                        else { return nil }
+                        data = recorded
+                    case .invalid:
+                        return nil
+                    }
+                    let url = NoopScratch.file(name)
+                    try data.write(to: url, options: .atomic)
+                    return url
+                }.value
+                guard let url else {
+                    exportErrorMessage = "The saved GPS measurements could not be read or validated. GPX export requires usable measurements for this route."
+                    showExportError = true
+                    return
+                }
+                FileExport.exportFile(at: url, suggestedName: name)
+            } catch {
+                exportErrorMessage = "Unable to save the GPX file: \(error.localizedDescription)"
+                showExportError = true
+            }
         }
     }
 

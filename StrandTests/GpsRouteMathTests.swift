@@ -169,6 +169,8 @@ final class GpsRouteMathTests: XCTestCase {
         let loaded = RouteStore.loadWithPoints(startTs: 1_700_000_000, sport: "Running", from: defaults)
         XCTAssertEqual(loaded?.points, points)
         XCTAssertTrue(loaded?.hasExportableMeasurements == true)
+        XCTAssertEqual(RouteStore.exportTiming(startTs: 1_700_000_000, sport: "Running", from: defaults),
+                       .recorded(points))
 
         // The routes map itself stays the handful of bytes its cap assumes: points live in their own key,
         // so the every-read full decode never carries them and `load` hands back a drawable route only.
@@ -184,12 +186,33 @@ final class GpsRouteMathTests: XCTestCase {
     }
 
     func testLegacyRouteWithoutPointMeasurementsRemainsReadableButCannotExport() throws {
+        let defaults = freshDefaults()
         let key = RouteStore.key(startTs: 1_700_000_000, sport: "Running")
         let legacyJSON = #"{"\#(key)":{"polyline":"abc","distanceM":123.0}}"#.data(using: .utf8)
         let loaded = RouteStore.decodeMap(legacyJSON)[key]
         XCTAssertEqual(loaded?.polyline, "abc")
         XCTAssertNil(loaded?.points)
         XCTAssertFalse(loaded?.hasExportableMeasurements ?? true)
+        defaults.set(legacyJSON, forKey: RouteStore.defaultsKey)
+        XCTAssertEqual(RouteStore.exportTiming(startTs: 1_700_000_000, sport: "Running", from: defaults),
+                       .legacy)
+    }
+
+    func testCorruptRecordedRouteCannotFallBackToLegacyGPXTiming() {
+        let defaults = freshDefaults()
+        let startTs = 1_700_000_000
+        let sport = "Running"
+        let key = RouteStore.key(startTs: startTs, sport: sport)
+        let points = [
+            WorkoutRoutePoint(lat: a.lat, lon: a.lon, accuracyM: 3.2, tMs: 1_700_000_012_345),
+            WorkoutRoutePoint(lat: b.lat, lon: b.lon, accuracyM: 7.8, tMs: 1_700_000_000_000),
+        ]
+        let route = WorkoutRoute(polyline: RouteMath.encode([a, b]), distanceM: 451, points: points)
+        RouteStore.store(route, startTs: startTs, sport: sport, into: defaults)
+        XCTAssertEqual(RouteStore.exportTiming(startTs: startTs, sport: sport, from: defaults), .invalid)
+
+        defaults.set(Data("damaged sidecar".utf8), forKey: RoutePointStore.defaultsKey(for: key))
+        XCTAssertEqual(RouteStore.exportTiming(startTs: startTs, sport: sport, from: defaults), .invalid)
     }
 
     // MARK: - ActiveRouteStore (the in-flight route, so a kill cannot shorten it)

@@ -450,6 +450,29 @@ enum RouteStore {
         route.points = RoutePointStore.load(for: k, from: defaults)
         return route
     }
+
+    enum ExportTiming: Equatable {
+        case legacy
+        case recorded([WorkoutRoutePoint])
+        case invalid
+    }
+
+    /// Decide whether GPX may use the legacy polyline path. A present but unreadable
+    /// sidecar is damaged evidence, even when the lightweight map still draws.
+    static func exportTiming(startTs: Int, sport: String,
+                             from defaults: UserDefaults = .standard) -> ExportTiming {
+        let k = key(startTs: startTs, sport: sport)
+        guard var route = loadMap(from: defaults)[k] else { return .invalid }
+        let sidecarKey = RoutePointStore.defaultsKey(for: k)
+        if defaults.object(forKey: sidecarKey) != nil {
+            guard let points = RoutePointStore.decode(defaults.data(forKey: sidecarKey)) else {
+                return .invalid
+            }
+            route.points = points
+        }
+        guard let points = route.points, !points.isEmpty else { return .legacy }
+        return route.hasExportableMeasurements ? .recorded(points) : .invalid
+    }
 }
 
 // MARK: - GpsWorkoutRecorder (CoreLocation wrapper)
