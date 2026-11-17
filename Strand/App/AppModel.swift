@@ -96,6 +96,8 @@ final class AppModel: ObservableObject {
     @Published var activeWorkout: ActiveWorkout?
     /// The just-ended workout, for a brief inline confirmation on Live (cleared on the next start).
     @Published var lastWorkout: WorkoutRow?
+    @Published var workoutSaveError: String?
+    private var pendingWorkoutSaveTask: Task<Void, Never>?
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
     /// CoreLocation (#524) , the Apple analogue of Android's `GpsSession` + foreground `LocationManager`.
@@ -470,6 +472,7 @@ final class AppModel: ObservableObject {
             }
             #endif
             await self.repo.refresh()                          // surface any imported data at once
+            self.retryWorkoutSave()
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
@@ -909,6 +912,13 @@ final class AppModel: ObservableObject {
     /// session wins over a stale snapshot) or nothing is stored. Called once from `init`.
     private func rehydrateActiveWorkout() {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
+        // A kill between durable enqueue and clearing preferences must not restart a stopped workout.
+        if let url = try? PendingWorkoutCompletion.defaultURL(),
+           let pending = try? PendingWorkoutCompletion.load(at: url),
+           pending.contains(where: { $0.deviceID == deviceId && $0.row.startTs == snap.startSec && $0.row.sport == snap.sport }) {
+            ActiveWorkoutPersistence.clear()
+            return
+        }
         var w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport)
         w.samples = snap.samples
@@ -975,19 +985,13 @@ final class AppModel: ObservableObject {
 
     func endWorkout() {
         guard let w = activeWorkout else { return }
-        activeWorkout = nil
         let wasGps = activeWorkoutIsGps
-        activeWorkoutIsGps = false
-        // Drop the durable snapshot the instant the session ends , whether it saves below or is discarded
-        // as too-short , so a relaunch never rehydrates an already-finished session (#529).
-        ActiveWorkoutPersistence.clear()
         // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
         // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
         // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
         // Mac with no GPS, or denied permission). A non-GPS session never armed the recorder.
         var route: WorkoutRoute?
         if wasGps {
-            gpsRecorder.stop()
             route = gpsRecorder.capturedRoute()
         }
         let samples = w.samples
@@ -998,7 +1002,7 @@ final class AppModel: ObservableObject {
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "discarded", sportKey: WorkoutSource.traceSportKey(w.sport),
                 hrSamples: samples.count, gpsPoints: route == nil ? 0 : nil))
-            lastWorkout = nil
+            discardWorkout()
             return
         }
         let end = Date()
@@ -1019,7 +1023,7 @@ final class AppModel: ObservableObject {
                 gpsPoints: wasGps ? gpsRecorder.pointCount : nil))
             // Drop the route too: keeping a polyline for a session that was never saved would orphan it in
             // RouteStore under a natural key no row claims.
-            lastWorkout = nil
+            discardWorkout()
             return
         }
         let avg = samples.isEmpty ? nil
@@ -1057,10 +1061,19 @@ final class AppModel: ObservableObject {
             // distance workout; the polyline itself is persisted alongside in RouteStore (the shared
             // WorkoutRow has no route column on Apple). Only a real route sets distance , honest ",".
             distanceM: route?.distanceM, zonesJSON: nil, notes: nil, steps: nil)
-        // Persist the route polyline under the row's natural key so WorkoutDetailView can draw it. On
-        // device only; mirrors the moments / sleepMarks UserDefaults persistence. (#524)
-        if let route { RouteStore.store(route, startTs: startTs, sport: w.sport) }
-        lastWorkout = row
+        // Queue the exact stopped row and route before clearing either recovery snapshot.
+        do {
+            try PendingWorkoutCompletion.enqueue(.init(deviceID: deviceId, row: row, route: route),
+                                                  at: PendingWorkoutCompletion.defaultURL())
+        } catch {
+            workoutSaveError = error.localizedDescription
+            if activeWorkout?.isPaused == false { toggleWorkoutPause() }
+            return
+        }
+        if wasGps { gpsRecorder.stop() }
+        activeWorkoutIsGps = false
+        activeWorkout = nil
+        ActiveWorkoutPersistence.clear()
         // Workouts & GPS test mode: one session-end summary tagged `.workouts` (the lastSessionSummary readout
         // source) carrying the captured HR window size, the duration, and the accepted GPS point count, so the
         // lifecycle of a saved session is visible end to end. `pointCount` is the recorder's accepted-fix tally
@@ -1069,13 +1082,29 @@ final class AppModel: ObservableObject {
             event: "end", sportKey: WorkoutSource.traceSportKey(w.sport), hrSamples: samples.count,
             durationSec: Int(w.elapsed(at: end)),
             gpsPoints: wasGps ? gpsRecorder.pointCount : nil))
-        buzz(loops: 2, gate: HapticPrefs.workout)
-        Task { [weak self] in
+        retryWorkoutSave()
+    }
+
+    /// Retry queued completions after launch or an I/O failure. The original owner/stop time
+    /// are held by the queue, so a device switch or retry cannot create a different session.
+    func retryWorkoutSave() {
+        guard pendingWorkoutSaveTask == nil else { return }
+        pendingWorkoutSaveTask = Task { [weak self] in
             guard let self else { return }
-            if let store = await self.repo.storeHandle() {
-                _ = try? await store.upsertWorkouts([row], deviceId: self.deviceId)
+            defer { self.pendingWorkoutSaveTask = nil }
+            do {
+                let url = try PendingWorkoutCompletion.defaultURL()
+                try await PendingWorkoutCompletion.drain(at: url) { entry in
+                    guard let store = await self.repo.storeHandle() else { throw CocoaError(.fileWriteUnknown) }
+                    _ = try await store.upsertWorkouts([entry.row], deviceId: entry.deviceID)
+                    if let route = entry.route {
+                        try RouteStore.storeAllChecked([(route, entry.row.startTs, entry.row.sport)])
+                    }
+                    self.lastWorkout = entry.row
+                }
+                self.workoutSaveError = nil
                 await self.repo.refresh()
-            }
+            } catch { self.workoutSaveError = error.localizedDescription }
         }
     }
 

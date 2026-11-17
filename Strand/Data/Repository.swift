@@ -193,6 +193,7 @@ final class Repository: ObservableObject {
     /// Imported (export-verbatim) sleep figures by day. Empty until a WHOOP import lands.
     @Published var importedSleep: [String: ImportedSleepFigures] = [:]
     @Published var loaded = false
+    @Published private(set) var lastRefreshError: String?
     /// How much history each source currently holds, recomputed on every `refresh()`. Powers the
     /// Data Sources "Freshness Pipeline" card so the user can see imported vs computed vs Apple coverage.
     @Published private(set) var freshness: RepositoryFreshness = .empty
@@ -244,6 +245,12 @@ final class Repository: ObservableObject {
     }
 
     init(deviceId: String) { self.deviceId = deviceId }
+
+    /// Explicit store injection keeps failure tests away from the user's history.
+    init(deviceId: String, store: WhoopStore) {
+        self.deviceId = deviceId
+        self.store = store
+    }
 
     /// Re-point the read model's ACTIVE-strap id at the device registry's active device, so a re-added
     /// strap's LIVE raw (written under its fresh "whoop-<uuid>" id) surfaces on the dashboard (#814).
@@ -939,8 +946,60 @@ final class Repository: ObservableObject {
     var loadFireCounts: [String: Int] = [:]
     #endif
 
+    private struct RefreshInputs {
+        var imported: [DailyMetric]
+        var computed: [DailyMetric]
+        var apple: [DailyMetric]
+        var activityFile: [DailyMetric]
+        var importedSleeps: [CachedSleepSession]
+        var computedSleeps: [CachedSleepSession]
+        var performance: [MetricPoint]
+        var consistency: [MetricPoint]
+        var need: [MetricPoint]
+        var debt: [MetricPoint]
+    }
+
+    /// The refresh boundary is strict even though many optional detail facades are best effort.
+    /// One failed source keeps the previous coherent cache and an explicit retryable error.
+    private func readRefreshInputs(store: WhoopStore, from: String, to: String,
+                                   lo: Int, hi: Int) async throws -> RefreshInputs {
+        func days(_ ids: [String]) async throws -> [DailyMetric] {
+            var chosen: [String: DailyMetric] = [:]
+            for id in ids {
+                for row in try await store.dailyMetrics(deviceId: id, from: from, to: to) {
+                    chosen[row.day] = chosen[row.day].map { Self.coalesceDay($0, row) } ?? row
+                }
+            }
+            return chosen.values.sorted { $0.day < $1.day }
+        }
+        func sleeps(_ ids: [String]) async throws -> [CachedSleepSession] {
+            var rows: [CachedSleepSession] = []
+            for id in ids { rows += try await store.sleepSessions(deviceId: id, from: lo, to: hi, limit: 4000) }
+            return Self.dedupBlocks(rows)
+        }
+        func series(_ key: String) async throws -> [MetricPoint] {
+            var chosen: [String: MetricPoint] = [:]
+            for id in importedReadIds {
+                for point in try await store.metricSeries(deviceId: id, key: key, from: from, to: to)
+                where chosen[point.day] == nil { chosen[point.day] = point }
+            }
+            return chosen.values.sorted { $0.day < $1.day }
+        }
+        return try await RefreshInputs(
+            imported: days(importedReadIds), computed: days(computedReadIds),
+            apple: store.dailyMetrics(deviceId: Self.appleHealthSource, from: from, to: to),
+            activityFile: store.dailyMetrics(deviceId: Self.activityFileSource, from: from, to: to),
+            importedSleeps: sleeps(rawPhysiologyReadIds(store: store)),
+            computedSleeps: sleeps(rawComputedReadIds(store: store)),
+            performance: series("sleep_performance"), consistency: series("sleep_consistency"),
+            need: series("sleep_need_min"), debt: series("sleep_debt_min"))
+    }
+
     func refresh(days nDays: Int = 4000) async {
-        guard let store = await ensureStore() else { return }
+        guard let store = await ensureStore() else {
+            lastRefreshError = String(localized: "History could not be opened.", table: "Reliability")
+            return
+        }
         refreshGen &+= 1
         let myGen = refreshGen
         let now = Date()
@@ -952,12 +1011,16 @@ final class Repository: ObservableObject {
         // UNION the active strap (live raw, #814) with the canonical "my-whoop" import so a re-added strap's
         // live data AND the canonical history both surface, deduped per day (active strap wins). Collapses to
         // a single id on a single-device install (byte-identical to before).
-        let imported = await unionDailyMetrics(store: store, from: fromDay, to: toDay)
-        let computed = await unionComputedDailyMetrics(store: store, from: fromDay, to: toDay)
-        let apple = (try? await store.dailyMetrics(deviceId: Self.appleHealthSource, from: fromDay, to: toDay)) ?? []
-        let activityFile = (try? await store.dailyMetrics(deviceId: Self.activityFileSource, from: fromDay, to: toDay)) ?? []
-        let impSleep = await unionSleepSessions(store: store, from: lo, to: hi)
-        let compSleep = await unionComputedSleepSessions(store: store, from: lo, to: hi)
+        let inputs: RefreshInputs
+        do { inputs = try await readRefreshInputs(store: store, from: fromDay, to: toDay, lo: lo, hi: hi) }
+        catch {
+            guard myGen == refreshGen else { return }
+            lastRefreshError = error.localizedDescription
+            return // Failed reads cannot replace a last-good snapshot with empty arrays.
+        }
+        let imported = inputs.imported, computed = inputs.computed
+        let apple = inputs.apple, activityFile = inputs.activityFile
+        let impSleep = inputs.importedSleeps, compSleep = inputs.computedSleeps
 
         // #2525: the Charge baselines' inputs, read on the main actor before detaching: today's local day
         // (the same local-calendar key the engine anchors its fold on) and the two recalibration epochs the
@@ -968,10 +1031,8 @@ final class Repository: ObservableObject {
 
         // Export-verbatim sleep figures (long-format metricSeries rows from WhoopImporter).
         // SleepView prefers these per day over its APPROXIMATE recomputations.
-        let perf = await unionMetricSeries(store: store, key: "sleep_performance", from: fromDay, to: toDay)
-        let cons = await unionMetricSeries(store: store, key: "sleep_consistency", from: fromDay, to: toDay)
-        let need = await unionMetricSeries(store: store, key: "sleep_need_min", from: fromDay, to: toDay)
-        let debt = await unionMetricSeries(store: store, key: "sleep_debt_min", from: fromDay, to: toDay)
+        let perf = inputs.performance, cons = inputs.consistency
+        let need = inputs.need, debt = inputs.debt
 
         // Merge + sort OFF the main actor (FIX 3): the figures build, the two O(n log n) daily/sleep merges,
         // the source-row sort, and the freshness counts are all pure over the rows just read, so they run in
@@ -1007,6 +1068,7 @@ final class Repository: ObservableObject {
         // Generation guard (#review): if a newer refresh() started while this one merged off-actor, drop
         // this now-stale result so it can't clobber the newer caches or re-fire loadAll out of order.
         guard myGen == refreshGen else { return }
+        lastRefreshError = nil
 
         // DIFF before publishing (FIX 3): if this refresh produced byte-identical caches AND we've already
         // loaded once, skip the re-publish and the `refreshSeq` bump entirely , assigning an equal value to

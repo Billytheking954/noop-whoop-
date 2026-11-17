@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import StrandAnalytics   // WorkoutsTrace + TestCentre: the GPS-fix line for the Workouts test mode
+import WhoopStore
 
 // MARK: - GPS workout recording on Apple (#524)
 //
@@ -341,6 +342,8 @@ enum RoutePointStore {
 /// is unit-testable; `store` / `load` / `remove` just thread a `UserDefaults` through it. Bounded so a
 /// long-lived install can't grow the blob without limit.
 enum RouteStore {
+    static let storageLock = NSRecursiveLock()
+
 
     /// Single `UserDefaults` key holding a JSON `[key: WorkoutRoute]` map. Namespaced like `moments`.
     static let defaultsKey = "noop.workoutRoutes"
@@ -375,7 +378,9 @@ enum RouteStore {
 
     /// Read the whole stored map (bound-checked).
     static func loadMap(from defaults: UserDefaults = .standard) -> [String: WorkoutRoute] {
-        decodeMap(defaults.data(forKey: defaultsKey))
+        storageLock.lock()
+        defer { storageLock.unlock() }
+        return decodeMap(defaults.data(forKey: defaultsKey))
     }
 
     /// The route for a finished workout, or nil if none was recorded.
@@ -404,6 +409,20 @@ enum RouteStore {
     /// entries rather than the routes this device recorded.
     static func storeAll(_ entries: [(route: WorkoutRoute, startTs: Int, sport: String)],
                          into defaults: UserDefaults = .standard) {
+        try? storeAllChecked(entries, into: defaults)
+    }
+
+    static func storeAllChecked(_ entries: [(route: WorkoutRoute, startTs: Int, sport: String)],
+                                into defaults: UserDefaults = .standard) throws {
+        try StoreWriteBarrier.withWritePermit {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            storeAllPermitted(entries, into: defaults)
+        }
+    }
+
+    private static func storeAllPermitted(_ entries: [(route: WorkoutRoute, startTs: Int, sport: String)],
+                                           into defaults: UserDefaults) {
         let usable = entries.filter { !$0.route.polyline.isEmpty }
         guard !usable.isEmpty else { return }
         var map = loadMap(from: defaults)
@@ -434,11 +453,15 @@ enum RouteStore {
 
     /// Remove a workout's route (used when a session is deleted; keeps the side-store from leaking).
     static func remove(startTs: Int, sport: String, from defaults: UserDefaults = .standard) {
-        var map = loadMap(from: defaults)
-        RoutePointStore.remove(for: key(startTs: startTs, sport: sport), from: defaults)
-        guard map.removeValue(forKey: key(startTs: startTs, sport: sport)) != nil,
-              let data = encodeMap(map) else { return }
-        defaults.set(data, forKey: defaultsKey)
+        try? StoreWriteBarrier.withWritePermit {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            var map = loadMap(from: defaults)
+            RoutePointStore.remove(for: key(startTs: startTs, sport: sport), from: defaults)
+            guard map.removeValue(forKey: key(startTs: startTs, sport: sport)) != nil,
+                  let data = encodeMap(map) else { return }
+            defaults.set(data, forKey: defaultsKey)
+        }
     }
 
     /// The route WITH its recorded point measurements, for the one caller that needs them (the HealthKit
@@ -578,8 +601,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         }
     }
 
-    /// Re-arm a route after restoring an in-flight workout from disk. Route points themselves are not
-    /// persisted mid-session, but the original clock and pause accounting must survive so subsequent
+    /// Re-arm a route from its throttled durable point snapshot. The original clock and
+    /// pause accounting survive so subsequent
     /// live pace excludes all time the workout spent paused before and across the relaunch.
     func restore(startMs: Int64, pausedAtMs: Int64?, pausedDurationMs: Int64) {
         // Read before `start` clears the key, then seed, so a restored session continues the route it was

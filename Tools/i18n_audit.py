@@ -677,6 +677,7 @@ CATALOGS = [
     # Secondary tables are selected by an explicit Swift localization argument.
     ([], ROOT / "Strand/Resources/Estimates.xcstrings"),
     ([], ROOT / "Strand/Resources/WorkoutExport.xcstrings"),
+    ([], ROOT / "Strand/Resources/Reliability.xcstrings"),
 ]
 SWIFT_CATALOG_TABLE = re.compile(r',\s*(?:table|tableName)\s*:\s*"([^"]+)"')
 
@@ -1485,7 +1486,7 @@ def ref_reader(ref: str) -> Reader:
     added by the PR simply reads as empty at the base ref, which correctly
     counts its literals as new)."""
     def read(path: Path) -> str | None:
-        return git_show(ref, str(path.relative_to(ROOT)))
+        return git_show(ref, path.relative_to(ROOT).as_posix())
     return read
 
 
@@ -1500,7 +1501,7 @@ def apple_missing_and_format_gaps(
     for _dirs, catalog_path in CATALOGS:
         cat_text = read(catalog_path)
         cat = json.loads(cat_text) if cat_text else {"strings": {}}
-        rel = str(catalog_path.relative_to(ROOT))
+        rel = catalog_path.relative_to(ROOT).as_posix()
         for lang in LANGS:
             keys_missing = {
                 key for key, entry in cat.get("strings", {}).items()
@@ -1620,7 +1621,7 @@ def ci_check(base_ref: str) -> int:
     cur_missing, cur_fmt = apple_missing_and_format_gaps()
     base_missing, base_fmt = apple_missing_and_format_gaps(base_read)
     for _dirs, catalog_path in CATALOGS:
-        rel = str(catalog_path.relative_to(ROOT))
+        rel = catalog_path.relative_to(ROOT).as_posix()
         # #844: count the shipped locales OUTSIDE the focus set while the catalog is already parsed,
         # and gate them below. Reloading each catalog for a second pass wasted a full re-parse of a
         # 3255-string file. Deliberately disk-based like the rest of this ratchet (not base_ref-diffed

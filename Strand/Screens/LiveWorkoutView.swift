@@ -113,10 +113,18 @@ struct LiveWorkoutView: View {
             Button("Cancel", role: .cancel) { }
             Button("End", role: .destructive) {
                 model.endWorkout()
-                onClose()
+                if model.activeWorkout == nil { onClose() }
             }
         } message: {
             Text("This stops recording and saves what's captured so far. It can't be resumed.")
+        }
+        .alert(Text("Workout save pending", tableName: "Reliability"),
+               isPresented: Binding(get: { model.activeWorkout != nil && model.workoutSaveError != nil },
+                                    set: { if !$0 { model.workoutSaveError = nil } })) {
+            Button(String(localized: "Retry", table: "Reliability")) { model.endWorkout() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(model.workoutSaveError ?? "")
         }
         .confirmationDialog("Delete", isPresented: $showDeleteConfirm,
                             titleVisibility: .visible) {

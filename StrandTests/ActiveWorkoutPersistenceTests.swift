@@ -1,7 +1,11 @@
 import XCTest
 import Foundation
 import WhoopProtocol
+#if os(iOS)
+@testable import NOOPiOS
+#else
 @testable import Strand
+#endif
 
 /// Pins the durable manual-workout codec (#529): the persist -> rehydrate round-trip that lets a
 /// manually-started session survive iOS killing the app mid-session so it can still be ended and saved.

@@ -19,8 +19,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python tools and repository acceptance
+        run: |
+          python3 -m unittest discover -s Tools -p 'test_*.py'
+          (cd Tools/linux-capture && python3 -m unittest discover -p 'test_*.py')
+      - name: Localization regression gate
+        env:
+          NOOP_PUSH_BEFORE: ${{ github.event.before }}
+        run: python3 Tools/i18n_audit.py --ci "${NOOP_PUSH_BEFORE:-HEAD~1}"
+
   source-and-packages:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
@@ -47,9 +66,15 @@ jobs:
             echo "::endgroup::"
           done
           exit "$FAILED"
+      - name: Build shared Swift tools and run their supported tests
+        run: |
+          set -euo pipefail
+          for TOOL in SleepBench SleepPSG Backfill; do
+            ( cd "Tools/$TOOL" && swift build && if grep -q testTarget Package.swift; then swift test; fi )
+          done
 
   macos:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
@@ -86,6 +111,23 @@ jobs:
             -derivedDataPath build/ios-simulator \
             BUNDLE_ID_PREFIX="$NOOP_STAGING_BUNDLE_PREFIX" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Run iPhone safety regression tests
+        run: |
+          set -euo pipefail
+          xcodebuild -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID" \
+            -derivedDataPath build/ios-simulator \
+            -resultBundlePath build/ios-safety.xcresult \
+            BUNDLE_ID_PREFIX="$NOOP_STAGING_BUNDLE_PREFIX" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+      - name: Save iPhone test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop12-iphone-safety-tests
+          path: build/ios-safety.xcresult
+          if-no-files-found: warn
+          retention-days: 14
       - name: Install, launch and capture native iPhone screen
         run: |
           set -euo pipefail
@@ -109,6 +151,7 @@ jobs:
           retention-days: 14
 
   unsigned-iphone-ipa:
+    needs: [source-and-packages, macos, iphone-simulator, tools]
     runs-on: macos-26
     timeout-minutes: 60
     steps:

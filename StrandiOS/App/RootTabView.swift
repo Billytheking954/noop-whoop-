@@ -175,8 +175,29 @@ struct RootTabView: View {
             // interactive-pop itself: far worse than the bug being fixed.
             .simultaneousGesture(tabSwipeGesture,
                                  including: tabPaths[selectedTab].isEmpty ? .all : .subviews)
+        .alert(Text("Workout save pending", tableName: "Reliability"),
+               isPresented: Binding(get: { model.activeWorkout == nil && model.workoutSaveError != nil },
+                                    set: { if !$0 { model.workoutSaveError = nil } })) {
+            Button(String(localized: "Retry", table: "Reliability")) { model.retryWorkoutSave() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Your workout is kept on this device. Retry saving it.", tableName: "Reliability")
+            Text(model.workoutSaveError ?? "")
+        }
+        .safeAreaInset(edge: .top) {
+            if repo.lastRefreshError != nil {
+                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                    Text("History could not be refreshed. Retry to load your stored data.", tableName: "Reliability")
+                        .font(StrandFont.caption)
+                    Button(String(localized: "Retry", table: "Reliability")) { Task { await repo.refresh() } }
+                }
+                .screenPadding()
+                .background(StrandPalette.surfaceRaised)
+            }
+        }
         .task {
-            await repo.refresh()
+            // AppModel owns initial hydration; avoid a competing full-history launch read.
+
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
             // 100MB+ whole-DB ZIP never blocks startup; gated on the auto toggle (default OFF). (Must-fix #4.)
             let backupRepo = repo
