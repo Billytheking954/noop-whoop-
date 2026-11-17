@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  NOOP_UPSTREAM_V12_SHA: '7acce06c3d22cb5dfe959f2c4a43902471d21332'
+  NOOP_STAGING_BUNDLE_PREFIX: com.noopapp.rebuild
+
 # Only the newest source SHA needs a build. Older queued candidates must not
 # consume macOS runners or produce an IPA that appears to be the final revision.
 concurrency:
@@ -21,17 +25,28 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 2
-      - name: Source hygiene and five Swift package suites
+          fetch-depth: 0
+      - name: Source hygiene and Swift package suites
+        env:
+          NOOP_PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           python3 Tools/doc_comment_lint.py
-          git diff --check HEAD^
-          for package in WhoopProtocol WhoopStore StrandAnalytics StrandImport StrandDesign; do
-            echo "::group::Testing $package"
-            ( cd "Packages/$package" && swift test )
+          BASE="$NOOP_PUSH_BEFORE"
+          if [[ -z "$BASE" || "$BASE" == 0000000000000000000000000000000000000000 ]]; then
+            BASE="$NOOP_UPSTREAM_V12_SHA"
+          elif ! git cat-file -e "$BASE^{commit}"; then
+            git fetch --no-tags origin "$BASE"
+          fi
+          git diff --check "$BASE" "$GITHUB_SHA"
+          FAILED=0
+          for manifest in Packages/*/Package.swift; do
+            PACKAGE="${manifest%/Package.swift}"
+            echo "::group::Testing $PACKAGE"
+            ( cd "$PACKAGE" && swift test ) || FAILED=1
             echo "::endgroup::"
           done
+          exit "$FAILED"
 
   macos:
     runs-on: macos-15
@@ -69,6 +84,7 @@ jobs:
           xcodebuild -scheme NOOPiOS -configuration Debug \
             -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID" \
             -derivedDataPath build/ios-simulator \
+            BUNDLE_ID_PREFIX="$NOOP_STAGING_BUNDLE_PREFIX" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Install, launch and capture native iPhone screen
         run: |
@@ -101,11 +117,17 @@ jobs:
       - run: xcodegen generate
       - name: Build unsigned iPhone Release device app with safe staging ID
         run: |
-          xcodebuild -scheme NOOPiOS -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build/dd \
-            BUNDLE_ID_PREFIX=com.noopapp.rebuild \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          set -euo pipefail
+          mkdir -p build
+          BUILD_SETTINGS=(
+            -scheme NOOPiOS -configuration Release
+            -destination 'generic/platform=iOS'
+            -derivedDataPath build/dd
+            "BUNDLE_ID_PREFIX=$NOOP_STAGING_BUNDLE_PREFIX"
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=
+          )
+          xcodebuild "${BUILD_SETTINGS[@]}" build
+          xcodebuild "${BUILD_SETTINGS[@]}" -showBuildSettings -json > build/ios-release-settings.json
       - name: Inspect, prepare and package IPA
         run: |
           set -euo pipefail
@@ -114,19 +136,36 @@ jobs:
           test -d "$APP/PlugIns/NOOPWidgets.appex"
           rm -rf "$APP/Watch"
           python3 - "$APP" <<'PY'
-          import json, os, pathlib, plistlib, sys
+          import json, os, pathlib, plistlib, subprocess, sys
           app = pathlib.Path(sys.argv[1])
           info = plistlib.loads((app/'Info.plist').read_bytes())
           widget = plistlib.loads((app/'PlugIns/NOOPWidgets.appex/Info.plist').read_bytes())
-          assert info['CFBundleShortVersionString'] == widget['CFBundleShortVersionString'] == '12.0.0'
-          assert info['CFBundleVersion'] == widget['CFBundleVersion'] == '435'
-          assert info['AppGroupIdentifier'] == widget['AppGroupIdentifier']
-          assert info['CFBundleIdentifier'].startswith('com.noopapp.rebuild.')
+          settings = json.loads(pathlib.Path('build/ios-release-settings.json').read_text())
+          app_settings, = (item['buildSettings'] for item in settings if item['target'] == 'NOOPiOS')
+          assert info['CFBundleShortVersionString'] == widget['CFBundleShortVersionString'] == app_settings['MARKETING_VERSION']
+          assert info['CFBundleVersion'] == widget['CFBundleVersion'] == app_settings['CURRENT_PROJECT_VERSION']
+          assert info['AppGroupIdentifier'] == widget['AppGroupIdentifier'] == app_settings['APP_GROUP_ID']
+          assert info['CFBundleIdentifier'] == os.environ['NOOP_STAGING_BUNDLE_PREFIX'] + '.noop'
+          assert widget['CFBundleIdentifier'] == info['CFBundleIdentifier'] + '.widgets'
           assert 1 in info['UIDeviceFamily'], 'iPhone device family missing'
+          def tool_version(*args):
+              return subprocess.check_output(args, text=True).strip()
+
+          toolchain = {
+              'runner_image':os.environ.get('ImageVersion'),
+              'macos':tool_version('sw_vers', '-productVersion'),
+              'xcode':tool_version('xcodebuild', '-version'),
+              'ios_sdk':tool_version('xcrun', '--sdk', 'iphoneos', '--show-sdk-version'),
+              'xcodegen':tool_version('xcodegen', '--version')
+          }
+          print('Apple toolchain:', json.dumps(toolchain, sort_keys=True))
           (app/'NOOPBuildProvenance.json').write_text(json.dumps({
               'repository':os.environ['GITHUB_REPOSITORY'],
               'source_sha':os.environ['GITHUB_SHA'],
-              'upstream_v12_sha':'7acce06c3d22cb5dfe959f2c4a43902471d21332',
+              'upstream_v12_sha':os.environ['NOOP_UPSTREAM_V12_SHA'],
+              'marketing_version':info['CFBundleShortVersionString'],
+              'build_number':info['CFBundleVersion'],
+              'toolchain':toolchain,
               'edition':'Ryanbr 12 selective health test candidate',
               'staging_identity':True,
               'spo2_summary_decoder':'unverified research; NOT production scoring',
@@ -157,6 +196,7 @@ jobs:
               widget=plistlib.loads(z.read(widgetRoot+'Info.plist'))
               provenance=json.loads(z.read(root+'NOOPBuildProvenance.json'))
               assert provenance['source_sha']==os.environ['GITHUB_SHA']
+              assert provenance['upstream_v12_sha']==os.environ['NOOP_UPSTREAM_V12_SHA']
               assert root+app['CFBundleExecutable'] in names
               assert widgetRoot+widget['CFBundleExecutable'] in names
               assert app['AppGroupIdentifier']==widget['AppGroupIdentifier']
@@ -168,8 +208,11 @@ jobs:
           (file.parent/(name+'.sha256.txt')).write_text(digest+'  '+name+'\n')
           (file.parent/'manifest.json').write_text(json.dumps({
               'filename':name,'sha256':digest,
-              'source_sha':os.environ['GITHUB_SHA'],
-              'upstream_v12_sha':'7acce06c3d22cb5dfe959f2c4a43902471d21332',
+              'source_sha':provenance['source_sha'],
+              'upstream_v12_sha':provenance['upstream_v12_sha'],
+              'marketing_version':provenance['marketing_version'],
+              'build_number':provenance['build_number'],
+              'toolchain':provenance['toolchain'],
               'unsigned':True,'requires_sideload_resigning':True,
               'safe_for_in_place_data_migration':False,
               'physical_device_validated':False

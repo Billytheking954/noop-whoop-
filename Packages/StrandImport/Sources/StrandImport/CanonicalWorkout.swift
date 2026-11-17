@@ -239,30 +239,4 @@ public struct CanonicalWorkout: Sendable, Equatable {
         }
         return hash
     }
-
-    /// Deterministic, field-specific source precedence. This does not merge conflicting candidates;
-    /// it documents which source a resolver is allowed to choose when multiple candidates describe
-    /// the same canonical field. The winning field must still retain its own provenance.
-    public static func sourcePrecedence(for field: Field) -> [DataSource] {
-        switch field {
-        case .route, .altitude, .elevation:
-            return [.coreLocation, .activityFile, .appleHealth, .whoopImport, .whoopBLE,
-                    .manual, .noopComputed, .lifting, .legacyDetected, .unknown]
-        case .heartRateSamples, .heartRateSummary, .coverage:
-            return [.whoopBLE, .activityFile, .appleHealth, .whoopImport, .coreLocation,
-                    .noopComputed, .manual, .lifting, .legacyDetected, .unknown]
-        case .power, .cadence:
-            return [.activityFile, .appleHealth, .whoopImport, .whoopBLE, .coreLocation,
-                    .noopComputed, .manual, .lifting, .legacyDetected, .unknown]
-        case .strain:
-            return [.whoopImport, .noopComputed, .whoopBLE, .legacyDetected, .activityFile,
-                    .appleHealth, .manual, .lifting, .coreLocation, .unknown]
-        case .identity, .sport, .timing, .duration, .distance, .energy, .laps:
-            // For structural/summary fields, prefer the selected workout's primary source rather than
-            // silently stitching two overlapping workouts together. A higher layer can use this order
-            // only after it has established that candidates represent the same real-world activity.
-            return [.whoopBLE, .whoopImport, .activityFile, .appleHealth, .manual,
-                    .lifting, .noopComputed, .legacyDetected, .coreLocation, .unknown]
-        }
-    }
 }

@@ -674,7 +674,10 @@ CATALOGS = [
         [ROOT / "Strand", ROOT / "StrandiOS", ROOT / "StrandiOSShared", ROOT / "StrandiOSWidgets"],
         ROOT / "Strand/Resources/Localizable.xcstrings",
     ),
+    # Secondary tables are selected by an explicit Swift localization argument.
+    ([], ROOT / "Strand/Resources/Estimates.xcstrings"),
 ]
+SWIFT_CATALOG_TABLE = re.compile(r',\s*(?:table|tableName)\s*:\s*"([^"]+)"')
 
 SWIFT_CALL_START_PATTERN = re.compile(
     r"\b(?:Text|Button|Label|Toggle|Menu|Picker|ProgressView|SectionHeader)\s*\("
@@ -1201,9 +1204,11 @@ def scan_ios(read: Reader | None = None) -> tuple[list[tuple[str, int, str]], di
     # Discovered with THIS reader, so a base-ref scan uses the names as they were at that ref.
     custom_calls = swift_custom_call_pattern(swift_localized_key_call_names(read))
 
+    catalogs = {
+        path: json.loads(data) if (data := read(path)) else {"strings": {}}
+        for _dirs, path in CATALOGS
+    }
     for dirs, catalog_path in CATALOGS:
-        cat_text = read(catalog_path)
-        cat = json.loads(cat_text) if cat_text else {"strings": {}}
         for base in dirs:
             if not base.exists():
                 continue
@@ -1218,13 +1223,18 @@ def scan_ios(read: Reader | None = None) -> tuple[list[tuple[str, int, str]], di
                 if "/Screens/" in path.as_posix() or "/Liquid/" in path.as_posix():
                     literals += list(swift_returned_copy_literals(text))
                 debug_spans = _swift_debug_spans(text)
+                catalog_names = {match.start(1) - 1 for match in SWIFT_CATALOG_TABLE.finditer(text)}
                 for offset, literal in literals:
-                    if not is_probably_ui_text(literal):
+                    if offset in catalog_names or not is_probably_ui_text(literal):
                         continue
                     # Preview fixtures are not copy; see `_swift_debug_spans`.
                     if any(lo <= offset < hi for lo, hi in debug_spans):
                         continue
-                    entry = swift_catalog_lookup(cat, literal)
+                    literal_end = _skip_swift_string_literal(text, offset)
+                    table = SWIFT_CATALOG_TABLE.match(text, literal_end)
+                    resolved_catalog = (catalog_path.with_name(f"{table[1]}.xcstrings")
+                                        if table else catalog_path)
+                    entry = swift_catalog_lookup(catalogs.get(resolved_catalog, {}), literal)
                     line_no = text.count("\n", 0, offset) + 1
                     rel = path.relative_to(ROOT).as_posix()
                     if entry is None:
@@ -1234,7 +1244,7 @@ def scan_ios(read: Reader | None = None) -> tuple[list[tuple[str, int, str]], di
                         continue
                     for lang in LANGS:
                         if not _is_translated(entry, lang):
-                            lang_gaps[lang].append(f"{catalog_path.relative_to(ROOT).as_posix()} :: {literal!r}")
+                            lang_gaps[lang].append(f"{resolved_catalog.relative_to(ROOT).as_posix()} :: {literal!r}")
     for lang in lang_gaps:
         lang_gaps[lang] = sorted(set(lang_gaps[lang]))
     return hardcoded, lang_gaps

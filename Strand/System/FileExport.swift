@@ -87,6 +87,34 @@ enum FileExport {
         #endif
     }
 
+    /// Stage generated data under a unique directory so overlapping shares cannot replace it.
+    static func stageGeneratedFile(_ data: Data, named name: String) throws -> URL {
+        let folder = NoopScratch.subdirectory(UUID().uuidString)
+        let manager = FileManager.default
+        try manager.createDirectory(at: folder, withIntermediateDirectories: false,
+                                    attributes: [.posixPermissions: 0o700])
+        let file = folder.appendingPathComponent(name)
+        do {
+            try data.write(to: file, options: .atomic)
+            return file
+        } catch {
+            try? manager.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    /// Share a file from `stageGeneratedFile`, then remove its private staging directory.
+    @MainActor
+    static func exportGeneratedFile(at file: URL) {
+        let folder = file.deletingLastPathComponent()
+        #if os(macOS)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        exportFile(at: file)
+        #else
+        present(activityItems: [file], cleanup: [folder])
+        #endif
+    }
+
     /// Export an existing file AND a block of text together as a matched pair (#510, raw capture plus the
     /// strap log that produced it). Now a 2-entry case of `exportBundle`: both ride in one `.zip` so a
     /// reporter saves them in a single gesture on every platform (the old macOS path opened two save
@@ -120,7 +148,11 @@ enum FileExport {
                 .first(where: { $0.activationState == .foregroundActive }) ?? UIApplication.shared
                 .connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
-                ?? scene.windows.first?.rootViewController else { completion?(); return }
+                ?? scene.windows.first?.rootViewController else {
+            for url in cleanup { try? FileManager.default.removeItem(at: url) }
+            completion?()
+            return
+        }
         // Present from the TOP-MOST controller, not the root (#455). When the caller is itself inside a
         // SwiftUI sheet — e.g. the Trends report is shown via `.sheet` — root already has that sheet
         // presented, so `root.present(...)` is a no-op ("already presenting…") and the share sheet never

@@ -325,12 +325,6 @@ final class CanonicalWorkoutFitTests: XCTestCase {
         try assertValidTrailingCRC(export.data)
     }
 
-    func testFieldSpecificPrecedenceKeepsLocationAndHROwnershipExplicit() {
-        XCTAssertEqual(CanonicalWorkout.sourcePrecedence(for: .route).first, .coreLocation)
-        XCTAssertEqual(CanonicalWorkout.sourcePrecedence(for: .heartRateSamples).first, .whoopBLE)
-        XCTAssertEqual(CanonicalWorkout.sourcePrecedence(for: .power).first, .activityFile)
-    }
-
     private func assertValidTrailingCRC(_ data: Data, file: StaticString = #filePath, line: UInt = #line) throws {
         let bytes = [UInt8](data)
         XCTAssertGreaterThan(bytes.count, 14, file: file, line: line)

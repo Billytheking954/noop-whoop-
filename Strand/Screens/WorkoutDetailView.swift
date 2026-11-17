@@ -344,12 +344,10 @@ struct WorkoutDetailView: View {
                     guard encoded.stravaUploadReady else {
                         throw CocoaError(.fileWriteUnknown)
                     }
-                    let url = NoopScratch.file(fileName)
-                    try encoded.data.write(to: url, options: .atomic)
-                    return url
+                    return try FileExport.stageGeneratedFile(encoded.data, named: fileName)
                 }.value
                 fitExportBusy = false
-                FileExport.exportFile(at: url, suggestedName: fileName)
+                FileExport.exportGeneratedFile(at: url)
             } catch {
                 fitExportBusy = false
                 exportErrorMessage = "Unable to create a FIT file from the recorded samples: \(error.localizedDescription)"
@@ -430,16 +428,14 @@ struct WorkoutDetailView: View {
                     case .invalid:
                         return nil
                     }
-                    let url = NoopScratch.file(name)
-                    try data.write(to: url, options: .atomic)
-                    return url
+                    return try FileExport.stageGeneratedFile(data, named: name)
                 }.value
                 guard let url else {
                     exportErrorMessage = "The saved GPS measurements could not be read or validated. GPX export requires usable measurements for this route."
                     showExportError = true
                     return
                 }
-                FileExport.exportFile(at: url, suggestedName: name)
+                FileExport.exportGeneratedFile(at: url)
             } catch {
                 exportErrorMessage = "Unable to save the GPX file: \(error.localizedDescription)"
                 showExportError = true

@@ -1743,7 +1743,7 @@ struct TodayView: View {
                             Spacer()
                             if let score = r.score {
                                 VStack(alignment: .trailing, spacing: 2) {
-                                    Text("\(score)/100")
+                                    Text("\(score)/100", tableName: "Estimates")
                                         .font(StrandFont.captionNumber)
                                         .foregroundStyle(StrandPalette.textPrimary)
                                     Text("estimate")
@@ -1751,7 +1751,7 @@ struct TodayView: View {
                                         .foregroundStyle(StrandPalette.textTertiary)
                                 }
                                 .accessibilityElement(children: .combine)
-                                .accessibilityLabel("Estimated training readiness, \(score) out of 100")
+                                .accessibilityLabel(Text("Estimated training readiness, \(score) out of 100", tableName: "Estimates"))
                             }
                         }
                         // #1405: mark this as a DIFFERENT axis from the home Synthesis word (the Charge-%
@@ -1762,7 +1762,7 @@ struct TodayView: View {
                             .foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                         if r.score != nil {
-                            Text("Estimate from \(Int((r.dataCompleteness * 100).rounded()))% available signal coverage; not a medical measurement.")
+                            Text("Estimate from \(Int((r.dataCompleteness * 100).rounded()))% available signal coverage; not a medical measurement.", tableName: "Estimates")
                                 .font(StrandFont.footnote)
                                 .foregroundStyle(StrandPalette.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1844,8 +1844,8 @@ struct TodayView: View {
         case "respRate": return String(localized: "Respiratory rate")
         case "acwr": return String(localized: "Training load")
         case "monotony": return String(localized: "Training variety")
-        case "sleepDuration": return String(localized: "Sleep duration")
-        case "sleepConsistency": return String(localized: "Sleep consistency")
+        case "sleepDuration": return String(localized: "Sleep duration", table: "Estimates")
+        case "sleepConsistency": return String(localized: "Sleep consistency", table: "Estimates")
         case "recovery": return String(localized: "Recovery")
         default: return key
         }
@@ -1874,12 +1874,12 @@ struct TodayView: View {
            case .trainingLoad(let acute, let chronic) = evidence {
             let ratio = readinessNumber(chronic > 0 ? acute / chronic : 0, decimals: 2)
             switch signal.flag {
-            case .good: return String(localized: "within a reference band (acute:chronic \(ratio))")
-            case .bad: return String(localized: "spiking (acute:chronic \(ratio)) - recent load is elevated; monitor fatigue")
+            case .good: return String(localized: "within a reference band (acute:chronic \(ratio))", table: "Estimates")
+            case .bad: return String(localized: "spiking (acute:chronic \(ratio)) - recent load is elevated; monitor fatigue", table: "Estimates")
             case .watch: return acute < chronic
                 ? String(localized: "ramping down (acute:chronic \(ratio)) - room to build")
                 : String(localized: "building fast (acute:chronic \(ratio)) - watch fatigue")
-            case .neutral: return String(localized: "within a reference band (acute:chronic \(ratio))")
+            case .neutral: return String(localized: "within a reference band (acute:chronic \(ratio))", table: "Estimates")
             }
         }
         switch (signal.key, signal.flag) {
@@ -2280,25 +2280,25 @@ struct TodayView: View {
     /// wellness estimate, not a direct sensor reading or a continuous battery trace.
     private var energyReserveSheetCard: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Energy Reserve", overline: "Experimental daily estimate")
+            SectionHeader("Energy Reserve", tableName: "Estimates", overline: "Experimental daily estimate")
             NoopCard(tint: StrandPalette.chargeColor) {
                 if let value = energyReserveEstimate {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("\(value.score)/100")
+                        Text("\(value.score)/100", tableName: "Estimates")
                             .font(StrandFont.number(28))
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Approximation using \(value.coverage)% of available weighted inputs; separate from Charge and Readiness.")
+                        Text("Approximation using \(value.coverage)% of available weighted inputs; separate from Charge and Readiness.", tableName: "Estimates")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("This is not a measured battery level or medical assessment. No workout timestamps or minute-by-minute values have been inferred.")
+                        Text("This is not a measured battery level or medical assessment. No workout timestamps or minute-by-minute values have been inferred.", tableName: "Estimates")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .accessibilityElement(children: .combine)
                 } else {
-                    Text("Not enough recorded sleep and recovery context for an Energy Reserve estimate.")
+                    Text("Not enough recorded sleep and recovery context for an Energy Reserve estimate.", tableName: "Estimates")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)

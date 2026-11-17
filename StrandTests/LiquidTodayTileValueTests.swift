@@ -1,5 +1,6 @@
 import XCTest
 @testable import Strand
+import StrandAnalytics
 
 /// Pins the Key Metrics tile's value/unit join (#492, and the `–%` it left behind).
 ///
@@ -7,6 +8,16 @@ import XCTest
 /// rendered as something that parses like a negative percentage. Android has always suppressed the unit on
 /// its no-data sentinel; these pin the iOS twin so the two cannot drift apart again.
 final class LiquidTodayTileValueTests: XCTestCase {
+
+    @MainActor
+    func testEstimateCacheOnlySuppliesTheSelectedDay() {
+        let snapshot = LiquidTodayView.DayEstimates(
+            dayKey: "2026-11-17", readiness: ReadinessEngine.evaluate(days: []), energyReserve: nil
+        )
+        XCTAssertNotNil(snapshot.forDay("2026-11-17"))
+        XCTAssertNil(snapshot.forDay("2026-11-16"))
+        XCTAssertNil(snapshot.forDay("2026-11-18"))
+    }
 
     /// The reported bug, exactly: a missing metric must not carry a unit.
     func testNoValuePlaceholderDropsItsUnit() {

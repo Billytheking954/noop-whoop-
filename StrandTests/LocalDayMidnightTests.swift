@@ -7,6 +7,25 @@ import StrandAnalytics
 /// LocalDayBucketingTest.midnightLocal_* cases byte-for-byte in logic/constants.
 final class LocalDayMidnightTests: XCTestCase {
 
+    @MainActor
+    func testLogicalDayRollsAtFourOnBothLondonClockChangeDays() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/London"))
+
+        for (month, day) in [(3, 29), (10, 25)] {
+            let midnight = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: month, day: day)))
+            let previousMidnight = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: midnight))
+            let beforeRollover = try XCTUnwrap(calendar.date(from: DateComponents(
+                year: 2026, month: month, day: day, hour: 3, minute: 59
+            )))
+            let rollover = try XCTUnwrap(calendar.date(from: DateComponents(
+                year: 2026, month: month, day: day, hour: 4
+            )))
+            XCTAssertEqual(Repository.logicalDayStart(beforeRollover, calendar: calendar), previousMidnight)
+            XCTAssertEqual(Repository.logicalDayStart(rollover, calendar: calendar), midnight)
+        }
+    }
+
     func testMidnightLocalFloorsToLocalMidnightWestOfUTC() {
         // UTC-4: local 21:00 on 2021-06-15 == 01:00 UTC 2021-06-16 == 1623805200. Local midnight is
         // 2021-06-15 00:00 local == 04:00 UTC == 1623729600.

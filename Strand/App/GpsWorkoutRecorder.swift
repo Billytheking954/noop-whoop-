@@ -663,6 +663,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     fileprivate func ingest(_ fixes: [RawFix]) {
         guard isRecording else { return }
         rawFixCount += fixes.count
+        var updatedDistance = distanceM
         var changed = false
         for fix in fixes {
             if let pt = filter.accept(fix) {
@@ -679,11 +680,14 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
                                      + "is further from it than running speed allows")
                         track.removeAll()
                         routePoints.removeAll()
-                        distanceM = 0
+                        updatedDistance = 0
                         pointCount = 0
                         persistedPointCount = 0
                         ActiveRouteStore.clear()
                     }
+                }
+                if let previous = track.last {
+                    updatedDistance += RouteMath.haversineMeters(previous, pt)
                 }
                 track.append(pt)
                 routePoints.append(WorkoutRoutePoint(lat: fix.lat, lon: fix.lon,
@@ -697,7 +701,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         }
         guard changed else { return }
         pointCount = track.count
-        distanceM = RouteMath.totalMeters(track)
+        distanceM = updatedDistance
         let elapsed = RouteMath.activeElapsedSeconds(
             startMs: startMs,
             nowMs: Int64(Date().timeIntervalSince1970 * 1000),

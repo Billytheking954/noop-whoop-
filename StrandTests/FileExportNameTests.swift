@@ -25,4 +25,18 @@ final class FileExportNameTests: XCTestCase {
         XCTAssertTrue(n.hasPrefix("noop-strap-log-"))
         XCTAssertTrue(n.hasSuffix(".txt"))
     }
+    func testGeneratedFilesWithTheSameNameHaveIndependentContents() throws {
+        let name = "workout.fit"
+        let first = try FileExport.stageGeneratedFile(Data([1]), named: name)
+        defer { try? FileManager.default.removeItem(at: first.deletingLastPathComponent()) }
+        let second = try FileExport.stageGeneratedFile(Data([2]), named: name)
+        defer { try? FileManager.default.removeItem(at: second.deletingLastPathComponent()) }
+
+        XCTAssertEqual(first.lastPathComponent, name)
+        XCTAssertEqual(second.lastPathComponent, name)
+        XCTAssertNotEqual(first.deletingLastPathComponent(), second.deletingLastPathComponent())
+        XCTAssertEqual(try Data(contentsOf: first), Data([1]))
+        XCTAssertEqual(try Data(contentsOf: second), Data([2]))
+    }
+
 }

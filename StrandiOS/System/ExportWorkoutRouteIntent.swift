@@ -132,25 +132,24 @@ struct ExportWorkoutRouteIntent: AppIntent {
     /// rather than being assumed, which is why only routes with point metadata qualify.
     static func newestExportableRoute(from map: [String: WorkoutRoute]? = nil) -> Resolved? {
         let routes = map ?? RouteStore.loadMap()
-        var best: Resolved?
-        for (key, saved) in routes {
-            // RouteStore stores the lightweight polyline in a map and moves real
-            // fixes into RoutePointStore. Previous code inspected saved.points
-            // (almost always nil) and falsely reported "no exportable route".
-            var route = saved
+        let keys = routes.keys.compactMap { key in
+            parseKey(key).map { (key: key, startTs: $0.startTs, sport: $0.sport) }
+        }.sorted {
+            $0.startTs == $1.startTs ? $0.key < $1.key : $0.startTs > $1.startTs
+        }
+        for candidate in keys {
+            guard var route = routes[candidate.key] else { continue }
             if route.points == nil, map == nil {
-                route.points = RoutePointStore.load(for: key)
+                route.points = RoutePointStore.load(for: candidate.key)
             }
             guard route.hasExportableMeasurements,
-                  let points = route.points, let last = points.last,
-                  let parsed = Self.parseKey(key) else { continue }
+                  let points = route.points, let last = points.last else { continue }
             let endTs = Int(last.tMs / 1_000)
-            guard endTs > parsed.startTs else { continue }
-            let candidate = Resolved(startTs: parsed.startTs, endTs: endTs, sport: parsed.sport,
-                                     distanceM: route.distanceM, points: points)
-            if best == nil || candidate.startTs > best!.startTs { best = candidate }
+            guard endTs > candidate.startTs else { continue }
+            return Resolved(startTs: candidate.startTs, endTs: endTs, sport: candidate.sport,
+                            distanceM: route.distanceM, points: points)
         }
-        return best
+        return nil
     }
 
     /// Split a `RouteStore` key back into its parts. A sport may itself contain "|" in principle, so

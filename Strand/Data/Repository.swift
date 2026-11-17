@@ -736,14 +736,12 @@ final class Repository: ObservableObject {
     /// The hour the LOGICAL day rolls (04:00 local). Between midnight and this hour, "Today" stays put.
     nonisolated static let logicalDayRolloverHour = 4
 
-    /// The LOGICAL local day for `now` , the calendar date of `now - rolloverHour hours`. Rolls at
-    /// 04:00 local rather than midnight, so the small hours after midnight still resolve to the prior
-    /// calendar date's row instead of an empty new-calendar-day row (#144). Pure + injectable so the
-    /// boundary is testable (23:59 → same day, 01:00 → previous day, 04:01 → new day). Presentation-only:
-    /// used solely to pick which stored row is Today and to anchor the Today HR-trend window start; stored
-    /// row keys are never rewritten.
-    static func logicalDay(_ now: Date, rolloverHour: Int = logicalDayRolloverHour) -> Date {
-        now.addingTimeInterval(-Double(rolloverHour) * 3_600)
+    /// Resolve the day from the local wall clock. Subtracting elapsed hours across a clock
+    /// change would move the rollover by an hour on the transition day.
+    static func logicalDay(_ now: Date, rolloverHour: Int = logicalDayRolloverHour,
+                           calendar: Calendar = .current) -> Date {
+        guard calendar.component(.hour, from: now) < rolloverHour else { return now }
+        return calendar.date(byAdding: .day, value: -1, to: now) ?? now
     }
 
     /// `yyyy-MM-dd` key for the logical day of `now` (see `logicalDay`).
@@ -756,7 +754,7 @@ final class Repository: ObservableObject {
     /// new calendar midnight while we're still showing yesterday's logical day in the small hours (#144).
     static func logicalDayStart(_ now: Date, calendar: Calendar = .current,
                                 rolloverHour: Int = logicalDayRolloverHour) -> Date {
-        calendar.startOfDay(for: logicalDay(now, rolloverHour: rolloverHour))
+        calendar.startOfDay(for: logicalDay(now, rolloverHour: rolloverHour, calendar: calendar))
     }
 
     /// In-flight open, so concurrent first-callers share ONE open instead of each opening their own.

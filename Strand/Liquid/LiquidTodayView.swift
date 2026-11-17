@@ -136,8 +136,7 @@ struct LiquidTodayView: View {
     // readiness on EVERY re-render (every HR notify, every canvas frame that invalidates, every scroll).
     // Resolve both ONCE per data/day change in load() and read the cache in body (O(1)).
     @State private var cachedDisplayDay: DailyMetric?
-    @State private var cachedReadiness: ReadinessEngine.Readiness?
-    @State private var cachedEnergyReserve: EnergyReserveEngine.Estimate?
+    @State private var cachedEstimates: DayEstimates?
     /// The recovery-INDEPENDENT prior-day vitals carry (HRV / RHR / respiratory), resolved ONCE in load()
     /// alongside cachedDisplayDay. Fixes the v8 rollover blank: after 04:00, before tonight's sleep scores,
     /// today's row has no vitals yet, so these fall back to the last night that recorded them. Never
@@ -465,7 +464,7 @@ struct LiquidTodayView: View {
         .liquidMediumHaptic(trigger: pullHaptic)
         // hydrationSeq joins the id so logging a drink re-reads the card immediately, the same trigger set
         // classic TodayView's reloadHydration() uses.
-        .task(id: "\(repo.refreshSeq)-\(selectedDayOffset)-\(repo.hydrationSeq)-\(hydrationEnabled)-\(dayCycleModeRaw)") {
+        .task(id: "\(repo.refreshSeq)-\(selectedDayKey)-\(selectedDayOffset)-\(repo.hydrationSeq)-\(hydrationEnabled)-\(dayCycleModeRaw)") {
             DashboardCardPrefs.migrateLegacyStepsAverage()
             await load()
         }
@@ -1251,22 +1250,22 @@ struct LiquidTodayView: View {
             if let score = readiness.score {
                 let coverage = Int((readiness.dataCompleteness * 100).rounded())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Training readiness estimate · \(score)/100")
+                    Text("Training readiness estimate · \(score)/100", tableName: "Estimates")
                         .font(StrandFont.caption.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("\(coverage)% signal coverage")
+                    Text("\(coverage)% signal coverage", tableName: "Estimates")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
                 .accessibilityElement(children: .combine)
             }
-            if let estimate = cachedEnergyReserve, let score = estimate.value {
+            if let estimate = selectedEstimates?.energyReserve, let score = estimate.value {
                 let coverage = Int((estimate.completeness * 100).rounded())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Energy Reserve estimate · \(score)/100")
+                    Text("Energy Reserve estimate · \(score)/100", tableName: "Estimates")
                         .font(StrandFont.caption.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Experimental daily estimate · \(coverage)% signal coverage")
+                    Text("Experimental daily estimate · \(coverage)% signal coverage", tableName: "Estimates")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
@@ -1659,6 +1658,7 @@ struct LiquidTodayView: View {
     // MARK: - Data
 
     private func load() async {
+        let loadingDayKey = selectedDayKey
         // #989: today's hydration total + goal. One metricSeries row + a UserDefaults read, same as classic
         // TodayView.reloadHydration(). Cleared when the feature is off so the card can't show a stale total.
         if hydrationEnabled {
@@ -1670,11 +1670,15 @@ struct LiquidTodayView: View {
         }
         // Resolve the O(days) lookups ONCE here (not on every body re-render): the selected day and the
         // readiness verdict. Both scan repo.days (up to 599 rows); doing it per-render was the stutter.
+        await reloadRRUnitPolicy()
+        guard !Task.isCancelled, loadingDayKey == selectedDayKey else { return }
         let day = resolveDisplayDay()
         cachedDisplayDay = day
-        await reloadRRUnitPolicy()
-        cachedReadiness = ReadinessEngine.evaluate(days: repo.days, today: day?.day ?? selectedDayKey)
-        cachedEnergyReserve = estimateEnergyReserve(for: day)
+        cachedEstimates = DayEstimates(
+            dayKey: loadingDayKey,
+            readiness: ReadinessEngine.evaluate(days: repo.days, today: loadingDayKey),
+            energyReserve: estimateEnergyReserve(for: day)
+        )
         // Prior-day vitals carry, resolved ONCE here (never in body). Bound to today's own key so it can't
         // echo today's still-forming row; only on today (a past day's own row is the whole story).
         let tkey = cachedDisplayDay?.day ?? selectedDayKey
@@ -1952,11 +1956,26 @@ struct LiquidTodayView: View {
 
     // MARK: - Derived (sync, off repo.today / repo.days)
 
-    /// Cached in load() — ReadinessEngine.evaluate scans the full history and was invoked ~3× per body
-    /// pass (readinessWord + synthLine + readiness.summary). The fallback runs only in the brief window
-    /// before the first load() populates the cache.
+    struct DayEstimates {
+        let dayKey: String
+        let readiness: ReadinessEngine.Readiness
+        let energyReserve: EnergyReserveEngine.Estimate?
+
+        func forDay(_ selectedDayKey: String) -> Self? {
+            dayKey == selectedDayKey ? self : nil
+        }
+    }
+
+    private var selectedEstimates: DayEstimates? {
+        cachedEstimates?.forDay(selectedDayKey)
+    }
+
+    private static let emptyReadiness = ReadinessEngine.evaluate(days: [])
+
+    /// Hide estimates while the selected day's load is pending. The prior day's cached
+    /// values can otherwise survive a swipe until asynchronous reads return.
     private var readiness: ReadinessEngine.Readiness {
-        cachedReadiness ?? ReadinessEngine.evaluate(days: repo.days, today: cachedDisplayDay?.day ?? selectedDayKey)
+        selectedEstimates?.readiness ?? Self.emptyReadiness
     }
 
     private func estimateEnergyReserve(for day: DailyMetric?) -> EnergyReserveEngine.Estimate? {

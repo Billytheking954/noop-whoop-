@@ -1,6 +1,7 @@
 # Ryanbr v12 selective rebuild | decision record
 
-**Date:** 16 November 2026  
+**Date:** 16 November 2026
+
 **Upstream foundation:** ryanbr/noop tag v12.0.0, commit `7acce06c3d22cb5dfe959f2c4a43902471d21332`.
 
 ## Direction and constraints
@@ -31,9 +32,16 @@ No user records or paired device were accessed while preparing this isolated sou
 ## Follow-up correctness fixes and implementation
 - Daily training load requires 28 consecutive real calendar-day values for an acute:chronic ratio, instead of compressing missing days into a false 28-day window. A recorded zero-strain rest day is valid; gaps are not. Separate regression tests cover both.
 - The readiness sheet was updated for the extra score fields and the new `.value` evidence case, preserving the original Ryanbr layout.
-- The exported workout's raw heart-rate samples use the same source-specific device-ID resolution as its HR chart. Actual GPS timestamps come from the separately stored per-workout `RoutePointStore` and are required before including a route in FIT.
+- FIT export uses the originating strap for detected workouts and the local strap stream for manual workouts. Imported workouts omit timed heart-rate samples when a source-owned stream is unavailable. Actual GPS timestamps come from the separately stored per-workout `RoutePointStore` and are required before including a route in FIT.
 - Shortcuts previously inspected the lightweight route map, which intentionally excludes the measured point arrays, causing false `noExportableRoute`. The lookup now reads the sidecar points and FIT uses the canonical timestamped encoder. Recorded GPX now preserves actual millisecond fix timestamps; interpolation remains only for legacy polyline-only routes and is explicitly labelled approximate.
 - The iOS `NOOPiOS` Xcode scheme has no `test` action in Ryanbr v12. CI therefore verifies simulator compile/install/launch screenshot separately, rather than pretending `xcodebuild test` can run under that scheme. Hosted tests remain in the macOS `Strand` test scheme and Swift package targets.
 - The unsigned staging IPA workflow runs against the exact committed SHA, requires a re-signing sideloader, preserves a separate bundle identity, checks the app/widget archive, and records SHA256. GitHub runners must actually execute before an artifact is claimed.
 
 - The measured GPX export is available from the native workout screen and from Shortcuts when real timestamps were saved. New regression tests pin irregular millisecond intervals and reject invalid, reordered points rather than laundering them into a believable track.
+
+## Staging maintenance checks
+
+- Liquid Today binds readiness and Energy Reserve estimates to the selected local day. The logical day rolls at 04:00 local time across daylight-saving transitions.
+- Live GPS distance updates incrementally. The newest-route Shortcut checks recent routes first, and native export scratch files are isolated and cleared after sharing.
+- The selective readiness additions target Apple. Android still uses the upstream readiness engine and can return different load and readiness assessments.
+- Current backups include workout rows but exclude GPS routes and recorded fixes held in the preferences side store. The store retains at most 400 routes. Migrating route storage requires coordinated backup and rollback coverage before the staging build can be used for in-place migration.

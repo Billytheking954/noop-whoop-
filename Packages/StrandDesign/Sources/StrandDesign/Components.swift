@@ -174,14 +174,17 @@ public struct NoopCard<Content: View>: View {
 
 public struct SectionHeader: View {
     let overline: LocalizedStringKey?; let title: LocalizedStringKey; let trailing: String?
-    public init(_ title: LocalizedStringKey, overline: LocalizedStringKey? = nil, trailing: String? = nil) {
+    private let tableName: String?
+    public init(_ title: LocalizedStringKey, tableName: String? = nil, overline: LocalizedStringKey? = nil,
+                trailing: String? = nil) {
         self.title = title; self.overline = overline; self.trailing = trailing
+        self.tableName = tableName
     }
     public var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                if let overline { Text(overline).strandOverline() }
-                Text(title).font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
+                if let overline { Text(overline, tableName: tableName).strandOverline() }
+                Text(title, tableName: tableName).font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
             }
             Spacer()
             if let trailing {
