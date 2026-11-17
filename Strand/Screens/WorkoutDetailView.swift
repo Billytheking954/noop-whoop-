@@ -105,7 +105,7 @@ struct WorkoutDetailView: View {
             }
         }
         .task { await load() }
-        .alert("Workout export unavailable", isPresented: $showExportError) {
+        .alert(Text("Workout export unavailable", tableName: "WorkoutExport"), isPresented: $showExportError) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(exportErrorMessage)
@@ -293,18 +293,25 @@ struct WorkoutDetailView: View {
     /// samples from the recording strap and GPS point metadata, when present.
     @ViewBuilder private var recordedFitCard: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Workout export", overline: "Recorded data only")
+            SectionHeader("Workout export", tableName: "WorkoutExport", overline: "Recorded data only")
             NoopCard(tint: StrandPalette.effortColor) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Export actual recorded HR and GPS timestamps in FIT format. Missing measurements stay missing.")
+                    Text("Export actual recorded HR and GPS timestamps in FIT format. Missing measurements stay missing.", tableName: "WorkoutExport")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button {
                         exportRecordedFit()
                     } label: {
-                        Label(fitExportBusy ? "Preparing FIT…" : "Export recorded workout (FIT)",
-                              systemImage: "square.and.arrow.up")
+                        Label {
+                            if fitExportBusy {
+                                Text("Preparing FIT…", tableName: "WorkoutExport")
+                            } else {
+                                Text("Export recorded workout (FIT)", tableName: "WorkoutExport")
+                            }
+                        } icon: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
                     }
                     .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                     .disabled(!loaded || fitExportBusy)
@@ -394,10 +401,14 @@ struct WorkoutDetailView: View {
                 }
                 .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 .confirmationDialog("Export route", isPresented: $showRouteExport, titleVisibility: .visible) {
-                    Button("Export GPX") { exportRoute() }
+                    Button {
+                        exportRoute()
+                    } label: {
+                        Text("Export GPX", tableName: "WorkoutExport")
+                    }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("GPX uses recorded GPS times when available. Older routes saved without timed GPS points use approximate times.")
+                    Text("GPX uses recorded GPS times when available. Older routes saved without timed GPS points use approximate times.", tableName: "WorkoutExport")
                 }
             }
         }

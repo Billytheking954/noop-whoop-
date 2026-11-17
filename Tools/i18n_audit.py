@@ -676,6 +676,7 @@ CATALOGS = [
     ),
     # Secondary tables are selected by an explicit Swift localization argument.
     ([], ROOT / "Strand/Resources/Estimates.xcstrings"),
+    ([], ROOT / "Strand/Resources/WorkoutExport.xcstrings"),
 ]
 SWIFT_CATALOG_TABLE = re.compile(r',\s*(?:table|tableName)\s*:\s*"([^"]+)"')
 
