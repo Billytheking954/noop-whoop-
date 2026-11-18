@@ -76,6 +76,11 @@ final class HealthExportMergeTests: XCTestCase {
     func testNeitherSideHavingSdnnIsStillNil() {
         let merged = HealthExportMerge.merged(computed: row(avgHrv: 42), imported: row(avgHrv: 44))
         XCTAssertNil(merged.avgSdnn, "nothing is invented when neither side has a value")
+        XCTAssertNil(HealthExportMerge.sdnnForHealth(merged), "RMSSD must not be exported as SDNN")
+    }
+
+    func testHealthExportUsesOnlySdnn() {
+        XCTAssertEqual(HealthExportMerge.sdnnForHealth(row(avgHrv: 42, avgSdnn: 61)), 61)
     }
 
     func testEveryOtherImportedFieldSurvivesTheCarry() {
