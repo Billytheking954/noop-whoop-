@@ -191,6 +191,41 @@ public enum HealthWriteback {
         appleHealthExternalUUID(kind: metricId, identity: day)
     }
 
+    /// Recognise only our retired device-scoped keys, including strap ids containing colons.
+    /// A current natural key, malformed key, or another app's key must never be swept.
+    public static func isLegacyDeviceScopedAppleHealthKey(_ key: String) -> Bool {
+        let fields = key.split(separator: ":", omittingEmptySubsequences: false)
+        guard fields.count >= 4, fields[0] == "noop",
+              fields[1..<(fields.count - 2)].allSatisfy({ !$0.isEmpty }),
+              let identity = fields.last else { return false }
+        let kind = fields[fields.count - 2]
+        switch kind {
+        case "restingHeartRate", "heartRateVariabilitySDNN", "oxygenSaturation", "respiratoryRate":
+            let parts = identity.split(separator: "-", omittingEmptySubsequences: false)
+            return parts.map(\.count) == [4, 2, 2] && parts.allSatisfy { Int($0) != nil }
+        case "heart-rate", "sleep", "workout":
+            return Int(identity).map { $0 >= 0 } ?? false
+        default:
+            return false
+        }
+    }
+
+    /// Match only current, timestamp-keyed heart-rate samples written by NOOP.
+    public static func isCurrentHeartRateKey(_ key: String) -> Bool {
+        isCurrentNumericKey(key, kind: "heart-rate")
+    }
+
+    /// Match only current, timestamp-keyed workouts written by NOOP.
+    public static func isCurrentWorkoutKey(_ key: String) -> Bool {
+        isCurrentNumericKey(key, kind: "workout")
+    }
+
+    private static func isCurrentNumericKey(_ key: String, kind: String) -> Bool {
+        let prefix = appleHealthExternalUUID(kind: kind, identity: "")
+        guard key.hasPrefix(prefix) else { return false }
+        return Int(key.dropFirst(prefix.count)).map { $0 >= 0 } ?? false
+    }
+
     /// How close to the newest heart rate a night may end and still be read as unfinished.
     public static let openNightMarginSeconds = 20 * 60
 

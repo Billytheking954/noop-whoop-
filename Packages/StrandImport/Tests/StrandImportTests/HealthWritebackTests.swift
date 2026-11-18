@@ -312,6 +312,35 @@ final class HealthWritebackTests: XCTestCase {
         XCTAssertNotEqual(spo2, resp)
     }
 
+    func testCurrentHealthKeysRejectLegacyAndMalformedRecords() {
+        XCTAssertTrue(HealthWriteback.isCurrentHeartRateKey("noop:heart-rate:1700000000"))
+        XCTAssertTrue(HealthWriteback.isCurrentWorkoutKey("noop:workout:1700000000"))
+        XCTAssertFalse(HealthWriteback.isCurrentHeartRateKey("noop:old-strap:heart-rate:1700000000"))
+        XCTAssertFalse(HealthWriteback.isCurrentWorkoutKey("noop:old-strap:workout:1700000000"))
+        XCTAssertFalse(HealthWriteback.isCurrentWorkoutKey("noop:workout:bad"))
+        XCTAssertFalse(HealthWriteback.isCurrentWorkoutKey("noop:workout:1700000000:extra"))
+        XCTAssertFalse(HealthWriteback.isCurrentHeartRateKey("noop:sleep:1700000000"))
+    }
+
+    func testLegacySweepSelectsOnlyRetiredDeviceScopedKeys() {
+        XCTAssertTrue(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            "noop:old-strap:restingHeartRate:2026-08-27"))
+        XCTAssertTrue(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            "noop:AA:BB:CC:heart-rate:1700000000"))
+        XCTAssertTrue(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            "noop:old-strap:workout:1700000000"))
+        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            HealthWriteback.appleHealthVitalKey(metricId: "restingHeartRate", day: "2026-08-27")))
+        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            HealthWriteback.appleHealthWorkoutKey(startTs: 1700000000)))
+        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            "other:old-strap:workout:1700000000"))
+        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            "noop:old-strap:unknown:1700000000"))
+        XCTAssertFalse(HealthWriteback.isLegacyDeviceScopedAppleHealthKey(
+            "noop::workout:1700000000"))
+    }
+
     // MARK: - #1503 stranded-records sweep completion tracking (per-type, not a single boolean)
 
     /// An authorized type that has not been swept is pending — it should be attempted this run.
