@@ -85,22 +85,34 @@ jobs:
           xcodebuild -scheme Strand -configuration Debug \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build-for-testing
-      # Hosted Intel runners can abort the app before XCTest starts with
-      # MTLLoader's "Target device architecture is nil" assertion. Keep the
-      # test attempt and its failure visible without blocking a device IPA
-      # after the complete app/test compile and link has passed.
+      # Hosted Intel runners can abort before XCTest starts if Metal reports
+      # no target architecture. Only that exact pre-test infrastructure abort
+      # is tolerated; any normal test failure still fails the job.
       - name: Attempt hosted macOS tests
-        continue-on-error: true
         run: |
+          mkdir -p build
+          set +e
           xcodebuild -scheme Strand -configuration Debug \
             -destination 'platform=macOS' \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test-without-building
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test-without-building \
+            > build/macos-tests.log 2>&1
+          status=$?
+          cat build/macos-tests.log
+          if [[ "$status" -ne 0 ]]; then
+            if grep -Fq 'Target device architecture is nil' build/macos-tests.log &&
+               grep -Fq 'before starting test execution' build/macos-tests.log; then
+              echo '::warning::Hosted Metal aborted before XCTest; macOS tests did not execute'
+            else
+              exit "$status"
+            fi
+          fi
 
   iphone-simulator:
-    runs-on: macos-26
+    runs-on: macos-15-intel
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
       - run: brew install xcodegen
       - run: xcodegen generate
       - name: Select an available iPhone simulator
@@ -162,10 +174,11 @@ jobs:
 
   unsigned-iphone-ipa:
     needs: [source-and-packages, macos, iphone-simulator, tools]
-    runs-on: macos-26
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+      - run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
       - run: brew install xcodegen
       - run: xcodegen generate
       - name: Build unsigned iPhone Release device app with safe staging ID
