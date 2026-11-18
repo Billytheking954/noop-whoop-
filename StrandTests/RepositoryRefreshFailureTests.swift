@@ -20,12 +20,12 @@ final class RepositoryRefreshFailureTests: XCTestCase {
         XCTAssertEqual(repo.days, [row])
         let sequence = repo.refreshSeq
         // Rename a real input table to provoke an actual SQLite read failure.
-        try store.registryWriter.write { db in try db.execute(sql: "ALTER TABLE dailyMetric RENAME TO unavailableDailyMetric") }
+        try await store.registryWriter.write { db in try db.execute(sql: "ALTER TABLE dailyMetric RENAME TO unavailableDailyMetric") }
         await repo.refresh()
         XCTAssertEqual(repo.days, [row])
         XCTAssertEqual(repo.refreshSeq, sequence)
         XCTAssertNotNil(repo.lastRefreshError)
-        try store.registryWriter.write { db in try db.execute(sql: "ALTER TABLE unavailableDailyMetric RENAME TO dailyMetric") }
+        try await store.registryWriter.write { db in try db.execute(sql: "ALTER TABLE unavailableDailyMetric RENAME TO dailyMetric") }
         await repo.refresh()
         XCTAssertEqual(repo.days, [row])
         XCTAssertNil(repo.lastRefreshError)

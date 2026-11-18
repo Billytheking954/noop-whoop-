@@ -55,3 +55,26 @@ and requires user-side re-signing. The manifest must retain `physical_device_val
 `safe_for_in_place_data_migration: false` until separate evidence justifies changing them. Research
 SpO2 remains unverified and excluded from production health scoring. Ryanbr's native interface remains
 the design foundation.
+
+## 18 November build follow-up
+
+The run for `8ea44fb30a2c323d73922660cfe64f283ee7ca59` failed and produced no artifacts.
+The macOS test target lacked two required awaits in the repository read-failure regression;
+three package tests still expected schema 18 after the explicit schema-49 compatibility changes;
+and the Android copy of the shared oracle had not received the Apple-only identity table entries.
+The repair synchronises the fixture without adding Apple HealthKit tables to Android, retains
+the exact schema assertions at 49, and awaits the fault-injection writes before refreshing.
+
+The parity inventory also predates the selective additions. The stale-base repair re-derives
+the inventory against the exact previous commit and must introduce no new semantic differences
+or exceptions. Energy Reserve remains Apple-only as documented in the rebuild decision record;
+existing cross-platform differences remain visible in the regenerated baseline.
+No test or packaging prerequisite is removed. Apple compilation and hosted test results must be
+checked on the new commit before claiming a new IPA is validated.
+
+Local follow-up validation: the exact-base derived-metadata repair passed with 298 existing
+findings retained; all 50 parity acceptance tests passed against the refreshed inventory.
+The full Python tools run had only the two stale-inventory failures before that refresh
+(336 other tests passed). The capture suite ran 234 tests with one skipped and no failures.
+Source hygiene, localisation and diff whitespace checks passed. Swift/Xcode are unavailable
+in the local Linux environment; the new GitHub build remains the Apple verification gate.
