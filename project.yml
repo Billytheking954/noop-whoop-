@@ -365,6 +365,7 @@ targets:
       - package: ZIPFoundation
       - package: PolarProtocol
       - target: NOOPiOSWidgets
+      - package: OuraProtocol
       # Embed the watchOS app so the iPhone app carries it (NOOP.app/Watch/NOOPWatch.app). A watch app
       # installs by riding inside its iOS companion; without this it would never reach a paired watch.
       # Build-from-source delivers it for certain; sideload install of the embedded watch app under a free
