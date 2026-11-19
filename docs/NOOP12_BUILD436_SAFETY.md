@@ -78,3 +78,16 @@ The full Python tools run had only the two stale-inventory failures before that 
 (336 other tests passed). The capture suite ran 234 tests with one skipped and no failures.
 Source hygiene, localisation and diff whitespace checks passed. Swift/Xcode are unavailable
 in the local Linux environment; the new GitHub build remains the Apple verification gate.
+
+## 19 November build follow-up
+
+Run `44414632819` at `3771075160fbbef3c3140c86739cf7add08df96d` produced no IPA.
+The iPhone shell's pending-workout alert referenced `model` without declaring its environment
+binding. `RootTabView` now reads the `AppModel` already supplied by `StrandiOSApp`, retaining the
+existing pending-save retry flow. The parity snapshots are refreshed through the guarded
+exact-base authority migration; no analytics formula or typed exception is added.
+
+Package and macOS job success in that older run is historical evidence. The macOS job permits
+only its documented pre-XCTest Metal infrastructure abort, so job success alone does not prove
+that hosted tests executed. The next commit still requires its own iPhone regression tests,
+Release device compilation, archive checks and source-provenance verification before delivery.
