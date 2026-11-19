@@ -387,6 +387,7 @@ targets:
       - StrandTests/ActiveWorkoutPersistenceTests.swift
     dependencies:
       - target: NOOPiOS
+      - package: GRDB
       - package: WhoopStore
       - package: WhoopProtocol
       - package: OuraProtocol
