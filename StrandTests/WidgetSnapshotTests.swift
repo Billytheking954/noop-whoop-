@@ -1,4 +1,7 @@
 import XCTest
+#if os(iOS)
+@testable import NOOPiOS
+#endif
 
 final class WidgetSnapshotTests: XCTestCase {
     func testAltStoreProvisionedGroupWinsOverBuildTimeIdentifier() {
