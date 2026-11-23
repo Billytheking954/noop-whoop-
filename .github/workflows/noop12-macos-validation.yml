@@ -1,0 +1,34 @@
+name: NOOP12 exact-source Apple Silicon hosted tests
+on:
+  push:
+    branches: ['validation/noop12-macos-9265f10d']
+permissions:
+  contents: read
+jobs:
+  hosted-tests:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: '9265f10d5c1c82bbc9394e475f1e298f8230fb32'
+      - name: Confirm tested source and runner
+        run: |
+          test "$(git rev-parse HEAD)" = 9265f10d5c1c82bbc9394e475f1e298f8230fb32
+          uname -m
+          xcodebuild -version
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Execute hosted macOS suite
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild -scheme Strand -configuration Debug -destination 'platform=macOS' \
+            -resultBundlePath build/macos-upgrade.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test 2>&1 | tee build/macos-upgrade.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: noop12-macos-9265f10d-results
+          path: build/macos-upgrade*
+          retention-days: 14
