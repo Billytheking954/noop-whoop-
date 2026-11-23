@@ -48,6 +48,50 @@ final class Schema49CompatibilityTests: XCTestCase {
         }
     }
 
+    func testUpgradeRetainsCommittedWALPairingWorkoutsAndSpO2AcrossConcurrentOpens() async throws {
+        let path = tempPath()
+        defer { cleanup(path) }
+        let legacy = try DatabaseQueue(path: path)
+        _ = try await legacy.writeWithoutTransaction { db in
+            try String.fetchOne(db, sql: "PRAGMA journal_mode=WAL")
+        }
+        try WhoopStore.makeMigrator().migrate(legacy, upTo: "v47-rr-whoop5-fill")
+        try await legacy.write { db in
+            try db.execute(sql: "PRAGMA wal_autocheckpoint=0")
+            try db.execute(sql: "INSERT INTO device (id, name, mac) VALUES ('upgrade-strap', 'WHOOP', 'synthetic-peripheral')")
+            try db.execute(sql: "UPDATE pairedDevice SET nickname = 'Retain pairing', model = '5.0' WHERE id = 'my-whoop'")
+            try db.execute(sql: "INSERT INTO cursors (name, value) VALUES ('upgrade-sync', 123456)")
+            try db.execute(sql: "INSERT INTO hrSample (deviceId, ts, bpm) VALUES ('upgrade-strap', 1000, 65)")
+            try db.execute(sql: "INSERT INTO spo2Sample (deviceId, ts, red, ir) VALUES ('upgrade-strap', 1000, 123, 456)")
+            try db.execute(sql: """
+                INSERT INTO workout (deviceId, startTs, endTs, sport, source, durationS, notes)
+                VALUES ('upgrade-strap', 1000, 1600, 'running', 'manual', 600, 'Keep original workout')
+                """)
+            try db.execute(sql: "INSERT INTO journal (deviceId, day, question, answeredYes, notes) VALUES ('upgrade-strap', '2026-11-23', 'test', 1, 'Keep note')")
+        }
+        let walSize = try FileManager.default.attributesOfItem(atPath: path + "-wal")[.size] as? NSNumber
+        XCTAssertGreaterThan(try XCTUnwrap(walSize).intValue, 32)
+        let before = try await legacy.read { db -> [String: [Row]] in
+            let tables = try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'grdb_migrations' ORDER BY name")
+            return try Dictionary(uniqueKeysWithValues: tables.map { table in
+                (table, try Row.fetchAll(db, sql: "SELECT * FROM \"\(table)\""))
+            })
+        }
+        // Both launch-time clients may open the same old store (repository + BLE).
+        async let first = WhoopStore(path: path)
+        async let second = WhoopStore(path: path)
+        let stores = try await (first, second)
+        _ = stores
+        try await legacy.read { db in
+            for (table, rows) in before {
+                XCTAssertEqual(try Row.fetchAll(db, sql: "SELECT * FROM \"\(table)\""), rows,
+                               "Upgrade changed existing table \(table)")
+            }
+            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM grdb_migrations WHERE identifier LIKE 'v48-%' OR identifier LIKE 'v49-%'"), 2)
+        }
+    }
+
     func testReopensV49AndPreservesBothIdentityLedgers() async throws {
         let path = tempPath()
         defer { cleanup(path) }

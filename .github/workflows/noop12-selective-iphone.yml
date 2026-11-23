@@ -10,7 +10,7 @@ permissions:
 
 env:
   NOOP_UPSTREAM_V12_SHA: '7acce06c3d22cb5dfe959f2c4a43902471d21332'
-  NOOP_STAGING_BUNDLE_PREFIX: com.noopapp.rebuild
+  NOOP_BUNDLE_PREFIX: com.noopapp
 
 # Only the newest source SHA needs a build. Older queued candidates must not
 # consume macOS runners or produce an IPA that appears to be the final revision.
@@ -131,7 +131,7 @@ jobs:
           xcodebuild -scheme NOOPiOS -configuration Debug \
             -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID" \
             -derivedDataPath build/ios-simulator \
-            BUNDLE_ID_PREFIX="$NOOP_STAGING_BUNDLE_PREFIX" \
+            BUNDLE_ID_PREFIX="$NOOP_BUNDLE_PREFIX" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Run iPhone safety regression tests
         run: |
@@ -140,7 +140,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$NOOP_SIMULATOR_ID" \
             -derivedDataPath build/ios-simulator \
             -resultBundlePath build/ios-safety.xcresult \
-            BUNDLE_ID_PREFIX="$NOOP_STAGING_BUNDLE_PREFIX" \
+            BUNDLE_ID_PREFIX="$NOOP_BUNDLE_PREFIX" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
       - name: Save iPhone test results
         if: always()
@@ -159,6 +159,14 @@ jobs:
           test -n "$APP"
           ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
           xcrun simctl install "$NOOP_SIMULATOR_ID" "$APP"
+          CONTAINER=$(xcrun simctl get_app_container "$NOOP_SIMULATOR_ID" "$ID" data)
+          mkdir -p "$CONTAINER/Documents"
+          printf '%s' 'NOOP synthetic update retention probe' > "$CONTAINER/Documents/upgrade-probe.txt"
+          xcrun simctl install "$NOOP_SIMULATOR_ID" "$APP"
+          UPDATED=$(xcrun simctl get_app_container "$NOOP_SIMULATOR_ID" "$ID" data)
+          test "$(cat "$UPDATED/Documents/upgrade-probe.txt")" = 'NOOP synthetic update retention probe'
+          rm "$UPDATED/Documents/upgrade-probe.txt"
+          echo 'Same-identity simulator reinstall retained synthetic Documents data; not a signed v12 device update.'
           xcrun simctl launch "$NOOP_SIMULATOR_ID" "$ID"
           mkdir -p iPhoneScreenshots
           sleep 5
@@ -181,7 +189,7 @@ jobs:
       - run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
       - run: brew install xcodegen
       - run: xcodegen generate
-      - name: Build unsigned iPhone Release device app with safe staging ID
+      - name: Build unsigned iPhone Release device app with verified upstream identity
         run: |
           set -euo pipefail
           mkdir -p build
@@ -189,7 +197,7 @@ jobs:
             -scheme NOOPiOS -configuration Release
             -destination 'generic/platform=iOS'
             -derivedDataPath build/dd
-            "BUNDLE_ID_PREFIX=$NOOP_STAGING_BUNDLE_PREFIX"
+            "BUNDLE_ID_PREFIX=$NOOP_BUNDLE_PREFIX"
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=
           )
           xcodebuild "${BUILD_SETTINGS[@]}" build
@@ -211,7 +219,7 @@ jobs:
           assert info['CFBundleShortVersionString'] == widget['CFBundleShortVersionString'] == app_settings['MARKETING_VERSION']
           assert info['CFBundleVersion'] == widget['CFBundleVersion'] == app_settings['CURRENT_PROJECT_VERSION']
           assert info['AppGroupIdentifier'] == widget['AppGroupIdentifier'] == app_settings['APP_GROUP_ID']
-          assert info['CFBundleIdentifier'] == os.environ['NOOP_STAGING_BUNDLE_PREFIX'] + '.noop'
+          assert info['CFBundleIdentifier'] == os.environ['NOOP_BUNDLE_PREFIX'] + '.noop'
           assert widget['CFBundleIdentifier'] == info['CFBundleIdentifier'] + '.widgets'
           assert 1 in info['UIDeviceFamily'], 'iPhone device family missing'
           def tool_version(*args):
@@ -232,8 +240,9 @@ jobs:
               'marketing_version':info['CFBundleShortVersionString'],
               'build_number':info['CFBundleVersion'],
               'toolchain':toolchain,
-              'edition':'Ryanbr 12 selective health test candidate',
-              'staging_identity':True,
+              'edition':'Ryanbr 12 selective upgrade candidate',
+              'staging_identity':False,
+              'installed_signed_identity_verified':False,
               'spo2_summary_decoder':'unverified research; NOT production scoring',
               'physical_device_validated':False
           }, sort_keys=True, indent=2)+'\n')
@@ -285,6 +294,13 @@ jobs:
           },sort_keys=True,indent=2)+'\n')
           print('Verified IPA:',name,'SHA256:',digest)
           PY
+      - name: Compare packaged identity against original Ryanbr v12 IPA
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/ryanbr/noop/releases/download/v12.0.0/NOOP-ios-unsigned-v12.0.0.ipa \
+            -o build/upstream-v12.ipa
+          python3 Tools/verify_noop_upgrade.py build/upstream-v12.ipa release-out/*.ipa \
+            --output release-out/upgrade-identity.json
       - name: Upload unsigned IPA and manifest
         uses: actions/upload-artifact@v4
         with:
