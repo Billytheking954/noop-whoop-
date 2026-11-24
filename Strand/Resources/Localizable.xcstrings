@@ -35,6 +35,46 @@
         }
       }
     },
+    "Check the start, end and sport before saving. Choose Other if you're unsure.": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Prüfe vor dem Speichern Start, Ende und Sportart. Wähle „Andere“, wenn du unsicher bist." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Revisa el inicio, el final y el deporte antes de guardar. Elige Otro si no lo tienes claro." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Vérifiez le début, la fin et le sport avant d’enregistrer. Choisissez Autre en cas de doute." } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Reveja o início, o fim e o desporto antes de guardar. Escolha Outro se não tiver a certeza." } }
+      }
+    },
+    "Review activity suggestion": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Aktivitätsvorschlag prüfen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Revisar sugerencia de actividad" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Vérifier la suggestion d’activité" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Rever sugestão de atividade" } }
+      }
+    },
+    "Review time & sport": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Zeit und Sportart prüfen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Revisar hora y deporte" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Vérifier l’heure et le sport" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Rever hora e desporto" } }
+      }
+    },
+    "Save reviewed activity": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Geprüfte Aktivität speichern" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Guardar actividad revisada" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Enregistrer l’activité vérifiée" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Guardar atividade revista" } }
+      }
+    },
+    "Suggested sport: \\(sportPrediction?.predictedClass.suggestionReviewLabel ?? \"Other / unsure\"). This is only a starting point. Review it, or choose Other if unsure.": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Vorgeschlagene Sportart: \\(sportPrediction?.predictedClass.suggestionReviewLabel ?? \"Other / unsure\"). Das ist nur ein Ausgangspunkt. Prüfe den Vorschlag oder wähle „Andere“, wenn du unsicher bist." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Deporte sugerido: \\(sportPrediction?.predictedClass.suggestionReviewLabel ?? \"Other / unsure\"). Es solo un punto de partida. Revísalo o elige Otro si no lo tienes claro." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Sport suggéré : \\(sportPrediction?.predictedClass.suggestionReviewLabel ?? \"Other / unsure\"). Ce n’est qu’un point de départ. Vérifiez-le ou choisissez Autre en cas de doute." } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Desporto sugerido: \\(sportPrediction?.predictedClass.suggestionReviewLabel ?? \"Other / unsure\"). É apenas um ponto de partida. Reveja-o ou escolha Outro se não tiver a certeza." } }
+      }
+    },
     "After a sync, NOOP checks the last two days of heart rate for possible activity. It offers a suggestion for you to confirm; heart rate alone cannot prove a workout. Nothing is saved until you tap Save. Turning this off stops checks but keeps your workout history. Short or gentle sessions may need to be added manually. On \\(Platform.deviceNounPhrase) only.": {
       "localizations": {
         "de": {
