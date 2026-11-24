@@ -1,4 +1,4 @@
-# Ryanbr v12 upgrade candidate, build 437
+# Ryanbr v12 quality candidate, build 438
 
 This branch continues `4713cca16ed91b58ba8fa7c2c9f9c333134d59b0` without merging to main.
 The owner now requests upstream identity, superseding the earlier staging-only packaging decision.
@@ -10,7 +10,7 @@ Downloaded from https://github.com/ryanbr/noop/releases/download/v12.0.0/NOOP-io
 on 23 November 2026. ZIP CRC passed, size 21,936,724 bytes, SHA-256:
 `e9c2c141ea7e2e40a4f6f38ae1c9e207f729c71a9488c8a21d751ce1618d0a5b`.
 
-| Identity | Original build 435 | Candidate build 437 |
+| Identity | Original build 435 | Candidate build 438 |
 | --- | --- | --- |
 | App | com.noopapp.noop | com.noopapp.noop |
 | Widget | com.noopapp.noop.widgets | com.noopapp.noop.widgets |
@@ -26,7 +26,11 @@ IPA cannot be established without that file. No installed signed bundle has been
 - Build configuration restores the original prefix for app and widgets; no source re-identification
   of the database, defaults, BLE restoration ID or widget group.
 - Build number advances to 437. Existing health/workout reliability fixes remain from build 436.
-- No speculative BLE changes, new sensor formula, UI redesign, schema change or new feature.
+- No speculative BLE changes, new sensor formula, schema change or new physiological feature.
+- The app now presents as `NOOP` rather than the internal `NOOP Staging` product name, without
+  changing the app, widget, App Group, database, defaults or BLE restoration identities.
+- The first-run consent screen and shared surfaces use a calmer, denser visual hierarchy. These are
+  presentation-only changes and do not alter scoring, sync cadence or background behaviour.
 - New archive gate compares the built IPA against the hash-pinned original release, checks identities,
   group entitlements, arm64 executables, version consistency, ZIP CRC and absence of a personal profile.
 - Existing v1-v47 migrations are checked byte-for-byte against the upstream source. The only new

@@ -11,13 +11,14 @@ struct TermsGateView: View {
     @State private var checks: [Bool] = Array(repeating: false, count: Terms.attestations.count)
 
     private var allChecked: Bool { checks.allSatisfy { $0 } }
+    private var confirmedCount: Int { checks.filter { $0 }.count }
 
     var body: some View {
         ZStack {
             StrandPalette.surfaceBase.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     Text("Before you use NOOP")
                         .font(StrandFont.title1)
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -25,23 +26,43 @@ struct TermsGateView: View {
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .multilineTextAlignment(.center)
+                    ProgressView(value: Double(confirmedCount), total: Double(max(1, checks.count)))
+                        .tint(StrandPalette.accent)
+                        .accessibilityLabel("Please confirm each of these:")
+                        .accessibilityValue("\(confirmedCount) of \(checks.count)")
+                    Text(verbatim: "\(confirmedCount) / \(checks.count)")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
                 }
-                .padding(.top, 36)
-                .padding(.bottom, 22)
+                .padding(.horizontal, 30)
+                .padding(.top, 28)
+                .padding(.bottom, 18)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ForEach(Terms.points, id: \.0) { point in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(point.0)
-                                    .font(StrandFont.headline)
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                Text(point.1)
-                                    .font(StrandFont.footnote)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: NoopVisualStyle.itemGap) {
+                        ForEach(Array(Terms.points.enumerated()), id: \.offset) { index, point in
+                            HStack(alignment: .top, spacing: 12) {
+                                Text("\(index + 1)")
+                                    .font(StrandFont.footnote.weight(.bold))
+                                    .foregroundStyle(StrandPalette.accent)
+                                    .frame(width: 28, height: 28)
+                                    .background(StrandPalette.accent.opacity(0.12), in: Circle())
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(point.0)
+                                        .font(StrandFont.headline)
+                                        .foregroundStyle(StrandPalette.textPrimary)
+                                    Text(point.1)
+                                        .font(StrandFont.footnote)
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(NoopVisualStyle.cardPadding)
+                            .background {
+                                NoopPanelSurface(cornerRadius: NoopVisualStyle.cardRadius)
+                            }
                         }
 
                         Rectangle()
@@ -54,15 +75,7 @@ struct TermsGateView: View {
                             .foregroundStyle(StrandPalette.textSecondary)
 
                         ForEach(Array(Terms.attestations.enumerated()), id: \.offset) { idx, line in
-                            Toggle(isOn: Binding(get: { checks[idx] }, set: { checks[idx] = $0 })) {
-                                Text(line)
-                                    .font(StrandFont.footnote)
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            #if os(macOS)
-                            .toggleStyle(.checkbox)   // iOS falls back to the default switch toggle
-                            #endif
+                            confirmationRow(index: idx, line: line)
                         }
 
                         Text("The full terms are in TERMS.md, shipped with NOOP. This is not legal advice.")
@@ -70,7 +83,7 @@ struct TermsGateView: View {
                             .foregroundStyle(StrandPalette.textTertiary)
                             .padding(.top, 2)
                     }
-                    .padding(.horizontal, 30)
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 18)
                 }
                 #if os(iOS)
@@ -93,9 +106,34 @@ struct TermsGateView: View {
                 .tint(StrandPalette.accent)
                 .disabled(!allChecked)
                 .keyboardShortcut(.defaultAction)
-                .padding(26)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 18)
             }
-            .frame(maxWidth: 560, maxHeight: 720)
+            .frame(maxWidth: 560, maxHeight: 780)
         }
+    }
+
+    private func confirmationRow(index: Int, line: String) -> some View {
+        Button {
+            checks[index].toggle()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: checks[index] ? "checkmark.square.fill" : "square")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(checks[index] ? StrandPalette.accent : StrandPalette.textTertiary)
+                    .frame(width: 24)
+                Text(line)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(line)
+        .accessibilityValue(checks[index] ? "Confirmed" : "Not confirmed")
+        .accessibilityAddTraits(checks[index] ? .isSelected : [])
     }
 }

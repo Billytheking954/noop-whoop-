@@ -30,3 +30,10 @@ class UpgradeSourceTests(unittest.TestCase):
              patch.object(verifier, 'inspect', side_effect=[{'com.noopapp.noop': {}}, {'com.noopapp.rebuild.noop': {}}]):
             with self.assertRaisesRegex(AssertionError, 'identities differ'):
                 verifier.compare('original', 'candidate')
+
+    def test_quality_candidate_keeps_identity_but_drops_staging_product_name(self):
+        project = (ROOT / 'project.yml').read_text()
+        self.assertIn('CURRENT_PROJECT_VERSION: "438"', project)
+        self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).noop\n        PRODUCT_NAME: "NOOP"', project)
+        self.assertNotIn('PRODUCT_NAME: "NOOP Staging"', project)
+        self.assertIn('TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP.app/NOOP"', project)
