@@ -130,7 +130,7 @@ extension AutoWorkoutDetector {
         let motionSeries = hasMotion ? motion : nil
         for (start, end) in merged {
             let durMin = (end - start) / 60
-            let overlapping = savedSpans.filter { overlaps(start, end, $0.startSec, $0.endSec) }
+            let overlapping = savedSpans.filter { sameActivity(start, end, $0.startSec, $0.endSec) }
                 .sorted { $0.startSec == $1.startSec ? $0.endSec < $1.endSec : $0.startSec < $1.startSec }
             if !overlapping.isEmpty {
                 // #2527: measure each suppression before choosing a duration-aware policy. The exact

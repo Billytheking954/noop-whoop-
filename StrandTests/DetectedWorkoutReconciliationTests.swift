@@ -65,6 +65,16 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             older,
             "an exact dismissal from the confirmation-card store must still suppress its candidate")
 
+        let shiftedNewer = DetectedWorkout(startSec: 3_060, endSec: 3_960,
+                                           avgBpm: 141, peakBpm: 166, durationMin: 15)
+        XCTAssertEqual(
+            Repository.selectAutoDetectCandidate(
+                [older, shiftedNewer],
+                autoDismissedTokens: ["3000:3900"],
+                detectedDismissedTokens: []),
+            older,
+            "a sync boundary shift must not repeat a suggestion the user already handled")
+
         XCTAssertEqual(
             Repository.selectAutoDetectCandidate(
                 [older, newer],

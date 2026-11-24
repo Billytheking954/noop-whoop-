@@ -113,6 +113,22 @@ final class AutoWorkoutDetectorTests: XCTestCase {
         XCTAssertEqual(AutoWorkoutDetector.detect(hr: hr, restingBpm: 60).count, 1)
     }
 
+    func testSavedWorkoutBoundaryCollarSuppressesRoundedManualOrImportedTwin() {
+        let start = 7_100_000
+        let hr = elapsedSpan(start, 20 * 60, 120)
+        let near = SavedWorkoutSpan(startSec: start - 20 * 60,
+                                    endSec: start - AutoWorkoutDetector.savedWorkoutCollarS)
+        XCTAssertTrue(AutoWorkoutDetector.detect(
+            hr: hr, restingBpm: 60, savedSpans: [near]).isEmpty,
+            "a saved session at the five-minute boundary is the same activity")
+
+        let separate = SavedWorkoutSpan(startSec: start - 20 * 60,
+                                        endSec: start - AutoWorkoutDetector.savedWorkoutCollarS - 1)
+        XCTAssertEqual(AutoWorkoutDetector.detect(
+            hr: hr, restingBpm: 60, savedSpans: [separate]).count, 1,
+            "a genuinely separate activity outside the collar remains suggestible")
+    }
+
     func testMotionConfirmationGatesWhenSeriesPresent() {
         // Same elevated HR bout, but the gravity series is perfectly STILL over the window → no motion
         // confirmation → rejected. With no gravity series (HR-only) the same bout IS detected.

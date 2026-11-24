@@ -74,6 +74,10 @@ public enum AutoWorkoutDetector {
     public static let maxHRSampleGapS = 120
     /// Two detected windows whose gap is strictly less than this are merged into one (5 min).
     public static let mergeGapS = 5 * 60
+    /// A saved session is treated as the same activity when it overlaps the candidate or sits within
+    /// this collar. Detector boundaries move as late HR arrives; without the collar an imported/manual
+    /// workout ending seconds before the inferred start could still produce a duplicate prompt.
+    public static let savedWorkoutCollarS = 5 * 60
     /// When an OPTIONAL continuous motion series is supplied, a window must ALSO show elevated motion
     /// to qualify (confirmation). "Elevated motion" = the window's mean per-second motion intensity
     /// (L2 gravity-delta) is at least this. Ignored entirely in HR-only mode. Matches the Kotlin twin.
@@ -218,7 +222,7 @@ public enum AutoWorkoutDetector {
         var results: [DetectedWorkout] = []
         for (start, end) in merged {
             // 6: never re-suggest a window overlapping an already-saved workout.
-            if savedSpans.contains(where: { overlaps(start, end, $0.startSec, $0.endSec) }) { continue }
+            if savedSpans.contains(where: { sameActivity(start, end, $0.startSec, $0.endSec) }) { continue }
 
             let window = seg.filter { $0.ts >= start && $0.ts <= end }
             if window.isEmpty { continue }
@@ -244,5 +248,18 @@ public enum AutoWorkoutDetector {
     /// Mirrors the Kotlin `overlaps`.
     static func overlaps(_ aStart: Int, _ aEnd: Int, _ bStart: Int, _ bEnd: Int) -> Bool {
         aStart <= bEnd && bStart <= aEnd
+    }
+
+    /// Conservative duplicate-prompt guard for saved manual/imported sessions. Exact overlap remains
+    /// sufficient; otherwise a small boundary collar absorbs detector drift and timestamp rounding.
+    /// A genuine later activity more than five minutes away remains eligible.
+    public static func sameActivity(_ aStart: Int, _ aEnd: Int,
+                                    _ bStart: Int, _ bEnd: Int,
+                                    collarS: Int = savedWorkoutCollarS) -> Bool {
+        guard aEnd >= aStart, bEnd >= bStart else { return false }
+        if overlaps(aStart, aEnd, bStart, bEnd) { return true }
+        let collar = max(0, collarS)
+        if aEnd < bStart { return bStart - aEnd <= collar }
+        return aStart - bEnd <= collar
     }
 }

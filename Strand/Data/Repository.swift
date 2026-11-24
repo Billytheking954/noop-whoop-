@@ -373,6 +373,21 @@ final class Repository: ObservableObject {
         return Self.mergeGravityByTs(lists)
     }
 
+    /// Step/activity-class samples over the same physical-strap union used by HR and gravity. The
+    /// classifier needs the per-tick activity class, not a merged counter, so timestamp dedup is the
+    /// correct shape and the active strap wins an exact tie.
+    func stepSamplesUnion(from: Int, to: Int, limit: Int = 200_000) async -> [StepSample] {
+        guard let store = await storeHandle() else { return [] }
+        var byTs: [Int: StepSample] = [:]
+        for id in rawPhysiologyReadIds(store: store) {
+            for sample in (try? await store.stepSamples(deviceId: id, from: from, to: to,
+                                                       limit: limit)) ?? [] where byTs[sample.ts] == nil {
+                byTs[sample.ts] = sample
+            }
+        }
+        return byTs.values.sorted { $0.ts < $1.ts }
+    }
+
     /// Merge gravity lists into one time-ordered stream, deduped by timestamp with the FIRST list (the
     /// active strap) winning a tie. A single-id read is returned UNCHANGED, so a single-device install
     /// performs exactly the read it did before the union existed.
@@ -3190,6 +3205,15 @@ final class Repository: ObservableObject {
         "\(w.startSec):\(w.endSec)"
     }
 
+    /// Parse the historical exact-token store back into spans. Older builds compared the token bytes,
+    /// so the same activity could prompt again after a sync moved either inferred boundary by a second.
+    nonisolated private static func autoDetectTokenSpan(_ token: String) -> SavedWorkoutSpan? {
+        let parts = token.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let start = Int(parts[0]), let end = Int(parts[1]), end >= start else { return nil }
+        return SavedWorkoutSpan(startSec: start, endSec: end)
+    }
+
     /// Select the newest published suggestion after applying BOTH durable dismissal contracts. The
     /// suggestion detector historically used exact span tokens; engine-created rows used half-open overlap
     /// tombstones because a re-score could shift the inferred boundary by a few seconds. Preserve both
@@ -3200,10 +3224,15 @@ final class Repository: ObservableObject {
         detectedDismissedTokens: [String]
     ) -> DetectedWorkout? {
         let exact = Set(autoDismissedTokens)
+        let dismissedSpans = autoDismissedTokens.compactMap(autoDetectTokenSpan)
         let legacy = WorkoutSource.parseDismissedSpans(detectedDismissedTokens)
         return candidates
             .filter { candidate in
                 !exact.contains(autoDetectToken(candidate))
+                    && !dismissedSpans.contains { span in
+                        AutoWorkoutDetector.sameActivity(
+                            candidate.startSec, candidate.endSec, span.startSec, span.endSec)
+                    }
                     && !legacy.contains { span in
                         candidate.startSec < span.end && span.start < candidate.endSec
                     }
@@ -3251,6 +3280,7 @@ final class Repository: ObservableObject {
     /// PURE READ: never writes a workout. The window scans from `daysBack` days ago to now.
     func autoDetectCandidate(daysBack: Int = 2) async -> DetectedWorkout? {
         guard PuffinExperiment.autoDetectWorkoutsEnabled else { return nil }
+        let auditStartedAt = Date()
         let now = Int(Date().timeIntervalSince1970)
         let from = now - daysBack * 86_400
         let samples = await hrSamples(from: from, to: now, limit: 200_000)
@@ -3289,6 +3319,38 @@ final class Repository: ObservableObject {
                 emitWorkouts(line)
             }
             candidates = results
+
+            // Real-label audit: run the published detector WITHOUT saved-span suppression, then compare
+            // it with manual/imported sessions. Classification is advisory and scored only where a
+            // detected window overlaps a real label. All inputs are existing local rows; this performs
+            // no BLE read, sensor sampling, write or upload.
+            let gravity = await gravitySamplesUnion(from: from, to: now, limit: 200_000)
+            let steps = await stepSamplesUnion(from: from, to: now, limit: 200_000)
+            let rawSuggestions = AutoWorkoutDetector.detect(
+                hr: hr, restingBpm: restingBpm, motion: nil, savedSpans: [],
+                minimumSustainedMinutes: AutoWorkoutDetector.minSustainedMin)
+            let audited = rawSuggestions.map { suggestion -> AuditedWorkoutSuggestion in
+                let prediction = WorkoutTypeFeatureExtractor.extract(
+                    hr: samples, gravity: gravity, steps: steps,
+                    start: suggestion.startSec, end: suggestion.endSec,
+                    restingHR: restingBpm.map(Double.init), maxHR: nil, caloriesKcal: nil)
+                    .map(WorkoutTypeClassifier.classify)?.predictedClass ?? .other
+                return AuditedWorkoutSuggestion(workout: suggestion, predictedClass: prediction)
+            }
+            let labels = saved
+                .filter {
+                    $0.endTs >= from && $0.startTs <= now
+                        && WorkoutSource.classify($0.source) != .detected
+                }
+                .map { LabeledWorkoutSession(startSec: $0.startTs, endSec: $0.endTs,
+                                             activity: $0.sport) }
+            let elapsedMs = Int(Date().timeIntervalSince(auditStartedAt) * 1000.0)
+            let report = WorkoutSuggestionAudit.evaluate(
+                labels: labels, suggestions: audited,
+                cost: WorkoutSuggestionAuditCost(
+                    wallMilliseconds: elapsedMs, hrSamples: samples.count,
+                    gravitySamples: gravity.count, stepSamples: steps.count))
+            for line in report.traceLines() { emitWorkouts(line) }
         } else {
             candidates = AutoWorkoutDetector.detect(hr: hr, restingBpm: restingBpm,
                                                     motion: nil, savedSpans: savedSpans,
@@ -3298,6 +3360,23 @@ final class Repository: ObservableObject {
             candidates,
             autoDismissedTokens: autoDetectDismissedSpans,
             detectedDismissedTokens: dismissedDetectedSpans)
+    }
+
+    /// Coarse, explicitly advisory sport seed for the mandatory review form. Missing/ambiguous inputs
+    /// return `.other`, shown as "Other / unsure"; no result is written until the user reviews and saves.
+    func autoDetectSportSuggestion(_ w: DetectedWorkout) async -> WorkoutClassPrediction {
+        let hr = await hrSamples(from: w.startSec, to: w.endSec, limit: 200_000)
+        async let gravityRead = gravitySamplesUnion(from: w.startSec, to: w.endSec, limit: 200_000)
+        async let stepsRead = stepSamplesUnion(from: w.startSec, to: w.endSec, limit: 200_000)
+        let gravity = await gravityRead
+        let steps = await stepsRead
+        let restingBpm = days.last(where: { $0.restingHr != nil })?.restingHr
+        guard let features = WorkoutTypeFeatureExtractor.extract(
+            hr: hr, gravity: gravity, steps: steps, start: w.startSec, end: w.endSec,
+            restingHR: restingBpm.map(Double.init), maxHR: nil, caloriesKcal: nil) else {
+            return WorkoutClassPrediction(predictedClass: .other, confidence: 0, scores: [:])
+        }
+        return WorkoutTypeClassifier.classify(features)
     }
 
     /// Motion is supporting evidence only. The WHOOP 5/MG may bank HR without usable gravity;
@@ -3317,18 +3396,32 @@ final class Repository: ObservableObject {
         return moving.count * 4 >= supported.count
     }
 
-    /// SAVE a suggested window as a manual-style "Workout" (generic sport , we don't claim a sport we
-    /// didn't classify). Built through the same `WorkoutSource.buildManualRow` the manual sheet uses, so
-    /// it persists exactly like a hand-entered session under the strap source. After saving, the screen
-    /// re-queries (the new saved span now excludes this window from re-suggestion).
+    /// Legacy programmatic entry point. Product UI no longer calls this directly: it must show the
+    /// editable time/sport review first. The generic `Other` seed avoids asserting a sport.
     @discardableResult
     func saveDetectedWorkout(_ w: DetectedWorkout) async -> Bool {
-        let durationMin = max(1, w.durationMin)
         let start = Date(timeIntervalSince1970: TimeInterval(w.startSec))
-        guard let row = WorkoutSource.buildManualRow(start: start, durationMin: durationMin,
-                                                     sport: "Workout", avgHr: w.avgBpm,
-                                                     energyKcal: nil) else { return false }
+        let end = Date(timeIntervalSince1970: TimeInterval(w.endSec))
+        guard let row = WorkoutSource.buildManualRowFromSpan(
+            start: start, end: end, sport: "Other", avgHr: w.avgBpm, energyKcal: nil) else { return false }
+        return await saveReviewedDetectedWorkout(row, suggestion: w)
+    }
+
+    /// Persist the row the user reviewed. Re-read saved sessions immediately before the write so two
+    /// overlapping refresh/save paths, or a just-arrived Apple Health import, cannot create a duplicate.
+    /// Finding an existing session counts as handled: the suggestion is dismissed and no second row is
+    /// written. The reviewed row may carry edited time/sport and is otherwise the normal manual path.
+    @discardableResult
+    func saveReviewedDetectedWorkout(_ row: WorkoutRow, suggestion w: DetectedWorkout) async -> Bool {
+        let saved = await workoutRows()
+        if saved.contains(where: {
+            AutoWorkoutDetector.sameActivity(w.startSec, w.endSec, $0.startTs, $0.endTs)
+        }) {
+            dismissDetectedSuggestion(w)
+            return true
+        }
         await saveManualWorkout(row)
+        dismissDetectedSuggestion(w)
         return true
     }
 

@@ -24,6 +24,9 @@ private struct SuggestionsHeightKey: PreferenceKey {
 struct ManualWorkoutSheet: View {
     /// The row being edited, or nil for a new manual workout.
     let editing: WorkoutRow?
+    /// True only for an auto-detect suggestion. The row is a draft, not an existing saved workout;
+    /// copy and actions must make the required review explicit rather than implying certainty.
+    let reviewingSuggestion: Bool
     /// Called with the validated row (and the original, when editing) once the user taps Save.
     let onSave: (_ row: WorkoutRow, _ replacing: WorkoutRow?) -> Void
 
@@ -65,8 +68,10 @@ struct ManualWorkoutSheet: View {
     @State private var suggestionsHeight: CGFloat = 0
 
     init(editing: WorkoutRow? = nil,
+         reviewingSuggestion: Bool = false,
          onSave: @escaping (_ row: WorkoutRow, _ replacing: WorkoutRow?) -> Void) {
         self.editing = editing
+        self.reviewingSuggestion = reviewingSuggestion
         self.onSave = onSave
         // Pre-fill from the edited row (display "detected" as "Activity" so a re-label starts clean).
         let e = editing
@@ -328,12 +333,15 @@ struct ManualWorkoutSheet: View {
                 .background(StrandPalette.effortColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(editing == nil ? "Add Workout" : "Edit Workout")
+                Text(reviewingSuggestion ? "Review activity suggestion"
+                     : (editing == nil ? "Add Workout" : "Edit Workout"))
                     .font(StrandFont.title2)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text(editing == nil
-                     ? "Log a session you tracked elsewhere."
-                     : "Adjust this session's details.")
+                Text(reviewingSuggestion
+                     ? "Check the start, end and sport before saving. Choose Other if you're unsure."
+                     : (editing == nil
+                        ? "Log a session you tracked elsewhere."
+                        : "Adjust this session's details."))
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
@@ -345,11 +353,13 @@ struct ManualWorkoutSheet: View {
         HStack(spacing: NoopMetrics.space3) {
             NoopButton("Cancel", kind: .tertiary) { dismiss() }
             Spacer()
-            NoopButton(editing == nil ? "Add" : "Save", systemImage: "checkmark", kind: .primary) {
+            NoopButton(reviewingSuggestion ? "Save reviewed activity" : (editing == nil ? "Add" : "Save"),
+                       systemImage: "checkmark", kind: .primary) {
                 save()
             }
             .disabled(builtRow == nil)
-            .accessibilityLabel(editing == nil ? "Add workout" : "Save workout")
+            .accessibilityLabel(reviewingSuggestion ? "Save reviewed activity"
+                                : (editing == nil ? "Add workout" : "Save workout"))
         }
     }
 
