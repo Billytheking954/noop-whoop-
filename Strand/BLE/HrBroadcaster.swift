@@ -68,6 +68,7 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// soon as a central subscribes and re-armed only when the last central leaves.
     private var idleStopTask: Task<Void, Never>?
     private var broadcastGeneration = 0
+    @Published public private(set) var idleTimedOut = false
     static let duplicateMinimumInterval: TimeInterval = 2
     static let noSubscriberTimeout: TimeInterval = 300
 
@@ -98,6 +99,7 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// who never opts in never triggers the system Bluetooth-permission prompt.
     public func start() {
         wantAdvertising = true
+        idleTimedOut = false
         statusNote = nil
         idleStopTask?.cancel()
         if manager == nil {
@@ -239,8 +241,9 @@ public final class HrBroadcaster: NSObject, ObservableObject {
                       self.broadcastGeneration == generation,
                       self.subscriberCount == 0,
                       self.wantAdvertising else { return }
-                self.statusNote = "Stopped after 5 minutes with no connected receiver to save battery."
                 self.stop()
+                self.idleTimedOut = true
+                self.statusNote = "Stopped after 5 minutes with no connected receiver to save battery."
             }
         }
     }
@@ -274,19 +277,20 @@ extension HrBroadcaster: @preconcurrency CBPeripheralManagerDelegate {
     public func peripheralManager(_ peripheral: CBPeripheralManager,
                                   central: CBCentral,
                                   didSubscribeTo characteristic: CBCharacteristic) {
-        guard characteristic.uuid == Self.heartRateMeasurement else { return }
+        guard peripheral === manager, characteristic.uuid == Self.heartRateMeasurement else { return }
         subscriberCount += 1
         idleStopTask?.cancel()
         idleStopTask = nil
         log("HR-out: a central subscribed (now \(subscriberCount))")
         // Send the latest reading immediately so a freshly connected machine shows a value at once.
+        lastSentBpm = nil
         if let bpm = lastBpm { notify(bpm: bpm) }
     }
 
     public func peripheralManager(_ peripheral: CBPeripheralManager,
                                   central: CBCentral,
                                   didUnsubscribeFrom characteristic: CBCharacteristic) {
-        guard characteristic.uuid == Self.heartRateMeasurement else { return }
+        guard peripheral === manager, characteristic.uuid == Self.heartRateMeasurement else { return }
         subscriberCount = max(0, subscriberCount - 1)
         if subscriberCount == 0 { scheduleIdleStop() }
     }
@@ -294,6 +298,6 @@ extension HrBroadcaster: @preconcurrency CBPeripheralManagerDelegate {
     public func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
         // The transmit queue drained after a full-queue updateValue. Re-send the freshest reading so a
         // value lands promptly rather than waiting for the next live sample.
-        if let bpm = lastBpm { notify(bpm: bpm) }
+        if peripheral === manager, let bpm = lastBpm { notify(bpm: bpm) }
     }
 }
