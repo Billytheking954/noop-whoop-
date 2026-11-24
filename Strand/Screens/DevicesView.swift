@@ -271,6 +271,21 @@ private struct DevicesContent: View {
             addButton
                 .staggeredAppear(index: activeDevices.count)
 
+            #if os(iOS)
+            // Only send WHOOP-specific commands when the registry identifies the active device as WHOOP.
+            if activeDevices.contains(where: { $0.status == .active && SourceCoordinator.isWhoop($0) }) {
+                DeviceStrapControls()
+                NavigationLink(destination: PowerSavingView()) {
+                    Label("Power saving", systemImage: "battery.25")
+                }
+                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+            }
+            NavigationLink(destination: DataSourcesView()) {
+                Label("Data Sources", systemImage: "dot.radiowaves.up.forward")
+            }
+            .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+            #endif
+
             // #1300 tier 2: read-only "compare straps" card — how the two straps' most recent shared day
             // lines up per metric (agree / a little different / conflict), reusing the fusion tolerances.
             // Never mixes into a score (I2). Shown only when 2 WHOOP straps share a readable day.

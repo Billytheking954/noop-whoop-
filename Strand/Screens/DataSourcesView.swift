@@ -835,6 +835,7 @@ struct DataSourcesView: View {
             .toggleStyle(.switch)
             .tint(DomainTheme.effort.color)
             .accessibilityLabel("Broadcast heart rate as a Bluetooth sensor")
+            .disabled(!broadcastHrEnabled && strapBroadcastHrEnabled)
             .onChangeCompat(of: broadcastHrEnabled) { on in
                 if on {
                     hrBroadcaster.start()
@@ -955,6 +956,7 @@ struct DataSourcesView: View {
             .toggleStyle(.switch)
             .tint(StrandPalette.accent)
             .accessibilityLabel("Broadcast heart rate from the strap")
+            .disabled(!strapBroadcastHrEnabled && (broadcastHrEnabled || !live.connected || !live.encryptedBond))
             .onChangeCompat(of: strapBroadcastHrEnabled) { model.ble.setBroadcastHr($0) }
         }
     }

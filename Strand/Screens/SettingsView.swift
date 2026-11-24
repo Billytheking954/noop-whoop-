@@ -176,9 +176,6 @@ struct SettingsView: View {
     /// The strap model the user last picked (same key the scan pickers write). Gates the WHOOP 4.0-only
     /// rename control in the strap card — renaming uses the Harvard command set, which a 5/MG doesn't share.
     @AppStorage("selectedWhoopModel") private var selectedWhoopModelRaw = WhoopModel.whoop4.rawValue
-    /// Draft text for the strap-rename field (strap card). Empty placeholder; never pre-seeded so the
-    /// current name stays visible separately above it.
-    @State private var strapNameDraft = ""
 
     /// Whether to surface the WHOOP 5/MG-only probes (puffin/R22/broadcast-HR/frame-capture). Gated so a
     /// confident 4.0 owner never sees 5/MG controls that can't touch their strap (#22). The model
@@ -264,7 +261,19 @@ struct SettingsView: View {
                 profileCard.staggeredAppear(index: 0)
                 unitsCard.staggeredAppear(index: 1)
                 appearanceCard.staggeredAppear(index: 2)
-                strapCard.staggeredAppear(index: 3)
+                #if os(iOS)
+                SettingsSection(icon: "antenna.radiowaves.left.and.right", title: "Devices",
+                                blurb: "Pair and manage the bands NOOP reads from.") {
+                    NavigationLink(destination: DevicesView()) {
+                        Label("Devices", systemImage: "chevron.right")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                }
+                .staggeredAppear(index: 3)
+                #else
+                DeviceStrapControls().staggeredAppear(index: 3)
+                #endif
                 #if os(iOS)
                 liveNotificationsCard.staggeredAppear(index: 3)
                 #endif
@@ -1417,157 +1426,6 @@ struct SettingsView: View {
         }
     }
     #endif
-
-    // MARK: - Strap
-
-    private var strapCard: some View {
-        SettingsSection(
-            icon: "antenna.radiowaves.left.and.right",
-            title: "Strap",
-            blurb: "NOOP pairs directly with your WHOOP over Bluetooth: no WHOOP app, no cloud."
-        ) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    StatePill("\(strapStatusTitle)", tone: strapTone, pulsing: live.connected)
-                    if live.connected, let pct = live.batteryPct {
-                        StatePill(live.charging == true
-                                  ? "Battery \(Int(pct.rounded()))% · Charging"
-                                  : "Battery \(Int(pct.rounded()))%",
-                                  tone: batteryTone(pct), showsDot: false)
-                    }
-                    Spacer(minLength: 0)
-                }
-                Text(strapStatusDetail)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                VStack(spacing: NoopMetrics.space3) {
-                    NoopButton("Re-scan", systemImage: "arrow.clockwise", kind: .primary) {
-                        model.scan()
-                    }
-
-                    NoopButton("Disconnect", systemImage: "xmark.circle", kind: .secondary) {
-                        model.disconnect()
-                    }
-                    .disabled(!live.connected && !live.bonded)
-                }
-
-                rowDivider
-                // MARK: Strap log — a Settings shortcut so people don't have to hunt for it on the Live
-                // screen (#507: couldn't find it on Mac; #509: same on iPhone). Same text as the Live card.
-                HStack(spacing: 12) {
-                    Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    Spacer()
-                    Button("Copy") { PlatformPasteboard.copy(live.exportableLogText()) }
-                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-                    Button("Save…") {
-                        Task {
-                            let extra = await DebugDataDiagnostics.dynamicLines(repo: model.repo)
-                            FileExport.exportText(live.exportableLogText(extraHeaderLines: extra),
-                                                  suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt"))
-                        }
-                    }
-                    .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-                }
-                Text("Grab this when you report a bug. It tells me what the app saw. (The full live log is also on the Live screen.)")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // #518: Continuous HRV capture, "Overnight only" and the HRV window picker moved to the
-                // "HRV" card under Advanced (see `hrvCard`) — same @AppStorage bindings, same BLE + re-score
-                // wiring, just relocated as power-user tuning rather than shown here at all times.
-
-                // MARK: Strap name — rename the WHOOP 4.0's BLE advertising name (Harvard command set).
-                if live.connected && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue {
-                    rowDivider
-                    strapNameControl
-                }
-
-            }
-        }
-    }
-
-
-    /// Rename the WHOOP 4.0's BLE advertising name. Shows the current name (read back from firmware in
-    /// the connect handshake → `LiveState.advertisingName`) and writes a new one via `renameStrap`. The
-    /// strap reboots to apply, so the new name lands on the next connect. WHOOP 4.0 only (Harvard).
-    @ViewBuilder private var strapNameControl: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Strap name").strandOverline()
-            Text("Current: \(live.advertisingName ?? "—")")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-            HStack(spacing: NoopMetrics.space3) {
-                TextField("New strap name", text: $strapNameDraft)
-                    .textFieldStyle(.plain)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .padding(.horizontal, NoopMetrics.space3)
-                    .padding(.vertical, 9)
-                    .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-                    .disableAutocorrection(true)
-                    .accessibilityLabel("New strap name")
-                NoopButton("Rename", systemImage: "pencil", kind: .primary) {
-                    model.ble.renameStrap(strapNameDraft)
-                }
-                .disabled(strapNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            if let status = live.renameStatus {
-                Text(status)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Text("Changes the Bluetooth name your WHOOP 4.0 advertises (what you see when pairing). The strap reboots to apply, so the new name appears the next time it connects. WHOOP 4.0 only.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    // Shares LiveState.connectionStatus* with the sidebar footer (RootView) so the two never drift (#266).
-    private var strapStatusTitle: String { live.connectionStatusLabel }
-
-    private var strapTone: StrandTone {
-        if live.connectionStatusIsActive { return .positive }
-        if live.connectionStatusIsIdle { return .warning }
-        return .critical
-    }
-
-    private var strapStatusDetail: String {
-        // encryptedBond, not bonded — see LiveState.connectionStatusLabel. Saying "is paired" for a
-        // live-HR-only link contradicts both LiveView's pill and the buzz/alarm rows on this same screen,
-        // which correctly refuse and explain that they need the full encrypted bond.
-        //
-        // A live-HR link falls through to the pairing hint when one is set, and otherwise to "Finishing
-        // the secure pairing handshake…", which is accurate HERE because this platform still retries the
-        // CLIENT_HELLO on every connect. The #1635 suppression is now ported here too, so once it latches
-        // nothing is finishing any more and the old fall-through would describe a handshake that is no
-        // longer being attempted. The `bonded && connected` arm below is that fix, matching the Android
-        // twin (`SettingsLogic.strapStatusLine`).
-        if live.encryptedBond && live.connected {
-            return String(localized: "Your strap is paired and sending data. Open Live for a real-time heart rate.")
-        }
-        // An actionable hint outranks the generic arm: the suppression hint names the one action that
-        // restores the handshake, which "not fully paired" alone does not.
-        if live.connected, let hint = live.pairingHint { return hint }
-        // Live HR over the UNBONDED standard profile (#69). True whenever the handshake is suppressed or
-        // simply has not landed, and the honest description either way.
-        if live.bonded && live.connected {
-            return String(localized: "Live heart rate is streaming, but your strap is not fully paired. The encrypted pairing is what carries motion, skin temperature, SpO₂ and respiratory rate — without it, sleep is staged from heart rate alone. Buzz, alarms and history sync need it too.")
-        }
-        if live.connected { return String(localized: "Connected. Finishing the secure pairing handshake…") }
-        if live.bonded { return String(localized: "Previously paired but not currently connected. Re-scan to reconnect.") }
-        return String(localized: "No strap connected. Put your WHOOP nearby and tap Re-scan to pair.")
-    }
-
-    private func batteryTone(_ pct: Double) -> StrandTone {
-        if pct <= 15 { return .critical }
-        if pct <= 30 { return .warning }
-        return .positive
-    }
 
     // MARK: - Recovery (Charge baseline)
 
@@ -2854,6 +2712,177 @@ private struct SettingsDisclosureGroup<Content: View>: View {
 
 /// A grouped settings card: a "Settings" overline + icon + title header, an explanatory blurb,
 /// then content. The surface stays neutral; accent blue is reserved for the icon and controls.
+// Reused in the iPhone device manager and the existing Mac Settings screen.
+struct DeviceStrapControls: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    @AppStorage("selectedWhoopModel") private var selectedWhoopModelRaw = WhoopModel.whoop4.rawValue
+    @State private var strapNameDraft = ""
+
+    // MARK: - Strap
+
+    var body: some View {
+        SettingsSection(
+            icon: "antenna.radiowaves.left.and.right",
+            title: "Strap",
+            blurb: "NOOP pairs directly with your WHOOP over Bluetooth: no WHOOP app, no cloud."
+        ) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    StatePill("\(strapStatusTitle)", tone: strapTone, pulsing: live.connected)
+                    if live.connected, let pct = live.batteryPct {
+                        StatePill(live.charging == true
+                                  ? "Battery \(Int(pct.rounded()))% · Charging"
+                                  : "Battery \(Int(pct.rounded()))%",
+                                  tone: batteryTone(pct), showsDot: false)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text(strapStatusDetail)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                VStack(spacing: NoopMetrics.space3) {
+                    NoopButton("Re-scan", systemImage: "arrow.clockwise", kind: .primary, fullWidth: true) {
+                        model.scan()
+                    }
+
+                    NoopButton("Disconnect", systemImage: "xmark.circle", kind: .secondary, fullWidth: true) {
+                        model.disconnect()
+                    }
+                    .disabled(!live.connected && !live.bonded)
+                    NoopButton("Sync now", systemImage: "arrow.triangle.2.circlepath", kind: .secondary, fullWidth: true) {
+                        model.ble.syncNow()
+                    }
+                    .disabled(!live.historyReady || live.backfilling)
+                    NoopButton("Buzz strap", systemImage: "waveform.path", kind: .secondary, fullWidth: true) {
+                        model.buzzStrapOnce()
+                    }
+                    .disabled(!live.connected || !live.encryptedBond)
+                }
+
+                rowDivider
+                // MARK: Strap log — a Settings shortcut so people don't have to hunt for it on the Live
+                // screen (#507: couldn't find it on Mac; #509: same on iPhone). Same text as the Live card.
+                HStack(spacing: 12) {
+                    Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer()
+                    Button("Copy") { PlatformPasteboard.copy(live.exportableLogText()) }
+                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
+                    Button("Save…") {
+                        Task {
+                            let extra = await DebugDataDiagnostics.dynamicLines(repo: model.repo)
+                            FileExport.exportText(live.exportableLogText(extraHeaderLines: extra),
+                                                  suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt"))
+                        }
+                    }
+                    .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
+                }
+                Text("Grab this when you report a bug. It tells me what the app saw. (The full live log is also on the Live screen.)")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // #518: Continuous HRV capture, "Overnight only" and the HRV window picker moved to the
+                // "HRV" card under Advanced (see `hrvCard`) — same @AppStorage bindings, same BLE + re-score
+                // wiring, just relocated as power-user tuning rather than shown here at all times.
+
+                // MARK: Strap name — rename the WHOOP 4.0's BLE advertising name (Harvard command set).
+                if live.connected && live.encryptedBond && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue {
+                    rowDivider
+                    strapNameControl
+                }
+
+            }
+        }
+    }
+
+
+    /// Rename the WHOOP 4.0's BLE advertising name. Shows the current name (read back from firmware in
+    /// the connect handshake → `LiveState.advertisingName`) and writes a new one via `renameStrap`. The
+    /// strap reboots to apply, so the new name lands on the next connect. WHOOP 4.0 only (Harvard).
+    @ViewBuilder private var strapNameControl: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Strap name").strandOverline()
+            Text("Current: \(live.advertisingName ?? "—")")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+            HStack(spacing: NoopMetrics.space3) {
+                TextField("New strap name", text: $strapNameDraft)
+                    .textFieldStyle(.plain)
+                    .font(StrandFont.body)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .padding(.horizontal, NoopMetrics.space3)
+                    .padding(.vertical, 9)
+                    .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(StrandPalette.hairline, lineWidth: 1))
+                    .disableAutocorrection(true)
+                    .accessibilityLabel("New strap name")
+                NoopButton("Rename", systemImage: "pencil", kind: .primary) {
+                    model.ble.renameStrap(strapNameDraft)
+                }
+                .disabled(strapNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let status = live.renameStatus {
+                Text(status)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+            Text("Changes the Bluetooth name your WHOOP 4.0 advertises (what you see when pairing). The strap reboots to apply, so the new name appears the next time it connects. WHOOP 4.0 only.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // Shares LiveState.connectionStatus* with the sidebar footer (RootView) so the two never drift (#266).
+    private var strapStatusTitle: String { live.connectionStatusLabel }
+
+    private var strapTone: StrandTone {
+        if live.connectionStatusIsActive { return .positive }
+        if live.connectionStatusIsIdle { return .warning }
+        return .critical
+    }
+
+    private var strapStatusDetail: String {
+        // encryptedBond, not bonded — see LiveState.connectionStatusLabel. Saying "is paired" for a
+        // live-HR-only link contradicts both LiveView's pill and the buzz/alarm rows on this same screen,
+        // which correctly refuse and explain that they need the full encrypted bond.
+        //
+        // A live-HR link falls through to the pairing hint when one is set, and otherwise to "Finishing
+        // the secure pairing handshake…", which is accurate HERE because this platform still retries the
+        // CLIENT_HELLO on every connect. The #1635 suppression is now ported here too, so once it latches
+        // nothing is finishing any more and the old fall-through would describe a handshake that is no
+        // longer being attempted. The `bonded && connected` arm below is that fix, matching the Android
+        // twin (`SettingsLogic.strapStatusLine`).
+        if live.encryptedBond && live.connected {
+            return String(localized: "Your strap is paired and sending data. Open Live for a real-time heart rate.")
+        }
+        // An actionable hint outranks the generic arm: the suppression hint names the one action that
+        // restores the handshake, which "not fully paired" alone does not.
+        if live.connected, let hint = live.pairingHint { return hint }
+        // Live HR over the UNBONDED standard profile (#69). True whenever the handshake is suppressed or
+        // simply has not landed, and the honest description either way.
+        if live.bonded && live.connected {
+            return String(localized: "Live heart rate is streaming, but your strap is not fully paired. The encrypted pairing is what carries motion, skin temperature, SpO₂ and respiratory rate — without it, sleep is staged from heart rate alone. Buzz, alarms and history sync need it too.")
+        }
+        if live.connected { return String(localized: "Connected. Finishing the secure pairing handshake…") }
+        if live.bonded { return String(localized: "Previously paired but not currently connected. Re-scan to reconnect.") }
+        return String(localized: "No strap connected. Put your WHOOP nearby and tap Re-scan to pair.")
+    }
+
+    private func batteryTone(_ pct: Double) -> StrandTone {
+        if pct <= 15 { return .critical }
+        if pct <= 30 { return .warning }
+        return .positive
+    }
+
+    private var rowDivider: some View {
+        Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.vertical, 4)
+    }
+}
+
 private struct SettingsSection<Content: View>: View {
     let icon: String
     let title: LocalizedStringKey
