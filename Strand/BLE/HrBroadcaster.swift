@@ -59,6 +59,17 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// connected machine shows a value immediately rather than waiting for the next sample. nil until the
     /// first sample of a session; cleared on stop so a stale bpm can't outlive the broadcast.
     private var lastBpm: Int?
+    /// Last value actually placed on the CoreBluetooth transmit queue. LiveState can publish the same
+    /// rounded BPM repeatedly; sending those duplicates wastes radio airtime and phone battery without
+    /// adding information to a treadmill or bike computer.
+    private var lastSentBpm: Int?
+    private var lastSentAt: Date?
+    /// A forgotten broadcast must not keep the iPhone advertising indefinitely. The timer is cancelled as
+    /// soon as a central subscribes and re-armed only when the last central leaves.
+    private var idleStopTask: Task<Void, Never>?
+    private var broadcastGeneration = 0
+    static let duplicateMinimumInterval: TimeInterval = 2
+    static let noSubscriberTimeout: TimeInterval = 300
 
     /// `private(set)` rather than `private` so `HrBroadcasterEncodeTests` can assert that ``bind(to:)``
     /// leaves exactly one subscription however many times it is called — the leak it fixes is invisible
@@ -88,6 +99,7 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     public func start() {
         wantAdvertising = true
         statusNote = nil
+        idleStopTask?.cancel()
         if manager == nil {
             // Queue-less manager → delegate callbacks arrive on the main queue, matching @MainActor.
             manager = CBPeripheralManager(delegate: self, queue: nil)
@@ -100,7 +112,12 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// restart never re-emits an old value.
     public func stop() {
         wantAdvertising = false
+        broadcastGeneration &+= 1
+        idleStopTask?.cancel()
+        idleStopTask = nil
         lastBpm = nil
+        lastSentBpm = nil
+        lastSentAt = nil
         subscriberCount = 0
         advertising = false
         if let manager, manager.state == .poweredOn {
@@ -145,12 +162,20 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// Send a 0x2A37 Heart Rate Measurement notification to every subscribed central.
     private func notify(bpm: Int) {
         guard let manager, let hrCharacteristic, manager.state == .poweredOn else { return }
+        let now = Date()
+        if let lastSentAt,
+           now.timeIntervalSince(lastSentAt) < Self.duplicateMinimumInterval,
+           lastSentBpm == bpm {
+            return
+        }
         let value = Data(Self.measurement(bpm: bpm))
         // updateValue returns false when the transmit queue is full; CoreBluetooth then calls
         // peripheralManagerIsReady(toUpdateSubscribers:) and the NEXT live sample sends fine. We
         // deliberately don't buffer dropped samples — HR is a live, lossy signal, and the freshest
         // value is what gym kit wants. No retry storm, no growth.
-        _ = manager.updateValue(value, for: hrCharacteristic, onSubscribedCentrals: nil)
+        guard manager.updateValue(value, for: hrCharacteristic, onSubscribedCentrals: nil) else { return }
+        lastSentBpm = bpm
+        lastSentAt = now
     }
 
     // MARK: - Pure encoder (unit-tested away from CoreBluetooth)
@@ -199,6 +224,25 @@ public final class HrBroadcaster: NSObject, ObservableObject {
         }
         advertising = true
         statusNote = nil
+        scheduleIdleStop()
+    }
+
+    private func scheduleIdleStop() {
+        idleStopTask?.cancel()
+        guard subscriberCount == 0, wantAdvertising else { return }
+        let generation = broadcastGeneration
+        idleStopTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.noSubscriberTimeout))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self,
+                      self.broadcastGeneration == generation,
+                      self.subscriberCount == 0,
+                      self.wantAdvertising else { return }
+                self.statusNote = "Stopped after 5 minutes with no connected receiver to save battery."
+                self.stop()
+            }
+        }
     }
 }
 
@@ -232,6 +276,8 @@ extension HrBroadcaster: @preconcurrency CBPeripheralManagerDelegate {
                                   didSubscribeTo characteristic: CBCharacteristic) {
         guard characteristic.uuid == Self.heartRateMeasurement else { return }
         subscriberCount += 1
+        idleStopTask?.cancel()
+        idleStopTask = nil
         log("HR-out: a central subscribed (now \(subscriberCount))")
         // Send the latest reading immediately so a freshly connected machine shows a value at once.
         if let bpm = lastBpm { notify(bpm: bpm) }
@@ -242,6 +288,7 @@ extension HrBroadcaster: @preconcurrency CBPeripheralManagerDelegate {
                                   didUnsubscribeFrom characteristic: CBCharacteristic) {
         guard characteristic.uuid == Self.heartRateMeasurement else { return }
         subscriberCount = max(0, subscriberCount - 1)
+        if subscriberCount == 0 { scheduleIdleStop() }
     }
 
     public func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {

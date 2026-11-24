@@ -79,6 +79,11 @@ final class HrBroadcasterEncodeTests: XCTestCase {
         XCTAssertEqual(broadcaster.cancellables.count, 1)
     }
 
+    func testBroadcastBatteryPolicyConstantsStayConservative() {
+        XCTAssertEqual(HrBroadcaster.duplicateMinimumInterval, 2, accuracy: 0.001)
+        XCTAssertEqual(HrBroadcaster.noSubscriberTimeout, 300, accuracy: 0.001)
+    }
+
     // MARK: - Round-trip against the parser (the encoder is the parser's exact inverse)
 
     func testRoundTripThroughParser() {
