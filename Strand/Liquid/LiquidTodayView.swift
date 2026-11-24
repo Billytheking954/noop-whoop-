@@ -922,7 +922,7 @@ struct LiquidTodayView: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
-                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12))
+                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12, surfaceOpacity: cardOpacity))
         }
     }
 
@@ -936,7 +936,7 @@ struct LiquidTodayView: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
-                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12))
+                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12, surfaceOpacity: cardOpacity))
         }
     }
 
@@ -950,7 +950,7 @@ struct LiquidTodayView: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
-                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12))
+                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12, surfaceOpacity: cardOpacity))
         }
     }
 
@@ -964,7 +964,7 @@ struct LiquidTodayView: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
-                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12))
+                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12, surfaceOpacity: cardOpacity))
         }
     }
 
@@ -978,7 +978,7 @@ struct LiquidTodayView: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
-                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12))
+                .background(NoopPanelSurface(tint: StrandPalette.restColor, cornerRadius: 12, surfaceOpacity: cardOpacity))
         }
     }
 
@@ -1639,6 +1639,7 @@ struct LiquidTodayView: View {
     private func sectionHead(_ title: String, trailing: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(LocalizedStringKey(title)).font(StrandFont.overline).tracking(1.6).foregroundStyle(StrandPalette.textTertiary)
+                .layoutPriority(1)
             Spacer()
             if let trailing {
                 Text(LocalizedStringKey(trailing)).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
@@ -3241,6 +3242,8 @@ private extension View {
     @ViewBuilder func liquidSheetDoneChrome(done: @escaping () -> Void) -> some View {
         #if os(iOS)
         self.navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done", action: done).foregroundStyle(StrandPalette.accent)

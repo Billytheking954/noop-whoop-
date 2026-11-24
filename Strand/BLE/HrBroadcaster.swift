@@ -98,6 +98,7 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// service, and advertise it. Idempotent. The manager is created lazily on first `start()` so a user
     /// who never opts in never triggers the system Bluetooth-permission prompt.
     public func start() {
+        guard !wantAdvertising else { return }
         wantAdvertising = true
         idleTimedOut = false
         statusNote = nil
@@ -146,7 +147,6 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     public func bind(to live: LiveState) {
         cancellables.removeAll()
         live.$heartRate
-            .removeDuplicates()
             .sink { [weak self] hr in self?.update(heartRate: hr) }
             .store(in: &cancellables)
     }
@@ -154,8 +154,9 @@ public final class HrBroadcaster: NSObject, ObservableObject {
     /// Feed a live HR sample (bpm) to broadcast. nil (no current reading) sends nothing — we never invent
     /// a value. A non-physiological bpm is dropped so untrusted/garbage input can't be re-broadcast.
     public func update(heartRate bpm: Int?) {
-        guard wantAdvertising, let bpm, (20...255).contains(bpm) else { return }
-        lastBpm = bpm
+        guard wantAdvertising else { return }
+        lastBpm = Self.validLiveBPM(bpm)
+        guard let bpm = lastBpm else { return }
         notify(bpm: bpm)
     }
 
@@ -163,13 +164,10 @@ public final class HrBroadcaster: NSObject, ObservableObject {
 
     /// Send a 0x2A37 Heart Rate Measurement notification to every subscribed central.
     private func notify(bpm: Int) {
-        guard let manager, let hrCharacteristic, manager.state == .poweredOn else { return }
+        guard subscriberCount > 0, let manager, let hrCharacteristic, manager.state == .poweredOn else { return }
         let now = Date()
-        if let lastSentAt,
-           now.timeIntervalSince(lastSentAt) < Self.duplicateMinimumInterval,
-           lastSentBpm == bpm {
-            return
-        }
+        guard Self.shouldNotify(subscribers: subscriberCount, bpm: bpm, lastBpm: lastSentBpm,
+                                elapsed: lastSentAt.map { now.timeIntervalSince($0) }) else { return }
         let value = Data(Self.measurement(bpm: bpm))
         // updateValue returns false when the transmit queue is full; CoreBluetooth then calls
         // peripheralManagerIsReady(toUpdateSubscribers:) and the NEXT live sample sends fine. We
@@ -178,6 +176,19 @@ public final class HrBroadcaster: NSObject, ObservableObject {
         guard manager.updateValue(value, for: hrCharacteristic, onSubscribedCentrals: nil) else { return }
         lastSentBpm = bpm
         lastSentAt = now
+    }
+
+    // Pure policy: no radio writes without a receiver, no invalid/stale samples, and a
+    // bounded cadence for unchanged BPM. New BPM readings are never suppressed by this policy.
+    static func validLiveBPM(_ bpm: Int?) -> Int? {
+        guard let bpm, (20...255).contains(bpm) else { return nil }
+        return bpm
+    }
+
+    static func shouldNotify(subscribers: Int, bpm: Int, lastBpm: Int?, elapsed: TimeInterval?) -> Bool {
+        guard subscribers > 0, validLiveBPM(bpm) != nil else { return false }
+        guard lastBpm == bpm, let elapsed else { return true }
+        return elapsed >= duplicateMinimumInterval || elapsed < 0
     }
 
     // MARK: - Pure encoder (unit-tested away from CoreBluetooth)
@@ -253,6 +264,7 @@ public final class HrBroadcaster: NSObject, ObservableObject {
 
 extension HrBroadcaster: @preconcurrency CBPeripheralManagerDelegate {
     public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        guard peripheral === manager else { return }
         switch peripheral.state {
         case .poweredOn:
             if wantAdvertising { beginAdvertising() }

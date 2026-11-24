@@ -633,7 +633,7 @@ struct SettingsView: View {
     private var backgroundImageControls: some View {
         let hasImage = backgroundStore.hasImage
         Group {
-            HStack(spacing: NoopMetrics.space2) {
+            VStack(spacing: NoopMetrics.space2) {
                 PhotosPicker(selection: $backgroundPickerItem, matching: .images) {
                     Text(hasImage ? "Replace from Photos" : "Choose from Photos")
                 }
@@ -1366,6 +1366,24 @@ struct SettingsView: View {
                     in: 0...100, step: 1
                 )
                 .tint(StrandPalette.accent)
+                .accessibilityLabel("Card transparency")
+                .accessibilityValue(Text("\(100 - cardOpacityPercent)%"))
+                // A stable, local preview makes the opacity change visible even on a plain canvas.
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(LinearGradient(colors: [StrandPalette.accent, StrandPalette.surfaceBase],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Text("Card transparency")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .padding(12)
+                        .frame(maxWidth: .infinity)
+                        .background(NoopPanelSurface(cornerRadius: 10,
+                                                    surfaceOpacity: Double(cardOpacityPercent) / 100))
+                        .padding(8)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
                 Text("How see-through the cards (Heart Rate, Key Metrics, Recovery Vitals, …) are. Left = solid, right = clear.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1411,7 +1429,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     StatePill("\(strapStatusTitle)", tone: strapTone, pulsing: live.connected)
-                    if let pct = live.batteryPct {
+                    if live.connected, let pct = live.batteryPct {
                         StatePill(live.charging == true
                                   ? "Battery \(Int(pct.rounded()))% · Charging"
                                   : "Battery \(Int(pct.rounded()))%",
@@ -1422,7 +1440,7 @@ struct SettingsView: View {
                 Text(strapStatusDetail)
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
-                HStack(spacing: NoopMetrics.space3) {
+                VStack(spacing: NoopMetrics.space3) {
                     NoopButton("Re-scan", systemImage: "arrow.clockwise", kind: .primary) {
                         model.scan()
                     }

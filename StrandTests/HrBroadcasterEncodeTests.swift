@@ -84,6 +84,25 @@ final class HrBroadcasterEncodeTests: XCTestCase {
         XCTAssertEqual(HrBroadcaster.noSubscriberTimeout, 300, accuracy: 0.001)
     }
 
+    func testBroadcastDoesNotNotifyWithoutReceiver() {
+        XCTAssertFalse(HrBroadcaster.shouldNotify(subscribers: 0, bpm: 72, lastBpm: nil, elapsed: nil))
+        XCTAssertTrue(HrBroadcaster.shouldNotify(subscribers: 1, bpm: 72, lastBpm: nil, elapsed: nil))
+    }
+
+    func testBroadcastSuppressesOnlyRecentUnchangedReadings() {
+        XCTAssertFalse(HrBroadcaster.shouldNotify(subscribers: 1, bpm: 72, lastBpm: 72, elapsed: 1.9))
+        XCTAssertTrue(HrBroadcaster.shouldNotify(subscribers: 1, bpm: 72, lastBpm: 72, elapsed: 2))
+        XCTAssertTrue(HrBroadcaster.shouldNotify(subscribers: 1, bpm: 73, lastBpm: 72, elapsed: 0.1))
+        XCTAssertTrue(HrBroadcaster.shouldNotify(subscribers: 1, bpm: 72, lastBpm: 72, elapsed: -1))
+    }
+
+    func testInvalidOrMissingLiveReadingIsNotBroadcast() {
+        for bpm in [nil, 0, 19, 256] as [Int?] { XCTAssertNil(HrBroadcaster.validLiveBPM(bpm)) }
+        XCTAssertEqual(HrBroadcaster.validLiveBPM(20), 20)
+        XCTAssertEqual(HrBroadcaster.validLiveBPM(255), 255)
+        XCTAssertFalse(HrBroadcaster.shouldNotify(subscribers: 1, bpm: 0, lastBpm: nil, elapsed: nil))
+    }
+
     // MARK: - Round-trip against the parser (the encoder is the parser's exact inverse)
 
     func testRoundTripThroughParser() {

@@ -111,7 +111,10 @@ struct DataSourcesView: View {
             broadcastLogSink.live = live
             // Bind the broadcaster to the live HR once, and resume broadcasting if the user left it on.
             hrBroadcaster.bind(to: live)
-            if broadcastHrEnabled { hrBroadcaster.start() }
+            if broadcastHrEnabled {
+                hrBroadcaster.start()
+                hrBroadcaster.update(heartRate: live.connected ? live.heartRate : nil)
+            }
         }
         .onDisappear {
             // The broadcast is a foreground convenience tied to this screen's owned object — release the
@@ -833,7 +836,10 @@ struct DataSourcesView: View {
             .tint(DomainTheme.effort.color)
             .accessibilityLabel("Broadcast heart rate as a Bluetooth sensor")
             .onChangeCompat(of: broadcastHrEnabled) { on in
-                if on { hrBroadcaster.start() } else { hrBroadcaster.stop() }
+                if on {
+                    hrBroadcaster.start()
+                    hrBroadcaster.update(heartRate: live.connected ? live.heartRate : nil)
+                } else { hrBroadcaster.stop() }
             }
             Text("Acts as a standard Bluetooth heart-rate strap. Pair NOOP from your treadmill, bike or app to see your strap's heart rate there.")
                 .font(StrandFont.footnote)

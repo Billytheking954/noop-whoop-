@@ -175,7 +175,7 @@ struct RootTabView: View {
             // the subview hierarchy TOO, which on a pushed screen would take out scrolling, taps and the
             // interactive-pop itself: far worse than the bug being fixed.
             .simultaneousGesture(tabSwipeGesture,
-                                 including: tabPaths[selectedTab].isEmpty ? .all : .subviews)
+                                 including: selectedTab != 0 && tabPaths[selectedTab].isEmpty ? .all : .subviews)
         .alert(Text("Workout save pending", tableName: "Reliability"),
                isPresented: Binding(get: { model.activeWorkout == nil && model.workoutSaveError != nil },
                                     set: { if !$0 { model.workoutSaveError = nil } })) {
@@ -441,9 +441,9 @@ struct RootTabView: View {
             DevicesView()
                 .background(StrandPalette.surfaceBase.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
-                // #1027: same fix as quickScreen — Devices draws the full-bleed liquid sky, so a transparent
-                // nav bar keeps it edge-to-edge instead of an opaque band clipping the top on scroll.
-                .toolbarBackground(.hidden, for: .navigationBar)
+                // Keep the Done action on a readable surface as device content scrolls underneath.
+                .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") { showDevices = false }

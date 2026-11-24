@@ -43,6 +43,7 @@ public struct NoopPanelSurface: View {
     public var cornerRadius: CGFloat
     public var elevated: Bool
     public var surfaceOpacity: Double
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     #if !os(iOS)
     @Environment(\.colorScheme) private var scheme
     #endif
@@ -71,7 +72,7 @@ public struct NoopPanelSurface: View {
                 tint?.opacity(0.14) ?? NoopVisualStyle.borderHighlight.opacity(elevated ? 0.9 : 0.65),
                 lineWidth: 0.8
             ))
-            .opacity(surfaceOpacity)
+            .opacity(reduceTransparency ? 1 : max(0, min(1, surfaceOpacity)))
         #else
         shape
             .fill(
@@ -108,7 +109,7 @@ public struct NoopPanelSurface: View {
                 x: 0,
                 y: elevated ? 7 : 3
             )
-            .opacity(surfaceOpacity)
+            .opacity(reduceTransparency ? 1 : max(0, min(1, surfaceOpacity)))
         #endif
     }
 }
