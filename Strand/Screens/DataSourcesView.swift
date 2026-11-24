@@ -111,6 +111,9 @@ struct DataSourcesView: View {
             broadcastLogSink.live = live
             // Bind the broadcaster to the live HR once, and resume broadcasting if the user left it on.
             hrBroadcaster.bind(to: live)
+            // Legacy installations may have both preferences enabled. Do not send any strap write
+            // on migration; stop only the app-owned peripheral and leave the strap preference intact.
+            if broadcastHrEnabled && strapBroadcastHrEnabled { broadcastHrEnabled = false }
             if broadcastHrEnabled {
                 hrBroadcaster.start()
                 hrBroadcaster.update(heartRate: live.connected ? live.heartRate : nil)
@@ -837,7 +840,10 @@ struct DataSourcesView: View {
             .accessibilityLabel("Broadcast heart rate as a Bluetooth sensor")
             .disabled(!broadcastHrEnabled && strapBroadcastHrEnabled)
             .onChangeCompat(of: broadcastHrEnabled) { on in
-                if on {
+                if on && strapBroadcastHrEnabled {
+                    broadcastHrEnabled = false
+                    hrBroadcaster.stop()
+                } else if on {
                     hrBroadcaster.start()
                     hrBroadcaster.update(heartRate: live.connected ? live.heartRate : nil)
                 } else { hrBroadcaster.stop() }
@@ -956,8 +962,14 @@ struct DataSourcesView: View {
             .toggleStyle(.switch)
             .tint(StrandPalette.accent)
             .accessibilityLabel("Broadcast heart rate from the strap")
-            .disabled(!strapBroadcastHrEnabled && (broadcastHrEnabled || !live.connected || !live.encryptedBond))
-            .onChangeCompat(of: strapBroadcastHrEnabled) { model.ble.setBroadcastHr($0) }
+            .disabled(!strapBroadcastHrEnabled && (broadcastHrEnabled || !live.connected || !live.encryptedBond || !LiveConsoleReadout.activeIsWhoop(devices: model.deviceRegistry?.devices ?? [], activeId: model.deviceRegistry?.activeDeviceId)))
+            .onChangeCompat(of: strapBroadcastHrEnabled) { on in
+                if on && broadcastHrEnabled {
+                    broadcastHrEnabled = false
+                    hrBroadcaster.stop()
+                }
+                model.ble.setBroadcastHr(on)
+            }
         }
     }
 

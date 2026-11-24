@@ -2750,6 +2750,7 @@ struct DeviceStrapControls: View {
                         model.disconnect()
                     }
                     .disabled(!live.connected && !live.bonded)
+                    #if os(iOS)
                     NoopButton("Sync now", systemImage: "arrow.triangle.2.circlepath", kind: .secondary, fullWidth: true) {
                         model.ble.syncNow()
                     }
@@ -2758,6 +2759,7 @@ struct DeviceStrapControls: View {
                         model.buzzStrapOnce()
                     }
                     .disabled(!live.connected || !live.encryptedBond)
+                    #endif
                 }
 
                 rowDivider
