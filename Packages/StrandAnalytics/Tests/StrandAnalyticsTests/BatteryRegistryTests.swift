@@ -10,7 +10,14 @@ final class BatteryRegistryTests: XCTestCase {
         XCTAssertEqual(m.domain, .battery)
         XCTAssertEqual(m.title, "Battery & Charging")
         XCTAssertEqual(m.questionnaire.map(\.id),
-                       ["whoopAppInstalled", "otherPhonePaired", "chargedInWindow", "batterySaverApps"])
+                       ["usageMode", "comparisonPhase", "repeatNumber", "phoneSetup", "strapSetup",
+                        "runWindow", "exposure", "powerSettings", "whoopAppInstalled",
+                        "otherPhonePaired", "chargedInWindow", "batterySaverApps"])
+        XCTAssertEqual(m.questionnaire.first?.kind, .choice)
+        XCTAssertEqual(m.questionnaire.first?.choices,
+                       ["Idle use", "Normal background sync", "Live monitoring", "Workout use",
+                        "Phone HR rebroadcast", "Direct strap HR broadcast"])
+        XCTAssertEqual(m.questionnaire.dropFirst().first?.choices, ["Before baseline", "After change"])
         XCTAssertEqual(m.liveReadout, ["currentSoc", "estimateDaysLeft", "slopeSource"])
         XCTAssertEqual(m.captures,
                        ["socSeries", "chargeSteps", "dischargeRun", "fittedSlope",

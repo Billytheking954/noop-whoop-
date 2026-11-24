@@ -900,6 +900,7 @@ private struct TestModeRow: View {
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var model: AppModel
     @State private var on: Bool = false
+    @State private var answers: [String: String] = [:]
 
     private var elapsed: Double? {
         TestCentre.startedAt(mode.domain).map { Date().timeIntervalSince($0) }
@@ -975,6 +976,9 @@ private struct TestModeRow: View {
             if on, mode.domain == .display {
                 DisplayReadoutPanel(live: live)
             }
+            if on, !mode.questionnaire.isEmpty {
+                questionnaire
+            }
             HStack {
                 Spacer()
                 // "Share", not "Report", to match the strap-log button and the sheet this opens, whose
@@ -987,6 +991,7 @@ private struct TestModeRow: View {
         }
         .onAppear {
             on = TestCentre.active(mode.domain)
+            answers = TestCentre.answers(mode.domain)
             // If the Display mode was already on when the screen appears, (re)start its frame monitor and
             // wire the sink, so a monitor that was torn down (e.g. the screen left and came back) resumes.
             if mode.domain == .display, on { startDisplayMonitor() }
@@ -998,6 +1003,71 @@ private struct TestModeRow: View {
             // Test Centre is on screen with the mode on.
             if mode.domain == .display { DisplayPerformanceMonitor.shared.stop() }
         }
+    }
+
+    /// The registry has always declared per-mode questions and meta.json has always carried their saved
+    /// answers, but the Apple Test Centre had no editor for them. That made Battery reports impossible to
+    /// compare safely: the bundle could contain a discharge slope without saying which usage mode, phone,
+    /// firmware, run window or settings produced it. Render every declared kind from the registry and
+    /// persist on each edit, so the next manually shared bundle is self-describing. Nothing is transmitted.
+    @ViewBuilder private var questionnaire: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            Text(mode.domain == .battery ? "RUN CONFIGURATION" : "REPORT CONTEXT")
+                .font(StrandFont.overline)
+                .tracking(StrandFont.overlineTracking)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Text("Saved on this device and included in this mode's next report bundle.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(mode.questionnaire, id: \.id) { question in
+                questionnaireField(question)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder private func questionnaireField(_ question: Question) -> some View {
+        let binding = answerBinding(question.id)
+        switch question.kind {
+        case .yesNo:
+            VStack(alignment: .leading, spacing: 4) {
+                Text(question.prompt)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Picker(question.prompt, selection: binding) {
+                    Text("Not recorded").tag("")
+                    Text("Yes").tag("yes")
+                    Text("No").tag("no")
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+        case .choice:
+            Picker(question.prompt, selection: binding) {
+                Text("Not recorded").tag("")
+                ForEach(question.choices, id: \.self) { choice in Text(choice).tag(choice) }
+            }
+            .font(StrandFont.caption)
+        case .text:
+            TextField(question.prompt, text: binding, axis: .vertical)
+                .font(StrandFont.caption)
+                .lineLimit(1...4)
+                .textFieldStyle(.roundedBorder)
+        case .time:
+            TextField(question.prompt + " (HH:MM)", text: binding)
+                .font(StrandFont.caption)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    private func answerBinding(_ id: String) -> Binding<String> {
+        Binding(
+            get: { answers[id] ?? "" },
+            set: { value in
+                if value.isEmpty { answers.removeValue(forKey: id) } else { answers[id] = value }
+                TestCentre.setAnswers(answers, for: mode.domain)
+            })
     }
 
     /// Wire the Display monitor's sink to the redacting `.display` log and start it. The sink is set every
