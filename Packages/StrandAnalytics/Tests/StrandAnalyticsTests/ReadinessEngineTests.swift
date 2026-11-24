@@ -5,8 +5,8 @@ import WhoopStore
 final class ReadinessEngineTests: XCTestCase {
 
     private func d(_ i: Int, hrv: Double?, rhr: Int?, strain: Double?, resp: Double? = nil,
-                   sleep: Double? = nil, recovery: Double? = nil) -> DailyMetric {
-        DailyMetric(day: String(format: "2024-03-%02d", i), totalSleepMin: sleep, efficiency: nil,
+                   sleep: Double? = nil, recovery: Double? = nil, dayKey: String? = nil) -> DailyMetric {
+        DailyMetric(day: dayKey ?? String(format: "2024-03-%02d", i), totalSleepMin: sleep, efficiency: nil,
                     deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil, restingHr: rhr,
                     avgHrv: hrv, recovery: recovery, strain: strain, exerciseCount: nil,
                     spo2Pct: nil, skinTempDevC: nil, respRateBpm: resp)
@@ -131,5 +131,33 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertFalse(result.signals.contains { $0.key == "hrv" })
         XCTAssertFalse(result.signals.contains { $0.key == "rhr" })
         XCTAssertNotNil(result.score, "Valid sleep and recovery may still support an explicitly partial estimate")
+    }
+
+    func testOldHistoryCannotCalibrateCurrentReadiness() {
+        let days = baseline(todayHrv: 72, todayRhr: 46, todayStrain: 10)
+        let latest = d(1, hrv: 72, rhr: 46, strain: 10, sleep: 480, recovery: 80,
+                       dayKey: "2024-05-01")
+        let result = ReadinessEngine.evaluate(days: days + [latest], today: latest.day)
+        XCTAssertEqual(result.level, .insufficient)
+        XCTAssertNil(result.score)
+        XCTAssertFalse(result.signals.contains { ["hrv", "rhr", "respRate", "sleepConsistency"].contains($0.key) })
+    }
+
+    func testSleepConsistencyUsesSevenCalendarDays() {
+        let old = (1...4).map { d($0, hrv: nil, rhr: nil, strain: nil, sleep: 480) }
+        let latest = d(20, hrv: nil, rhr: nil, strain: nil, sleep: 480, recovery: 80)
+        let result = ReadinessEngine.evaluate(days: old + [latest], today: latest.day)
+        XCTAssertFalse(result.signals.contains { $0.key == "sleepConsistency" })
+    }
+
+    func testDuplicatePairChangesInvalidateReadinessCache() {
+        let days = baseline(todayHrv: nil, todayRhr: nil, todayStrain: 10)
+        let good = d(29, hrv: 72, rhr: 46, strain: 10, sleep: 480, recovery: 85)
+        let bad = d(29, hrv: 40, rhr: 65, strain: 10, sleep: 300, recovery: 20)
+        let a = ReadinessEngine.evaluate(days: days + [good, good])
+        let b = ReadinessEngine.evaluate(days: days + [bad, bad])
+        XCTAssertEqual(a.signals.first { $0.key == "hrv" }?.flag, .good)
+        XCTAssertEqual(b.signals.first { $0.key == "hrv" }?.flag, .bad)
+        XCTAssertNotEqual(a.score, b.score)
     }
 }

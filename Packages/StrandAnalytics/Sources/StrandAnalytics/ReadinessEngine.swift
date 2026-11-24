@@ -129,7 +129,7 @@ public enum ReadinessEngine {
             h = (h &* 1099511628211) ^ (d.strain ?? -1).bitPattern
             h = (h &* 1099511628211) ^ (d.totalSleepMin ?? -1).bitPattern
             h = (h &* 1099511628211) ^ (d.recovery ?? -1).bitPattern
-            sum ^= h                                   // commutative fold → order-independent
+            sum = sum &+ h                             // commutative; duplicate pairs no longer cancel
             let dh = d.day.hashValue
             if i == 0 { minDayHash = dh; maxDayHash = dh } else { minDayHash = min(minDayHash, dh); maxDayHash = max(maxDayHash, dh) }
         }
@@ -153,14 +153,16 @@ public enum ReadinessEngine {
                              summary: "Wear the strap for a few nights and your readiness read will appear here.",
                              signals: [], acwr: nil, monotony: nil)
         }
-        let history = sorted.filter { $0.day < latest.day }   // everything before today
+        // Use actual calendar windows, not the last N stored rows: a gap in sync must not
+        // silently turn a 30-day baseline into several months of observations.
+        let history = recentHistory(sorted, before: latest.day, days: baselineWindow)
 
         var signals: [Signal] = []
 
         // HRV readiness ------------------------------------------------------
         let hrvSignal = zSignal(
             value: latest.avgHrv.flatMap { (5...300).contains($0) ? $0 : nil },
-            baseline: history.suffix(baselineWindow).compactMap { $0.avgHrv }.filter { (5...300).contains($0) },
+            baseline: history.compactMap { $0.avgHrv }.filter { (5...300).contains($0) },
             key: "hrv", label: "HRV",
             unit: "ms",
             decimals: 0,
@@ -176,7 +178,7 @@ public enum ReadinessEngine {
         // Resting-HR drift ---------------------------------------------------
         let rhrSignal = zSignal(
             value: latest.restingHr.map(Double.init).flatMap { (25...220).contains($0) ? $0 : nil },
-            baseline: history.suffix(baselineWindow).compactMap { $0.restingHr.map(Double.init) }
+            baseline: history.compactMap { $0.restingHr.map(Double.init) }
                 .filter { (25...220).contains($0) },
             key: "rhr", label: "Resting HR",
             unit: "bpm",
@@ -195,7 +197,7 @@ public enum ReadinessEngine {
         // use wider resp-only z thresholds (WATCH 1.5 / BAD 2.0) than HRV/RHR so a single noisy night
         // can't flip RUNDOWN. Mirrors the Kotlin reference (#78) for cross-platform parity.
         if let rr = latest.respRateBpm, SleepStager.respPlausibleRangeBpm.contains(rr) {
-            let base = history.suffix(baselineWindow).compactMap { $0.respRateBpm }
+            let base = history.compactMap { $0.respRateBpm }
                 .filter { SleepStager.respPlausibleRangeBpm.contains($0) }
             if base.count >= minBaseline, let m = mean(base),
                SleepStager.respPlausibleRangeBpm.contains(m), let sd = sampleSD(base), sd > 0 {
@@ -267,7 +269,7 @@ public enum ReadinessEngine {
                                   detail: detail, flag: flag))
         }
 
-        let recentSleep = Array((history + [latest]).suffix(7))
+        let recentSleep = (recentHistory(history, before: latest.day, days: 6) + [latest])
             .compactMap { $0.totalSleepMin }.filter { (30...960).contains($0) }
         if recentSleep.count >= 4, let variation = sampleSD(recentSleep) {
             let flag: Flag = variation <= 45 ? .good : (variation <= 90 ? .watch : .bad)
@@ -294,7 +296,7 @@ public enum ReadinessEngine {
         // RD-confidence: surface how much history backs the read (HRV baseline density, the primary
         // readiness driver). A read off a 7-night baseline must not look as certain as one off the full
         // 30-night window. Insufficient reads carry .calibrating.
-        let hrvBaselineNights = history.suffix(baselineWindow).compactMap { $0.avgHrv }
+        let hrvBaselineNights = history.compactMap { $0.avgHrv }
             .filter { (5...300).contains($0) }.count
         let scored = weightedScore(signals)
         let confidence = ScoreConfidence.readiness(hasRead: level != .insufficient,
@@ -302,8 +304,22 @@ public enum ReadinessEngine {
                                                    fullWindow: baselineWindow)
         return Readiness(level: level, headline: headline, summary: summary,
                          signals: signals, acwr: acwr, monotony: monotony,
-                         score: scored.score, dataCompleteness: scored.completeness,
+                         score: level == .insufficient ? nil : scored.score, dataCompleteness: scored.completeness,
                          confidence: confidence)
+    }
+
+    /// Only observations in the preceding `days` calendar dates, excluding the target.
+    private static func recentHistory(_ rows: [DailyMetric], before target: String, days: Int) -> [DailyMetric] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.isLenient = false
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let end = formatter.date(from: target), formatter.string(from: end) == target,
+              let start = formatter.calendar.date(byAdding: .day, value: -days, to: end) else { return [] }
+        let lower = formatter.string(from: start)
+        return rows.filter { $0.day >= lower && $0.day < target }
     }
 
     /// A strict UTC-calendar suffix. Missing, invalid, duplicate (already de-duplicated upstream)
