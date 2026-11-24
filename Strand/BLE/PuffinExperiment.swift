@@ -252,7 +252,7 @@ enum PuffinExperiment {
     static let autoDetectWorkoutsKey = "noopAutoDetectWorkouts"
 
     static var autoDetectWorkoutsEnabled: Bool {
-        UserDefaults.standard.object(forKey: autoDetectWorkoutsKey) as? Bool ?? true
+        UserDefaults.standard.object(forKey: autoDetectWorkoutsKey) as? Bool ?? false
     }
 
     /// "Journal reminder" (#627). When ON, Today shows a persistent journal widget (a last-7-days

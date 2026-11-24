@@ -75,30 +75,30 @@
         "pt-PT": { "stringUnit": { "state": "translated", "value": "Desporto sugerido: \\(sportPrediction?.predictedClass.suggestionReviewLabel ?? \"Other / unsure\"). É apenas um ponto de partida. Reveja-o ou escolha Outro se não tiver a certeza." } }
       }
     },
-    "After a sync, NOOP checks the last two days of heart rate for possible activity. It offers a suggestion for you to confirm; heart rate alone cannot prove a workout. Nothing is saved until you tap Save. Turning this off stops checks but keeps your workout history. Short or gentle sessions may need to be added manually. On \\(Platform.deviceNounPhrase) only.": {
+    "After a sync, NOOP checks the last two days of heart rate for possible activity. Heart rate alone cannot prove a workout. Review the time and suggested sport before saving, or choose Other if unsure. Turning this off stops checks but keeps your workout history. Short or gentle sessions may need to be added manually. On \\(Platform.deviceNounPhrase) only.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nach einer Synchronisierung prüft NOOP die Herzfrequenz der letzten zwei Tage auf mögliche Aktivitäten. Du bestätigst jeden Vorschlag; die Herzfrequenz allein beweist kein Training. Erst nach Tippen auf „Speichern“ wird etwas gespeichert. Ausschalten beendet die Prüfung, dein Trainingsverlauf bleibt erhalten. Kurze oder leichte Einheiten musst du eventuell manuell hinzufügen. Nur auf \\(Platform.deviceNounPhrase)."
+            "value": "Nach einer Synchronisierung prüft NOOP die Herzfrequenz der letzten zwei Tage auf mögliche Aktivitäten. Die Herzfrequenz allein beweist kein Training. Prüfe vor dem Speichern Zeit und vorgeschlagene Sportart oder wähle „Andere“, wenn du unsicher bist. Ausschalten beendet die Prüfung, dein Trainingsverlauf bleibt erhalten. Kurze oder leichte Einheiten musst du eventuell manuell hinzufügen. Nur auf \\(Platform.deviceNounPhrase)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Después de sincronizar, NOOP revisa la frecuencia cardíaca de los últimos dos días para detectar posibles actividades. Tú confirmas cada sugerencia; la frecuencia cardíaca por sí sola no demuestra un entrenamiento. No se guarda nada hasta que pulses Guardar. Desactivarlo detiene la comprobación y conserva tu historial. Puede que tengas que añadir manualmente sesiones cortas o suaves. Solo en \\(Platform.deviceNounPhrase)."
+            "value": "Después de sincronizar, NOOP revisa la frecuencia cardíaca de los últimos dos días para detectar posibles actividades. La frecuencia cardíaca por sí sola no demuestra un entrenamiento. Revisa la hora y el deporte sugerido antes de guardar, o elige Otro si no lo tienes claro. Desactivarlo detiene la comprobación y conserva tu historial. Puede que tengas que añadir manualmente sesiones cortas o suaves. Solo en \\(Platform.deviceNounPhrase)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Après une synchronisation, NOOP examine la fréquence cardiaque des deux derniers jours pour proposer des activités possibles. Vous confirmez chaque suggestion ; la fréquence cardiaque seule ne prouve pas un entraînement. Rien n’est enregistré avant votre choix. Désactiver cette option arrête les vérifications sans effacer l’historique. Les séances courtes ou légères devront peut-être être ajoutées manuellement. Sur \\(Platform.deviceNounPhrase) uniquement."
+            "value": "Après une synchronisation, NOOP examine la fréquence cardiaque des deux derniers jours pour proposer des activités possibles. La fréquence cardiaque seule ne prouve pas un entraînement. Vérifiez l’heure et le sport suggéré avant d’enregistrer, ou choisissez Autre en cas de doute. Désactiver cette option arrête les vérifications sans effacer l’historique. Les séances courtes ou légères devront peut-être être ajoutées manuellement. Sur \\(Platform.deviceNounPhrase) uniquement."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "Após uma sincronização, o NOOP verifica a frequência cardíaca dos últimos dois dias para sugerir possíveis atividades. Confirme cada sugestão; a frequência cardíaca por si só não prova um treino. Nada é guardado até tocar em Guardar. Desativar esta opção interrompe as verificações e mantém o histórico. Sessões curtas ou leves poderão ter de ser adicionadas manualmente. Apenas em \\(Platform.deviceNounPhrase)."
+            "value": "Após uma sincronização, o NOOP verifica a frequência cardíaca dos últimos dois dias para sugerir possíveis atividades. A frequência cardíaca por si só não prova um treino. Reveja a hora e o desporto sugerido antes de guardar, ou escolha Outro se não tiver a certeza. Desativar esta opção interrompe as verificações e mantém o histórico. Sessões curtas ou leves poderão ter de ser adicionadas manualmente. Apenas em \\(Platform.deviceNounPhrase)."
           }
         }
       }
