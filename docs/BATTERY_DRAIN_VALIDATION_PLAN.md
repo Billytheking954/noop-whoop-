@@ -69,6 +69,27 @@ Add local-only, bounded diagnostic output where current logs cannot attribute co
 
 Diagnostics must remain on-device and manually exported, with no analytics or server dependency.
 
+### Instrumentation audit (2026-11-24)
+
+| Evidence | Current support | Remaining gap |
+|---|---|---|
+| Strap charge | Battery Test Centre mode banks bounded, tagged SoC samples and fits a gated discharge slope. | Physical run start/end charge and charging interruptions still require the run sheet. |
+| iPhone cost | MetricKit records daily foreground/background time, CPU, peak memory, logical writes, hangs and exits in the local strap log. | MetricKit is delayed and aggregate; the tester must record phone start/end charge for each run. |
+| Connection | The connection log records attributed disconnects, link duration, inbound frames/bytes and reconnect evidence. | A single per-run reconnect summary is not yet emitted. |
+| History sync | Backfill logs record starts, end reasons, elapsed time, decoded/persisted rows and repeated empty outcomes. | Bytes written and a per-run attempts/completions/empty summary are not yet emitted. |
+| Continuous HRV | Preference reconciliation and overnight-window open/close transitions are logged. | Armed duration is not yet summarized per run. |
+| Live/workout/broadcast | Workout and phone/direct-broadcast lifecycles each have local event lines. | Active duration is not yet summarized per run. |
+| Background work | MetricKit reports aggregate background time and background-task timeout exits. | Individual background-task start, duration, expiration and retry totals are not yet summarized. |
+| Reliability | Sync persistence, Health sync wake/sync/coalescing totals and HealthKit failures are locally diagnosable. | Each run still needs an explicit expected-versus-observed reliability result. |
+
+The first implementation increment adds a reusable run sheet and exposes the Battery registry's fixed
+configuration questions in the Apple Test Centre. Answers stay on-device and are included in `meta.json`
+when the tester manually shares a bundle. This closes the configuration-attribution gap without adding a
+timer, per-packet logging, analytics or BLE behavior.
+
+Use [`BATTERY_DRAIN_RUN_SHEET.md`](BATTERY_DRAIN_RUN_SHEET.md) for every before/after run. Do not combine
+modes or repeat numbers in one row.
+
 ## Fix order
 
 1. Complete the baseline matrix.
@@ -98,7 +119,7 @@ Compare expected source data with persisted rows and HealthKit results for each 
 
 ## Deliverables
 
-- [ ] Reproducible test matrix and fixed configuration sheet
+- [x] Reproducible test matrix and fixed configuration sheet
 - [ ] Separate before baselines for iPhone and strap in all six modes
 - [ ] Attributed reconnect, background, sync and Continuous HRV evidence
 - [ ] Ranked list of measured causes
