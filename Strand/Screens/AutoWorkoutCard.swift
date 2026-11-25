@@ -22,10 +22,15 @@ struct AutoWorkoutCard: View {
 
     /// The current suggestion, loaded in `.task`. nil → nothing to show.
     @State private var candidate: DetectedWorkout?
+    /// Advisory coarse label only. It seeds the editable review form and is never saved automatically.
+    @State private var sportPrediction: WorkoutClassPrediction?
     /// Hide immediately on Save/X without waiting for the next reload (avoids a flash of the old card).
     @State private var handledThisSession = false
     /// Guards the Save button while the write is in flight.
     @State private var saving = false
+    @State private var motionSupported = false
+    @State private var showEdit = false
+    @State private var saveError = false
 
     var body: some View {
         Group {
@@ -36,6 +41,25 @@ struct AutoWorkoutCard: View {
         // Re-scan whenever the data refreshes (a sync bumps refreshSeq) or the toggle flips on.
         .task(id: AutoWorkoutLoadKey(seq: repo.refreshSeq, enabled: autoDetectEnabled)) {
             await reload()
+        }
+        .sheet(isPresented: $showEdit) {
+            if let candidate,
+               let draft = WorkoutSource.buildManualRowFromSpan(
+                   start: Date(timeIntervalSince1970: TimeInterval(candidate.startSec)),
+                   end: Date(timeIntervalSince1970: TimeInterval(candidate.endSec)),
+                   sport: sportPrediction?.predictedClass.editableSportName ?? "Other",
+                   avgHr: candidate.avgBpm, energyKcal: nil) {
+                ManualWorkoutSheet(editing: draft, reviewingSuggestion: true,
+                                   onReviewedSave: { row in
+                    saving = true
+                    let saved = await repo.saveReviewedDetectedWorkout(row, suggestion: candidate)
+                    handledThisSession = saved
+                    saveError = !saved
+                    if saved { await repo.refresh() }
+                    saving = false
+                    return saved
+                }) { _, _ in }
+            }
         }
     }
 
@@ -69,11 +93,25 @@ struct AutoWorkoutCard: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Text(motionSupported
+                     ? String(localized: "Heart-rate pattern and movement recorded. Please confirm the activity.")
+                     : String(localized: "Heart-rate pattern only. NOOP cannot confirm this was exercise."))
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+
+                Text("Suggested sport: \(sportPrediction?.predictedClass.suggestionReviewLabel ?? "Other / unsure"). This is only a starting point. Review it, or choose Other if unsure.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+
+                if saveError {
+                    Text("Could not save this activity. Check the values and try again.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                }
+
                 HStack(spacing: NoopMetrics.space3) {
-                    Button {
-                        save(w)
-                    } label: {
-                        Label("Save it", systemImage: "checkmark")
+                    Button { showEdit = true } label: {
+                        Label("Review time & sport", systemImage: "slider.horizontal.3")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(StrandPalette.accent)
@@ -107,21 +145,26 @@ struct AutoWorkoutCard: View {
     }
 
     private func reload() async {
-        guard autoDetectEnabled else { candidate = nil; return }
-        let next = await repo.autoDetectCandidate()
-        // A fresh scan resets the session guard so a NEW window can surface after one is handled.
-        if next != candidate { handledThisSession = false }
-        candidate = next
-    }
-
-    private func save(_ w: DetectedWorkout) {
-        saving = true
-        handledThisSession = true
-        Task {
-            _ = await repo.saveDetectedWorkout(w)
-            await repo.refresh()   // surfaces the new workout + drops it from re-suggestion
-            saving = false
+        guard autoDetectEnabled else {
+            candidate = nil; sportPrediction = nil; motionSupported = false
+            return
         }
+        let next = await repo.autoDetectCandidate()
+        if let next, next != candidate {
+            async let motionRead = repo.autoDetectHasMotionEvidence(next)
+            async let sportRead = repo.autoDetectSportSuggestion(next)
+            motionSupported = await motionRead
+            sportPrediction = await sportRead
+        } else if next == nil {
+            motionSupported = false
+            sportPrediction = nil
+        }
+        // A fresh scan resets the session guard so a NEW window can surface after one is handled.
+        if next != candidate {
+            handledThisSession = false
+            saveError = false
+        }
+        candidate = next
     }
 
     private func dismiss(_ w: DetectedWorkout) {

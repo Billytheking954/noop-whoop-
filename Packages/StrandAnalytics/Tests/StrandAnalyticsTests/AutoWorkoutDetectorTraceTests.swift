@@ -67,7 +67,9 @@ final class AutoWorkoutDetectorTraceTests: XCTestCase {
             ("enclosing", [SavedWorkoutSpan(startSec: start - 300, endSec: end + 300)]),
             ("touchStart", [SavedWorkoutSpan(startSec: start - 180, endSec: start)]),
             ("touchEnd", [SavedWorkoutSpan(startSec: end, endSec: end + 180)]),
-            ("disjoint", [SavedWorkoutSpan(startSec: start - 180, endSec: start - 1)]),
+            ("nearDisjoint", [SavedWorkoutSpan(startSec: start - 180, endSec: start - 1)]),
+            ("farDisjoint", [SavedWorkoutSpan(
+                startSec: start - 600, endSec: start - AutoWorkoutDetector.savedWorkoutCollarS - 1)]),
             ("multiple", [SavedWorkoutSpan(startSec: end, endSec: end + 180),
                            SavedWorkoutSpan(startSec: start + 600, endSec: start + 780),
                            SavedWorkoutSpan(startSec: start - 300, endSec: start + 180)]),
@@ -97,7 +99,9 @@ final class AutoWorkoutDetectorTraceTests: XCTestCase {
             autoDetect savedOverlap candidateSec=5400 savedSec=180 overlapSec=0 savedToCandidate=180/5400
             touchEnd results=0
             autoDetect savedOverlap candidateSec=5400 savedSec=180 overlapSec=0 savedToCandidate=180/5400
-            disjoint results=1
+            nearDisjoint results=0
+            autoDetect savedOverlap candidateSec=5400 savedSec=179 overlapSec=0 savedToCandidate=179/5400
+            farDisjoint results=1
             multiple results=0
             autoDetect savedOverlap candidateSec=5400 savedSec=480 overlapSec=180 savedToCandidate=480/5400
             autoDetect savedOverlap candidateSec=5400 savedSec=180 overlapSec=180 savedToCandidate=180/5400

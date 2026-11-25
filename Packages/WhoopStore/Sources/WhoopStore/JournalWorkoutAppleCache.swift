@@ -179,6 +179,29 @@ extension WhoopStore {
         }
     }
 
+    /// The suggestion's reviewed span is checked against every source in the same write transaction.
+    /// An overlapping manual/imported/strap workout or an existing natural key must never be replaced.
+    /// Returns false when another workout already occupies the window; errors propagate to the UI.
+    public func insertReviewedWorkoutIfFree(_ row: WorkoutRow, deviceId: String) async throws -> Bool {
+        guard row.endTs > row.startTs, row.source == "manual" else { return false }
+        return try syncWrite { db in
+            let collision = try Int.fetchOne(db, sql: """
+                SELECT 1 FROM workout
+                WHERE startTs < ? AND endTs > ? LIMIT 1
+                """, arguments: [row.endTs, row.startTs])
+            guard collision == nil else { return false }
+            try db.execute(sql: """
+                INSERT INTO workout
+                    (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
+                     avgHr, maxHr, strain, distanceM, zonesJSON, notes, steps)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [deviceId, row.startTs, row.endTs, row.sport, row.source,
+                                 row.durationS, row.energyKcal, row.avgHr, row.maxHr, row.strain,
+                                 row.distanceM, row.zonesJSON, row.notes, row.steps])
+            return true
+        }
+    }
+
     /// Merge Apple Health workout observations without treating nil as evidence that a stored value
     /// disappeared. HealthKit intentionally hides read authorization; a successful-but-empty HR/steps
     /// query can therefore mean "not readable", not "the workout has no measurements". Confirmed workout
