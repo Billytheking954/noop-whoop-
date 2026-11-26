@@ -202,7 +202,12 @@ object AutoWorkoutDetector {
         val results = ArrayList<DetectedWorkout>()
         for ((start, end) in merged) {
             // 6: never re-suggest a window overlapping an already-saved workout.
-            if (savedWorkouts.any { sameActivity(start, end, it.first, it.second) }) continue
+            if (savedWorkouts.any {
+                    it.second >= it.first &&
+                        (overlaps(start, end, it.first, it.second) ||
+                            (end < it.first && it.first - end <= savedWorkoutCollarS) ||
+                            (it.second < start && start - it.second <= savedWorkoutCollarS))
+                }) continue
 
             val window = seg.filter { it.ts in start..end }
             if (window.isEmpty()) continue
@@ -228,9 +233,4 @@ object AutoWorkoutDetector {
     internal fun overlaps(aStart: Long, aEnd: Long, bStart: Long, bEnd: Long): Boolean =
         aStart <= bEnd && bStart <= aEnd
 
-    internal fun sameActivity(aStart: Long, aEnd: Long, bStart: Long, bEnd: Long): Boolean =
-        aEnd >= aStart && bEnd >= bStart &&
-            (overlaps(aStart, aEnd, bStart, bEnd) ||
-                (aEnd < bStart && bStart - aEnd <= savedWorkoutCollarS) ||
-                (bEnd < aStart && aStart - bEnd <= savedWorkoutCollarS))
 }

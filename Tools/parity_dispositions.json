@@ -3,6 +3,14 @@
   "dispositions": [
     {
       "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/WhoopStore/Sources/WhoopStore/JournalWorkoutAppleCache.swift::workoutsOverlapping/4#1",
+      "identity_sha256": "5dbb170b0de2f068993eebe9d58048e89d16bcef8bafa0c4b1be4398aab94f92",
+      "platform": "swift",
+      "rationale": "The iPhone repository reads overlapping workout rows through its GRDB store for the opt-in Today suggestion; Android reads its own Room workout source and does not call this Swift storage method."
+    },
+    {
+      "type": "platform_specific",
       "kind": "add-unpaired-constant",
       "identity": "swift\u0000Packages/StrandImport/Sources/StrandImport/HealthWriteback.swift::openNightMarginSeconds",
       "identity_sha256": "7f2231de6355adc6b5897cb6f0addc8b708bf08dd0277f465dcb794f4fd29b2a",

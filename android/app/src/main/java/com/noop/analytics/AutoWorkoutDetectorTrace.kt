@@ -130,7 +130,10 @@ object AutoWorkoutDetectorTrace {
         for ((start, end) in merged) {
             val durMin = ((end - start) / 60L).toInt()
             val overlapping = savedWorkouts.filter {
-                AutoWorkoutDetector.sameActivity(start, end, it.first, it.second)
+                it.second >= it.first &&
+                    (AutoWorkoutDetector.overlaps(start, end, it.first, it.second) ||
+                        (end < it.first && it.first - end <= AutoWorkoutDetector.savedWorkoutCollarS) ||
+                        (it.second < start && start - it.second <= AutoWorkoutDetector.savedWorkoutCollarS))
             }.sortedWith(compareBy<Pair<Long, Long>> { it.first }.thenBy { it.second })
             if (overlapping.isNotEmpty()) {
                 // #2527: exact saved/candidate ratio, plus intersection seconds for partial overlaps.
