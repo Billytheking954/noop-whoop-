@@ -23,6 +23,15 @@ final class ReviewedWorkoutInsertTests: XCTestCase {
         XCTAssertTrue(reviewedRows.isEmpty)
     }
 
+    func testSuggestionOverlapReadIncludesWorkoutStartedBeforeScan() async throws {
+        let store = try await WhoopStore.inMemory()
+        let spanning = row(start: 1_000, end: 3_000)
+        let old = row(start: 100, end: 200)
+        _ = try await store.upsertWorkouts([spanning, old], deviceId: "apple")
+        let rows = try await store.workoutsOverlapping(deviceId: "apple", from: 2_000, to: 2_500, limit: 10)
+        XCTAssertEqual(rows, [spanning])
+    }
+
     func testConcurrentReviewedWritesSaveAtMostOneRow() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("reviewed-workout-\(UUID().uuidString).sqlite").path

@@ -3352,8 +3352,23 @@ final class Repository: ObservableObject {
         // Resting HR: most recent nightly RHR in range, else the detector's own default (60).
         let restingBpm = days.last(where: { $0.restingHr != nil })?.restingHr
 
-        // Exclude every already-saved workout window (any source , strap, manual, imported, detected).
-        let saved = await workoutRows()
+        // Only fetch rows overlapping the HR scan; full workoutRows() reconciles years of
+        // history and resamples HR for display, which is unnecessary for a suggestion guard.
+        let saved: [WorkoutRow]
+        if let store = await ensureStore() {
+            var overlapping: [WorkoutRow] = []
+            for id in Self.workoutNamespaces(rawIds: rawPhysiologyReadIds(store: store)) {
+                overlapping += (try? await store.workoutsOverlapping(
+                    deviceId: id, from: from - AutoWorkoutDetector.savedWorkoutCollarS,
+                    to: now, limit: 5000)) ?? []
+            }
+            let dismissed = WorkoutSource.parseDismissedSpans(dismissedDetectedSpans)
+            saved = WorkoutSource.dedupCrossSource(
+                Self.dedupWorkoutsByNaturalKey(overlapping)
+                    .filter { !WorkoutSource.isDismissed($0, spans: dismissed) })
+        } else {
+            saved = []
+        }
         let savedSpans = saved.map { SavedWorkoutSpan(startSec: $0.startTs, endSec: $0.endTs) }
 
         // Workouts & GPS test mode: the published 12-minute result remains byte-identical. Aggregate,

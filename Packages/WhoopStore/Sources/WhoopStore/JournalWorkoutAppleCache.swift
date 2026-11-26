@@ -318,6 +318,26 @@ extension WhoopStore {
         }
     }
 
+    /// Narrow overlap read for the opt-in suggestion scan. A workout that began before the HR
+    /// window still blocks a duplicate prompt if it extends into the window.
+    public func workoutsOverlapping(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [WorkoutRow] {
+        try syncRead { db in
+            try Row.fetchAll(db, sql: """
+                SELECT startTs, endTs, sport, source, durationS, energyKcal, avgHr, maxHr,
+                       strain, distanceM, zonesJSON, notes, steps FROM workout
+                WHERE deviceId = ? AND startTs <= ? AND endTs >= ?
+                ORDER BY startTs DESC LIMIT ?
+                """, arguments: [deviceId, to, from, limit])
+                .map {
+                    WorkoutRow(startTs: $0["startTs"], endTs: $0["endTs"], sport: $0["sport"],
+                               source: $0["source"], durationS: $0["durationS"],
+                               energyKcal: $0["energyKcal"], avgHr: $0["avgHr"], maxHr: $0["maxHr"],
+                               strain: $0["strain"], distanceM: $0["distanceM"],
+                               zonesJSON: $0["zonesJSON"], notes: $0["notes"], steps: $0["steps"])
+                }
+        }
+    }
+
     /// #1058: sum per-session `steps` over one source's workouts whose startTs is in [from, to). Used to
     /// recompute an activity-file day's step total from ALL its sessions, so a second file on the same day
     /// adds rather than clobbers — and re-importing a file is idempotent (its row's steps are replaced,

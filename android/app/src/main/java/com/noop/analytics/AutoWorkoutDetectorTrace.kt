@@ -73,6 +73,7 @@ object AutoWorkoutDetectorTrace {
         var spanStart: Long? = null
         var spanEnd = 0L
         var dipStart: Long? = null
+        var previousSampleTs: Long? = null
         fun closeSpan() {
             val s = spanStart
             if (s != null && (spanEnd - s) >= minimumSustainedMinutes * 60.0) spans.add(s to spanEnd)
@@ -80,6 +81,8 @@ object AutoWorkoutDetectorTrace {
             dipStart = null
         }
         for (sample in seg) {
+            if (previousSampleTs != null && sample.ts - previousSampleTs > AutoWorkoutDetector.maxSampleGapS) closeSpan()
+            previousSampleTs = sample.ts
             if (sample.bpm >= floor) {
                 if (spanStart == null) spanStart = sample.ts
                 spanEnd = sample.ts
@@ -103,9 +106,14 @@ object AutoWorkoutDetectorTrace {
         val merged = ArrayList<Pair<Long, Long>>()
         var curStart = spans[0].first
         var curEnd = spans[0].second
+        val restTimes = seg.filter { it.bpm < floor }.map { it.ts }
+        var restIndex = 0
         for (k in 1 until spans.size) {
             val next = spans[k]
-            if ((next.first - curEnd) < AutoWorkoutDetector.mergeGapS) {
+            val gap = next.first - curEnd
+            while (restIndex < restTimes.size && restTimes[restIndex] <= curEnd) restIndex++
+            val observedRest = restIndex < restTimes.size && restTimes[restIndex] < next.first
+            if (gap < AutoWorkoutDetector.mergeGapS && gap <= AutoWorkoutDetector.maxSampleGapS && !observedRest) {
                 curEnd = maxOf(curEnd, next.second)
             } else {
                 merged.add(curStart to curEnd)
@@ -121,7 +129,7 @@ object AutoWorkoutDetectorTrace {
         for ((start, end) in merged) {
             val durMin = ((end - start) / 60L).toInt()
             val overlapping = savedWorkouts.filter {
-                AutoWorkoutDetector.overlaps(start, end, it.first, it.second)
+                AutoWorkoutDetector.sameActivity(start, end, it.first, it.second)
             }.sortedWith(compareBy<Pair<Long, Long>> { it.first }.thenBy { it.second })
             if (overlapping.isNotEmpty()) {
                 // #2527: exact saved/candidate ratio, plus intersection seconds for partial overlaps.

@@ -69,7 +69,8 @@ class AutoWorkoutDetectorTraceTest {
             "enclosing" to listOf((start - 300) to (end + 300)),
             "touchStart" to listOf((start - 180) to start),
             "touchEnd" to listOf(end to (end + 180)),
-            "disjoint" to listOf((start - 180) to (start - 1)),
+            "nearDisjoint" to listOf((start - 180) to (start - 1)),
+            "farDisjoint" to listOf((start - 600) to (start - AutoWorkoutDetector.savedWorkoutCollarS - 1)),
             "multiple" to listOf(end to (end + 180), (start + 600) to (start + 780),
                 (start - 300) to (start + 180)),
         )
@@ -100,7 +101,9 @@ class AutoWorkoutDetectorTraceTest {
                 autoDetect savedOverlap candidateSec=5400 savedSec=180 overlapSec=0 savedToCandidate=180/5400
                 touchEnd results=0
                 autoDetect savedOverlap candidateSec=5400 savedSec=180 overlapSec=0 savedToCandidate=180/5400
-                disjoint results=1
+                nearDisjoint results=0
+                autoDetect savedOverlap candidateSec=5400 savedSec=179 overlapSec=0 savedToCandidate=179/5400
+                farDisjoint results=1
                 multiple results=0
                 autoDetect savedOverlap candidateSec=5400 savedSec=480 overlapSec=180 savedToCandidate=480/5400
                 autoDetect savedOverlap candidateSec=5400 savedSec=180 overlapSec=180 savedToCandidate=180/5400

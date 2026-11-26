@@ -71,7 +71,9 @@ public enum AutoWorkoutDetector {
     public static let shadowSustainedMinutes: [Double] = [10.0, 15.0]
     /// A dip below the gate no longer than this does NOT break the span (a red light, a sip of water).
     public static let maxDipS = 90
-    /// Two detected windows whose gap is strictly less than this are merged into one (5 min).
+    /// An unobserved interval cannot count as sustained exercise.
+    public static let maxSampleGapS = 120
+    /// Upper bound for joining windows when HR coverage is continuous and no rest was observed.
     public static let mergeGapS = 5 * 60
     /// A saved session is treated as the same activity when it overlaps the candidate or sits within
     /// this collar. Detector boundaries move as late HR arrives; without the collar an imported/manual
@@ -136,10 +138,11 @@ public enum AutoWorkoutDetector {
     ///     sample) stays <= `maxDipS`; a longer dip closes the span. The span's [start, end] are the
     ///     first/last ELEVATED sample timestamps.
     ///  3. Keep a span only when it lasts >= `minimumSustainedMinutes` (applied per-span, BEFORE merge).
-    ///  4. Merge two kept spans when the gap between them is strictly < `mergeGapS`.
+    ///  4. Join only across a short observed gap with no below-floor rest; never count a sample
+    ///     outage longer than `maxSampleGapS` toward a sustained interval.
     ///  5. If a motion series is supplied, drop a window unless its mean motion intensity over the
     ///     window is >= `motionConfirmMean` (confirmation). With no motion series, HR-only — keep it.
-    ///  6. Drop a window that OVERLAPS any saved span (touching endpoints count) — never re-suggest one.
+    ///  6. Drop a window overlapping or within a small boundary collar of a saved span.
     ///  7. Emit a `DetectedWorkout` per surviving window (avg/peak bpm + whole-minute duration).
     ///
     /// - Parameters:
@@ -166,6 +169,7 @@ public enum AutoWorkoutDetector {
         var spanStart: Int? = nil
         var spanEnd = 0
         var dipStart: Int? = nil
+        var previousSampleTs: Int? = nil
 
         func closeSpan() {
             if let s = spanStart, Double(spanEnd - s) >= minimumSustainedMinutes * 60.0 {
@@ -176,6 +180,10 @@ public enum AutoWorkoutDetector {
         }
 
         for sample in seg {
+            if let previousSampleTs, sample.ts - previousSampleTs > maxSampleGapS {
+                closeSpan()
+            }
+            previousSampleTs = sample.ts
             if sample.bpm >= floor {
                 if spanStart == nil { spanStart = sample.ts }
                 spanEnd = sample.ts
@@ -195,9 +203,15 @@ public enum AutoWorkoutDetector {
         var merged: [(start: Int, end: Int)] = []
         var curStart = spans[0].start
         var curEnd = spans[0].end
+        let restTimes = seg.filter { $0.bpm < floor }.map(\.ts)
+        var restIndex = 0
         for k in 1..<spans.count {
             let next = spans[k]
-            if next.start - curEnd < mergeGapS {
+            // Do not join two workouts across observed rest or an unobserved gap.
+            let gap = next.start - curEnd
+            while restIndex < restTimes.count && restTimes[restIndex] <= curEnd { restIndex += 1 }
+            let observedRest = restIndex < restTimes.count && restTimes[restIndex] < next.start
+            if gap < mergeGapS && gap <= maxSampleGapS && !observedRest {
                 curEnd = max(curEnd, next.end)
             } else {
                 merged.append((curStart, curEnd))

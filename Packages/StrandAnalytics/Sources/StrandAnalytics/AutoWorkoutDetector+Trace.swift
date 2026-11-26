@@ -76,6 +76,7 @@ extension AutoWorkoutDetector {
         var spanStart: Int? = nil
         var spanEnd = 0
         var dipStart: Int? = nil
+        var previousSampleTs: Int? = nil
         func closeSpan() {
             if let s = spanStart, Double(spanEnd - s) >= minimumSustainedMinutes * 60.0 {
                 spans.append((s, spanEnd))
@@ -84,6 +85,10 @@ extension AutoWorkoutDetector {
             dipStart = nil
         }
         for sample in seg {
+            if let previousSampleTs, sample.ts - previousSampleTs > maxSampleGapS {
+                closeSpan()
+            }
+            previousSampleTs = sample.ts
             if sample.bpm >= floor {
                 if spanStart == nil { spanStart = sample.ts }
                 spanEnd = sample.ts
@@ -106,9 +111,14 @@ extension AutoWorkoutDetector {
         var merged: [(start: Int, end: Int)] = []
         var curStart = spans[0].start
         var curEnd = spans[0].end
+        let restTimes = seg.filter { $0.bpm < floor }.map(\.ts)
+        var restIndex = 0
         for k in 1..<spans.count {
             let next = spans[k]
-            if next.start - curEnd < mergeGapS {
+            let gap = next.start - curEnd
+            while restIndex < restTimes.count && restTimes[restIndex] <= curEnd { restIndex += 1 }
+            let observedRest = restIndex < restTimes.count && restTimes[restIndex] < next.start
+            if gap < mergeGapS && gap <= maxSampleGapS && !observedRest {
                 curEnd = max(curEnd, next.end)
             } else {
                 merged.append((curStart, curEnd))

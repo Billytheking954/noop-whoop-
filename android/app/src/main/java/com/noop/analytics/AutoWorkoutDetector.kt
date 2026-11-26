@@ -47,9 +47,11 @@ object AutoWorkoutDetector {
 
     /** A dip below the gate no longer than this does NOT break the span (a red light, a sip of water). */
     const val maxDipS: Long = 90L
+    const val maxSampleGapS: Long = 120L
 
-    /** Two detected windows whose gap is strictly less than this are merged into one. */
+    /** Upper bound for joining windows with continuous HR coverage and no measured rest. */
     const val mergeGapS: Long = 5L * 60L // 5 min
+    const val savedWorkoutCollarS: Long = 5L * 60L
 
     /**
      * When an OPTIONAL continuous motion series is supplied, a window must ALSO show elevated motion
@@ -145,6 +147,7 @@ object AutoWorkoutDetector {
         var spanStart: Long? = null
         var spanEnd = 0L
         var dipStart: Long? = null
+        var previousSampleTs: Long? = null
 
         fun closeSpan() {
             val s = spanStart
@@ -156,6 +159,8 @@ object AutoWorkoutDetector {
         }
 
         for (sample in seg) {
+            if (previousSampleTs != null && sample.ts - previousSampleTs > maxSampleGapS) closeSpan()
+            previousSampleTs = sample.ts
             val elevated = sample.bpm >= floor
             if (elevated) {
                 if (spanStart == null) spanStart = sample.ts
@@ -175,9 +180,14 @@ object AutoWorkoutDetector {
         val merged = ArrayList<Pair<Long, Long>>()
         var curStart = spans[0].first
         var curEnd = spans[0].second
+        val restTimes = seg.filter { it.bpm < floor }.map { it.ts }
+        var restIndex = 0
         for (k in 1 until spans.size) {
             val next = spans[k]
-            if ((next.first - curEnd) < mergeGapS) {
+            val gap = next.first - curEnd
+            while (restIndex < restTimes.size && restTimes[restIndex] <= curEnd) restIndex++
+            val observedRest = restIndex < restTimes.size && restTimes[restIndex] < next.first
+            if (gap < mergeGapS && gap <= maxSampleGapS && !observedRest) {
                 curEnd = maxOf(curEnd, next.second)
             } else {
                 merged.add(curStart to curEnd)
@@ -192,7 +202,7 @@ object AutoWorkoutDetector {
         val results = ArrayList<DetectedWorkout>()
         for ((start, end) in merged) {
             // 6: never re-suggest a window overlapping an already-saved workout.
-            if (savedWorkouts.any { overlaps(start, end, it.first, it.second) }) continue
+            if (savedWorkouts.any { sameActivity(start, end, it.first, it.second) }) continue
 
             val window = seg.filter { it.ts in start..end }
             if (window.isEmpty()) continue
@@ -217,4 +227,10 @@ object AutoWorkoutDetector {
     /** Two closed [aStart, aEnd] / [bStart, bEnd] intervals overlap (touching endpoints count). */
     internal fun overlaps(aStart: Long, aEnd: Long, bStart: Long, bEnd: Long): Boolean =
         aStart <= bEnd && bStart <= aEnd
+
+    internal fun sameActivity(aStart: Long, aEnd: Long, bStart: Long, bEnd: Long): Boolean =
+        aEnd >= aStart && bEnd >= bStart &&
+            (overlaps(aStart, aEnd, bStart, bEnd) ||
+                (aEnd < bStart && bStart - aEnd <= savedWorkoutCollarS) ||
+                (bEnd < aStart && aStart - bEnd <= savedWorkoutCollarS))
 }

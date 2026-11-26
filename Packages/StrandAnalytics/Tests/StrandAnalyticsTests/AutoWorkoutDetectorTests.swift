@@ -6,8 +6,8 @@ import WhoopProtocol
 /// android/.../AutoWorkoutDetectorTest.kt case-for-case so the two platforms stay byte-parity on
 /// the detection logic.
 ///
-/// Cases: elevated span detected; brief dip tolerated; short/low spans rejected; near windows
-/// merged; window overlapping a saved workout excluded.
+/// Cases: elevated span detected; brief dip tolerated; short/low spans rejected; measured rest
+/// kept separate; gaps and saved workouts cannot produce duplicate prompts.
 final class AutoWorkoutDetectorTests: XCTestCase {
 
     /// A flat 1 Hz HR block [start, start+durS) at `bpm`.
@@ -67,18 +67,26 @@ final class AutoWorkoutDetectorTests: XCTestCase {
         XCTAssertTrue(AutoWorkoutDetector.detect(hr: hr, restingBpm: 60).isEmpty)
     }
 
-    func testNearWindowsAreMerged() {
-        // Two 15 min bouts at 120 separated by a 3 min true rest at 65 (< 5 min merge gap, but the rest
-        // is > 90 s so it CLOSES each span). The two closed spans are then MERGED into one (gap < 5 min).
+    func testNearWindowsWithObservedRestStaySeparate() {
+        // A three-minute measured rest separates two workouts even though the legacy merge gap is five minutes.
         let start = 5_000_000
         let a = block(start, 15 * 60, 120)
         let gap = block(start + 900, 3 * 60, 65)   // 180 s rest > maxDipS → span closes
         let b = block(start + 1080, 15 * 60, 120)
         let hr = block(start - 300, 300, 65) + a + gap + b + block(start + 1980, 300, 65)
         let out = AutoWorkoutDetector.detect(hr: hr, restingBpm: 60)
-        XCTAssertEqual(out.count, 1, "near windows not merged: \(out.count)")
-        // Merged span runs from the first bout's start to the second bout's end (~33 min).
-        XCTAssertGreaterThanOrEqual(out[0].durationMin, 30, "merged span too short: \(out[0].durationMin) min")
+        XCTAssertEqual(out.count, 2)
+    }
+
+    func testMissingHeartRateDoesNotCreateAWorkoutOrJoinTwoWorkouts() {
+        let start = 5_500_000
+        XCTAssertTrue(AutoWorkoutDetector.detect(
+            hr: [(ts: start, bpm: 120), (ts: start + 3600, bpm: 120)], restingBpm: 60).isEmpty)
+        let a = elapsedSpan(start, 15 * 60, 120)
+        let b = elapsedSpan(start + 15 * 60 + 180, 15 * 60, 120)
+        let out = AutoWorkoutDetector.detect(hr: a + b, restingBpm: 60)
+        XCTAssertEqual(out.count, 2)
+        XCTAssertEqual(AutoWorkoutDetector.detectTrace(hr: a + b, restingBpm: 60).results, out)
     }
 
     func testFarWindowsStaySeparate() {

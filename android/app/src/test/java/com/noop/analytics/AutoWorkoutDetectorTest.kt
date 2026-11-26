@@ -11,8 +11,8 @@ import org.junit.Test
  * StrandAnalytics/AutoWorkoutDetectorTests.swift case-for-case so the two platforms stay
  * byte-parity on the detection logic.
  *
- * Cases: elevated span detected; brief dip tolerated; short/low spans rejected; near windows
- * merged; window overlapping a saved workout excluded.
+ * Cases: elevated span detected; brief dip tolerated; short/low spans rejected; measured rest
+ * kept separate; gaps and saved workouts cannot produce duplicate prompts.
  */
 class AutoWorkoutDetectorTest {
 
@@ -72,9 +72,8 @@ class AutoWorkoutDetectorTest {
         assertTrue(AutoWorkoutDetector.detect(hr, restingHR = rest).isEmpty())
     }
 
-    @Test fun nearWindowsAreMerged() {
-        // Two 15 min bouts at 120 separated by a 3 min true rest at 65 (< 5 min merge gap, but the rest
-        // is > 90 s so it CLOSES each span). The two closed spans are then MERGED into one (gap < 5 min).
+    @Test fun nearWindowsWithObservedRestStaySeparate() {
+        // Two 15 min bouts separated by three minutes of measured rest remain distinct.
         val rest = 60
         val start = 5_000_000L
         val a = block(start, 15 * 60, 120)
@@ -82,9 +81,18 @@ class AutoWorkoutDetectorTest {
         val b = block(start + 1080, 15 * 60, 120)
         val hr = block(start - 300, 300, 65) + a + gap + b + block(start + 1980, 300, 65)
         val out = AutoWorkoutDetector.detect(hr, restingHR = rest)
-        assertEquals("near windows not merged: ${out.size}", 1, out.size)
-        // Merged span runs from the first bout's start to the second bout's end (~33 min).
-        assertTrue("merged span too short: ${out[0].durationMin} min", out[0].durationMin >= 30)
+        assertEquals("measured rest must separate workouts", 2, out.size)
+    }
+
+    @Test fun missingHeartRateDoesNotCreateAWorkoutOrJoinTwoWorkouts() {
+        val start = 5_500_000L
+        assertTrue(AutoWorkoutDetector.detect(listOf(hr(start, 120), hr(start + 3600, 120)), restingHR = 60).isEmpty())
+        val a = block(start, 15 * 60 + 1, 120)
+        val b = block(start + 15 * 60 + 180, 15 * 60 + 1, 120)
+        val input = a + b
+        val out = AutoWorkoutDetector.detect(input, restingHR = 60)
+        assertEquals(2, out.size)
+        assertEquals(out, AutoWorkoutDetectorTrace.detectTrace(input, restingHR = 60).first)
     }
 
     @Test fun farWindowsStaySeparate() {
