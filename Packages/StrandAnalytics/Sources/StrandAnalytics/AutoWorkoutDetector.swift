@@ -203,7 +203,7 @@ public enum AutoWorkoutDetector {
         var merged: [(start: Int, end: Int)] = []
         var curStart = spans[0].start
         var curEnd = spans[0].end
-        let restTimes = seg.filter { $0.bpm < floor }.map(\.ts)
+        let restTimes = seg.filter { $0.bpm < floor }.map { $0.ts }
         var restIndex = 0
         for k in 1..<spans.count {
             let next = spans[k]

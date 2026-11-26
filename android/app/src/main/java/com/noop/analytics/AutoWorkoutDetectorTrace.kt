@@ -59,6 +59,7 @@ object AutoWorkoutDetectorTrace {
         lines.add(
             "autoDetect thresholds elevatedMargin=${AutoWorkoutDetector.elevatedMarginBPM}bpm " +
                 "minSustainedMin=$minimumSustainedMinutes maxDipS=${AutoWorkoutDetector.maxDipS} " +
+                "maxSampleGapS=${AutoWorkoutDetector.maxSampleGapS} " +
                 "mergeGapS=${AutoWorkoutDetector.mergeGapS} motionConfirmMean=${AutoWorkoutDetector.motionConfirmMean}",
         )
 

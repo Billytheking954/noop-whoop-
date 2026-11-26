@@ -60,7 +60,8 @@ extension AutoWorkoutDetector {
         // Thresholds applied (the autoDetectThresholds capture). Stated once so a report carries the
         // calibration the windows were judged against.
         lines.append("autoDetect thresholds elevatedMargin=\(elevatedMarginBPM)bpm "
-            + "minSustainedMin=\(minimumSustainedMinutes) maxDipS=\(maxDipS) mergeGapS=\(mergeGapS) "
+            + "minSustainedMin=\(minimumSustainedMinutes) maxDipS=\(maxDipS) "
+            + "maxSampleGapS=\(maxSampleGapS) mergeGapS=\(mergeGapS) "
             + "motionConfirmMean=\(motionConfirmMean)")
 
         // Rebuild the SAME merged windows the detector forms (sustained spans tolerating dips, then merge),
@@ -111,7 +112,7 @@ extension AutoWorkoutDetector {
         var merged: [(start: Int, end: Int)] = []
         var curStart = spans[0].start
         var curEnd = spans[0].end
-        let restTimes = seg.filter { $0.bpm < floor }.map(\.ts)
+        let restTimes = seg.filter { $0.bpm < floor }.map { $0.ts }
         var restIndex = 0
         for k in 1..<spans.count {
             let next = spans[k]
