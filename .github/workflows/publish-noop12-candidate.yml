@@ -1,0 +1,96 @@
+name: Publish verified RyanBr v12 candidate IPA
+
+on:
+  push:
+    branches:
+      - release/noop12-candidate-download-20261126
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-noop12-candidate-c57f8452
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERIFIED_RUN_ID: "45805752956"
+      VERIFIED_ARTIFACT_ID: "15115835370"
+      VERIFIED_SOURCE_SHA: "c57f8452fc79bb7007c3b0a887f9d13933b27fa5"
+      VERIFIED_IPA_SHA256: "8a6747ff62f19ba2e3f4b58f3a8d71aa8244b148cbb29513136e363ce3325429"
+      RELEASE_TAG: "ryanbr-v12-candidate-c57f8452"
+      IPA_NAME: "NOOP-Ryanbr12-selective-c57f8452fc79-unsigned.ipa"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.VERIFIED_SOURCE_SHA }}
+
+      - name: Download the exact verified artifact
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${VERIFIED_ARTIFACT_ID}/zip" > candidate-artifact.zip
+          unzip -t candidate-artifact.zip
+          mkdir candidate-artifact
+          unzip -q candidate-artifact.zip -d candidate-artifact
+
+      - name: Verify provenance, identity report and IPA bytes
+        run: |
+          set -euo pipefail
+          cd candidate-artifact
+          test "$(sha256sum "$IPA_NAME" | cut -d' ' -f1)" = "$VERIFIED_IPA_SHA256"
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          manifest = json.loads(pathlib.Path("manifest.json").read_text())
+          identity = json.loads(pathlib.Path("upgrade-identity.json").read_text())
+          assert manifest["source_sha"] == os.environ["VERIFIED_SOURCE_SHA"]
+          assert manifest["sha256"] == os.environ["VERIFIED_IPA_SHA256"]
+          assert manifest["unsigned"] is True
+          assert manifest["physical_device_validated"] is False
+          assert manifest["safe_for_in_place_data_migration"] is False
+          assert identity["candidate_sha256"] == os.environ["VERIFIED_IPA_SHA256"]
+          assert identity["source_identity_matches"] is True
+          assert identity["installed_signed_identity_verified"] is False
+          assert identity["physical_update_verified"] is False
+          PY
+
+      - name: Publish durable prerelease download
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          # RyanBr v12 selective candidate
+
+          Unsigned iPhone candidate built from `c57f8452fc79bb7007c3b0a887f9d13933b27fa5`.
+
+          The selective CI run passed Swift packages/tools, Android build/tests, iPhone simulator build, 68 iPhone safety tests, launch and synthetic same-identity reinstall checks, unsigned device compilation, IPA inspection, and comparison with the original RyanBr v12 archive. Source identity matched `com.noopapp.noop`, its widget, and `group.com.noopapp.noop.staging`.
+
+          This remains an experimental prerelease. It is unsigned and requires sideload resigning. A signed update over the installed SideStore app, real health-data retention, physical WHOOP pairing, battery cost, and physical-device behaviour have not been verified. The hosted macOS runner built the app but aborted before XCTest began.
+
+          SHA-256: `8a6747ff62f19ba2e3f4b58f3a8d71aa8244b148cbb29513136e363ce3325429`
+
+          CI evidence: https://github.com/Billytheking954/noop-whoop-/actions/runs/45805752956
+          Draft review: https://github.com/Billytheking954/noop-whoop-/pull/70
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$VERIFIED_SOURCE_SHA" --prerelease --draft=false \
+              --title "RyanBr v12 selective candidate c57f8452" \
+              --notes-file release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$VERIFIED_SOURCE_SHA" --prerelease \
+              --title "RyanBr v12 selective candidate c57f8452" \
+              --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "candidate-artifact/$IPA_NAME" \
+            "candidate-artifact/$IPA_NAME.sha256.txt" \
+            candidate-artifact/manifest.json \
+            candidate-artifact/upgrade-identity.json
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json url,isDraft,isPrerelease,targetCommitish,assets
