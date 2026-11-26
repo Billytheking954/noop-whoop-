@@ -55,6 +55,26 @@ public enum CoarseWorkoutClass: String, Equatable, Hashable, Sendable, Codable, 
     /// No candidate class cleared the plausibility/margin bar — genuinely unclear, or a shape (e.g.
     /// swim, row, court sport) this MVP doesn't model. Never a wrong specific guess dressed up.
     case other
+
+    /// Stable editable seed for the review form. This is a suggestion only: the form always remains
+    /// editable and the user must explicitly save it. `.other` deliberately maps to the catalogue's
+    /// generic value rather than inventing a certain sport from weak evidence.
+    public var editableSportName: String {
+        switch self {
+        case .walk: return "Walking"
+        case .run: return "Running"
+        case .strength: return "Strength"
+        case .cycle: return "Cycling"
+        case .ski: return "Skiing"
+        case .other: return "Other"
+        }
+    }
+
+    /// Honest review label for UI copy. The stored catalogue value stays `Other`; the review surface
+    /// says what that means instead of presenting it as a classifier certainty.
+    public var suggestionReviewLabel: String {
+        self == .other ? "Other / unsure" : editableSportName
+    }
 }
 
 // MARK: - Input feature vector

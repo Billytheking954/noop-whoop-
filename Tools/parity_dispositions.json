@@ -3,6 +3,14 @@
   "dispositions": [
     {
       "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/WhoopStore/Sources/WhoopStore/JournalWorkoutAppleCache.swift::workoutsOverlapping/4#1",
+      "identity_sha256": "5dbb170b0de2f068993eebe9d58048e89d16bcef8bafa0c4b1be4398aab94f92",
+      "platform": "swift",
+      "rationale": "The iPhone repository reads overlapping workout rows through its GRDB store for the opt-in Today suggestion; Android reads its own Room workout source and does not call this Swift storage method."
+    },
+    {
+      "type": "platform_specific",
       "kind": "add-unpaired-constant",
       "identity": "swift\u0000Packages/StrandImport/Sources/StrandImport/HealthWriteback.swift::openNightMarginSeconds",
       "identity_sha256": "7f2231de6355adc6b5897cb6f0addc8b708bf08dd0277f465dcb794f4fd29b2a",
@@ -300,6 +308,118 @@
       "platform": "kotlin",
       "rationale": "Swift Repository.refresh reads the same imported daily union (unionDailyMetrics) in the excluded app layer and hands it, still apart from the computed union, to ChargeBaselines.resolve (#2525); this disposition does not assert behavioral parity.",
       "twin_path": "Strand/Data/Repository.swift"
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/AutoWorkoutDetector.swift::sameActivity/5#1",
+      "identity_sha256": "50122912a4455a166ad404fbd0c0eee16d3fca95ce23b2b3e9a7f4479915fce5",
+      "platform": "swift",
+      "rationale": "This selective RyanBr iPhone fork uses the detector collar to suppress repeated local suggestions; Android is retired from this fork and is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/AutoWorkoutDetector.swift::savedWorkoutCollarS",
+      "identity_sha256": "38d874356adc2ac9fefad5bf6a91681831be50030b1b198991b02f881e295a54",
+      "platform": "swift",
+      "rationale": "A boundary collar suppresses duplicate local workout suggestions in this iPhone-only fork."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift",
+      "identity_sha256": "8962cd6138e46736e9166ee3aac0fe2e99598afbe77bb85bafa05b47c6f644b6",
+      "platform": "swift",
+      "rationale": "This local-only suggestion audit is experimental iPhone code; Android is not a shipped target of the selective fork."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/ReadinessEngine.swift::recentHistory/3#1",
+      "identity_sha256": "6dc31597e091b95af35b3b9c116952f293ec94e3c3ff7333e9ba95416c188f8d",
+      "platform": "swift",
+      "rationale": "The calendar window is used by the retained iPhone readiness feature; this fork does not ship an Android twin."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::activityKey/1#1",
+      "identity_sha256": "61f8045e56bce43b0f8fd6e15abcc9787d74d85c767e2adaaa55e9605ffa3844",
+      "platform": "swift",
+      "rationale": "Local-only, opt-in workout suggestion audit in the iPhone fork; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::activityKey/1#2",
+      "identity_sha256": "1aa6cba1c6b2244fd55b785ec0decd6d048a53c0153a8d30c9a55ce45c54258d",
+      "platform": "swift",
+      "rationale": "Local-only, opt-in workout suggestion audit in the iPhone fork; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::evaluate/3#1",
+      "identity_sha256": "0064abe5dc53dc554e97a62c016ca3673b8f1c280c3faff707defaaaaf2eb581",
+      "platform": "swift",
+      "rationale": "Local-only, opt-in workout suggestion audit in the iPhone fork; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::expectedClass/1#1",
+      "identity_sha256": "a70a0daadbc9a817e97dd896288c02ee09568ddb8f06e470b501fcb21f8d4bcc",
+      "platform": "swift",
+      "rationale": "Local-only, opt-in workout suggestion audit in the iPhone fork; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::mutate/2#1",
+      "identity_sha256": "13715e6fd03f100637f051e0ee317eaffae2f242d27d279f7b6aa72fec5bb939",
+      "platform": "swift",
+      "rationale": "Local-only, opt-in workout suggestion audit in the iPhone fork; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::traceLines/0#1",
+      "identity_sha256": "efd9a50ef4fab617ac7afbdbb062b4013bb3a6314e1f809ccc4bf64d1a1cd7dc",
+      "platform": "swift",
+      "rationale": "Local-only, opt-in workout suggestion audit in the iPhone fork; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "swift\u0000Packages/WhoopStore/Sources/WhoopStore/JournalWorkoutAppleCache.swift::insertReviewedWorkoutIfFree/2#1",
+      "identity_sha256": "0d5daeb31697e8744f54fbb9c1c8237892fe766f8b68825138ade6be28124962",
+      "platform": "swift",
+      "rationale": "Atomic reviewed-workout insert protects the iPhone SQLite store; Android is not a target of this selective fork."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-property",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutSuggestionAudit.swift::totals@property#1",
+      "identity_sha256": "9430232c4d359046eee8c9478dd8932ff36970643618b7f32942238236112d7d",
+      "platform": "swift",
+      "rationale": "Derived summary for the iPhone-only opt-in workout suggestion audit."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-property",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift::editableSportName@property#1",
+      "identity_sha256": "f549bada75e54b503ff03c48050e2393d260f5f66911d632b01fd1d1c7078e80",
+      "platform": "swift",
+      "rationale": "Display-only seed for the iPhone review form; Android is not a release target."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-property",
+      "identity": "swift\u0000Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift::suggestionReviewLabel@property#1",
+      "identity_sha256": "8f035aac3e93cec5a67fade9427b50dfa1305d12605f9fa0de1a66164fc788ca",
+      "platform": "swift",
+      "rationale": "Display-only label for the iPhone review form; Android is not a release target."
     }
   ]
 }

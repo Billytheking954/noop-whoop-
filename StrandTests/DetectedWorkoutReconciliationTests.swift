@@ -65,6 +65,16 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             older,
             "an exact dismissal from the confirmation-card store must still suppress its candidate")
 
+        let shiftedNewer = DetectedWorkout(startSec: 3_060, endSec: 3_960,
+                                           avgBpm: 141, peakBpm: 166, durationMin: 15)
+        XCTAssertEqual(
+            Repository.selectAutoDetectCandidate(
+                [older, shiftedNewer],
+                autoDismissedTokens: ["3000:3900"],
+                detectedDismissedTokens: []),
+            older,
+            "a sync boundary shift must not repeat a suggestion the user already handled")
+
         XCTAssertEqual(
             Repository.selectAutoDetectCandidate(
                 [older, newer],
@@ -137,6 +147,39 @@ final class DetectedWorkoutReconciliationTests: XCTestCase {
             let rows = try await store.workouts(deviceId: deviceId, from: 0, to: 10_000, limit: 100)
             XCTAssertEqual(rows, [moved],
                            "a successful moved edit must leave only the replacement natural key")
+        }
+    }
+
+    func testReviewedSuggestionDoesNotDuplicateJustArrivedImportedWorkout() async throws {
+        try await withPreferences {
+            let store = try await WhoopStore.inMemory()
+            let start = Int(Date().timeIntervalSince1970) - 3_600
+            let existing = WorkoutRow(
+                startTs: start, endTs: start + 1_800, sport: "Running", source: "apple-health",
+                durationS: 1_800, energyKcal: 220, avgHr: 145, maxHr: 170, strain: nil,
+                distanceM: 5_000, zonesJSON: nil, notes: nil, steps: nil)
+            _ = try await store.upsertWorkouts([existing], deviceId: WorkoutSource.appleHealthSource)
+
+            let repo = Repository(deviceId: deviceId)
+            repo.setStoreForTesting(store)
+            let suggestion = DetectedWorkout(
+                startSec: start + 30, endSec: start + 1_770,
+                avgBpm: 145, peakBpm: 170, durationMin: 29)
+            let reviewed = try XCTUnwrap(WorkoutSource.buildManualRowFromSpan(
+                start: Date(timeIntervalSince1970: TimeInterval(start + 30)),
+                end: Date(timeIntervalSince1970: TimeInterval(start + 1_770)),
+                sport: "Running", avgHr: 145, energyKcal: nil))
+
+            let saved = await repo.saveReviewedDetectedWorkout(reviewed, suggestion: suggestion)
+            XCTAssertFalse(saved, "an overlapping import must reject the reviewed save")
+            let manualRows = try await store.workouts(
+                deviceId: deviceId, from: start - 1, to: start + 3_600, limit: 100)
+            XCTAssertTrue(manualRows.isEmpty,
+                          "a concurrent Apple Health arrival must suppress the second manual row")
+            let importedRows = try await store.workouts(
+                deviceId: WorkoutSource.appleHealthSource,
+                from: start - 1, to: start + 3_600, limit: 100)
+            XCTAssertEqual(importedRows, [existing])
         }
     }
 

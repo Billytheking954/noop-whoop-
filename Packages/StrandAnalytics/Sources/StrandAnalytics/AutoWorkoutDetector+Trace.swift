@@ -60,7 +60,8 @@ extension AutoWorkoutDetector {
         // Thresholds applied (the autoDetectThresholds capture). Stated once so a report carries the
         // calibration the windows were judged against.
         lines.append("autoDetect thresholds elevatedMargin=\(elevatedMarginBPM)bpm "
-            + "minSustainedMin=\(minimumSustainedMinutes) maxDipS=\(maxDipS) mergeGapS=\(mergeGapS) "
+            + "minSustainedMin=\(minimumSustainedMinutes) maxDipS=\(maxDipS) "
+            + "maxSampleGapS=\(maxSampleGapS) mergeGapS=\(mergeGapS) "
             + "motionConfirmMean=\(motionConfirmMean)")
 
         // Rebuild the SAME merged windows the detector forms (sustained spans tolerating dips, then merge),
@@ -76,6 +77,7 @@ extension AutoWorkoutDetector {
         var spanStart: Int? = nil
         var spanEnd = 0
         var dipStart: Int? = nil
+        var previousSampleTs: Int? = nil
         func closeSpan() {
             if let s = spanStart, Double(spanEnd - s) >= minimumSustainedMinutes * 60.0 {
                 spans.append((s, spanEnd))
@@ -84,6 +86,10 @@ extension AutoWorkoutDetector {
             dipStart = nil
         }
         for sample in seg {
+            if let previousSampleTs, sample.ts - previousSampleTs > maxSampleGapS {
+                closeSpan()
+            }
+            previousSampleTs = sample.ts
             if sample.bpm >= floor {
                 if spanStart == nil { spanStart = sample.ts }
                 spanEnd = sample.ts
@@ -106,9 +112,14 @@ extension AutoWorkoutDetector {
         var merged: [(start: Int, end: Int)] = []
         var curStart = spans[0].start
         var curEnd = spans[0].end
+        let restTimes = seg.filter { $0.bpm < floor }.map { $0.ts }
+        var restIndex = 0
         for k in 1..<spans.count {
             let next = spans[k]
-            if next.start - curEnd < mergeGapS {
+            let gap = next.start - curEnd
+            while restIndex < restTimes.count && restTimes[restIndex] <= curEnd { restIndex += 1 }
+            let observedRest = restIndex < restTimes.count && restTimes[restIndex] < next.start
+            if gap < mergeGapS && gap <= maxSampleGapS && !observedRest {
                 curEnd = max(curEnd, next.end)
             } else {
                 merged.append((curStart, curEnd))
@@ -122,7 +133,7 @@ extension AutoWorkoutDetector {
         let motionSeries = hasMotion ? motion : nil
         for (start, end) in merged {
             let durMin = (end - start) / 60
-            let overlapping = savedSpans.filter { overlaps(start, end, $0.startSec, $0.endSec) }
+            let overlapping = savedSpans.filter { sameActivity(start, end, $0.startSec, $0.endSec) }
                 .sorted { $0.startSec == $1.startSec ? $0.endSec < $1.endSec : $0.startSec < $1.startSec }
             if !overlapping.isEmpty {
                 // #2527: measure each suppression before choosing a duration-aware policy. The exact
