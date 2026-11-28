@@ -453,7 +453,9 @@ private struct DevicesContent: View {
             case .storedOff: status = "Strap setting disabled (read back)."
             case .unverified: status = "Command sent; this strap cannot confirm the result. Check a receiver."
             case .failed: status = "Command failed or could not be verified. Check the strap log and retry."
-            case .off: status = strapBroadcastHrEnabled
+            case .off: status = model.ble.broadcastHrStopUnverified
+                ? "Stop was not confirmed. NOOP will not restart broadcasting; reconnect and retry Stop."
+                : strapBroadcastHrEnabled
                 ? "Previously requested; current strap state is unverified."
                 : "Off. Compatible receivers can scan for the strap's Bluetooth heart-rate service."
             }

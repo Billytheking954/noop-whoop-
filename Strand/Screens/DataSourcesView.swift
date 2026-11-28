@@ -950,9 +950,9 @@ struct DataSourcesView: View {
              tint: StrandPalette.accent,
              status: StatePill(label, tone: tone, pulsing: live.connected && !live.bonded),
              subtitle: String(localized: "Pairs directly with your strap over Bluetooth: no WHOOP app, no cloud.")) {
-            Text("Broadcasts the strap's own live heart rate over Bluetooth.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
+            NavigationLink(destination: DevicesView()) {
+                Text("Manage devices")
+            }
         }
     }
 

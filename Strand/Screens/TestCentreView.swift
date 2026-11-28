@@ -261,8 +261,9 @@ struct TestCentreView: View {
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
 
                 Divider().overlay(StrandPalette.hairline)
-                Text("Manage devices")
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                NavigationLink(destination: DevicesView()) {
+                    Text("Manage devices")
+                }
 
                 Divider().overlay(StrandPalette.hairline)
                 Toggle("Legacy R22 feature-flag experiment", isOn: $deepDataEnabled)

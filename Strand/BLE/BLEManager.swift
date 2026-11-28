@@ -3666,6 +3666,11 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// Make a bonded strap advertise as a standard BLE HR sensor. WHOOP 4 uses the reversible
     /// TOGGLE_GENERIC_HR_PROFILE command; WHOOP 5/MG keeps the existing device-config path.
+    private static let broadcastHrStopUnverifiedKey = "noopBroadcastHrStopUnverified"
+    var broadcastHrStopUnverified: Bool {
+        UserDefaults.standard.bool(forKey: Self.broadcastHrStopUnverifiedKey)
+    }
+
     @discardableResult
     public func setBroadcastHr(_ on: Bool) -> Bool {
         guard state.connected, state.bonded else {
@@ -3674,6 +3679,7 @@ public final class BLEManager: NSObject, ObservableObject {
         if selectedModel.deviceFamily == .whoop4 {
             send(.toggleGenericHRProfile, payload: [on ? 0x01 : 0x00])
             UserDefaults.standard.set(on, forKey: PuffinExperiment.broadcastHrKey)
+            UserDefaults.standard.set(false, forKey: Self.broadcastHrStopUnverifiedKey)
             state.strapBroadcastStatus = .unverified
             log("Broadcast HR: WHOOP 4 \(on ? "enable" : "disable") command sent (14); effect not confirmed.")
             return true
@@ -3704,6 +3710,11 @@ public final class BLEManager: NSObject, ObservableObject {
         // flag written yet the strap never advertised 0x180D, with no way to tell "accepted but not
         // advertised" from "write ignored". The 121 read-back settles that, same discipline as the ECG gate.
         broadcastHrGateReport = BroadcastHrGateReport(on: on)
+        if !on {
+            // A dropped link must not silently reverse a requested Stop by
+            // reapplying the old ON preference during the next handshake.
+            UserDefaults.standard.set(true, forKey: Self.broadcastHrStopUnverifiedKey)
+        }
         state.strapBroadcastStatus = .requesting
         log("Broadcast HR: writing \(DeviceConfigWriteGate.broadcastHrKey)='\(DeviceConfigWriteGate.valueString(on: on))' via SET_DEVICE_CONFIG_VALUE(119); the ack is NOT the result — a GET_DEVICE_CONFIG_VALUE(121) read-back follows.")
         // The in-flight report grants this exact key through the send allowlist;
@@ -3737,6 +3748,7 @@ public final class BLEManager: NSObject, ObservableObject {
         if report.verdict == .confirmed {
             let on = report.requested == "1"
             UserDefaults.standard.set(on, forKey: PuffinExperiment.broadcastHrKey)
+            UserDefaults.standard.set(false, forKey: Self.broadcastHrStopUnverifiedKey)
             state.strapBroadcastStatus = on ? .storedOn : .storedOff
         } else {
             state.strapBroadcastStatus = .failed
@@ -6886,7 +6898,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 log("WHOOP 5/MG: connect handshake done — backfill unblocked")
                 noteRebootReconnectIfNeeded()
                 // Re-apply the Broadcast-HR device-config flag if the user opted in (#181).
-                if PuffinExperiment.broadcastHrEnabled { setBroadcastHr(true) }
+                if PuffinExperiment.broadcastHrEnabled && !broadcastHrStopUnverified { setBroadcastHr(true) }
                 // Clock the strap BEFORE history: an un-clocked WHOOP 5 discards sensor data ("RTC
                 // timestamp … is invalid; not saving data to flash") and history offloads "succeed"
                 // with metadata only. Same 8-byte payload as the WHOOP4 handshake, puffin-framed;
@@ -6978,7 +6990,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         startBackfillTimer()   // re-offload the type-47 store every backfillIntervalSeconds
         startKeepAlive()       // always-ping: re-arm realtime, poll battery, watchdog the link
         // WHOOP 4's broadcast mode is link/runtime state, so restore an opted-in mode after reconnect.
-        if PuffinExperiment.broadcastHrEnabled { setBroadcastHr(true) }
+        if PuffinExperiment.broadcastHrEnabled && !broadcastHrStopUnverified { setBroadcastHr(true) }
         enableLiveNotifications(reason: "post-bond")   // includes 0x2A37 standard HR — the fallback path
         // #927: RE-DERIVE the want at arm time (same reasoning as the 5/MG branch above): a reconnect
         // outside the overnight window must not arm the flood from a stale precomputed `wantsRealtime`
