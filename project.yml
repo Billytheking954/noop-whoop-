@@ -387,10 +387,12 @@ targets:
       - StrandTests/RepositoryRefreshFailureTests.swift
       - StrandTests/ActiveWorkoutPersistenceTests.swift
       - StrandTests/WidgetSnapshotTests.swift
+      - StrandTests/SleepImportedTimelineTests.swift
     dependencies:
       - target: NOOPiOS
       - package: GRDB
       - package: WhoopStore
+      - package: StrandDesign
       - package: StrandAnalytics
       - package: WhoopProtocol
       - package: OuraProtocol

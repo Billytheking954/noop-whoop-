@@ -1,7 +1,11 @@
 import XCTest
 import WhoopStore
 import StrandDesign
+#if os(iOS)
+@testable import NOOPiOS
+#else
 @testable import Strand
+#endif
 
 final class SleepImportedTimelineTests: XCTestCase {
     func testImportedTotalsCannotImplyWhenStagesOccurred() {
