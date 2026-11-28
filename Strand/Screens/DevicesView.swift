@@ -458,7 +458,7 @@ private struct DevicesContent: View {
                 : "Off. Compatible receivers can scan for the strap's Bluetooth heart-rate service."
             }
         }
-        NoopCard(tint: StrandPalette.accent) {
+        return NoopCard(tint: StrandPalette.accent) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text("Broadcast heart rate")
                     .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
