@@ -1675,11 +1675,6 @@ struct LiquidTodayView: View {
         guard !Task.isCancelled, loadingDayKey == selectedDayKey else { return }
         let day = resolveDisplayDay()
         cachedDisplayDay = day
-        cachedEstimates = DayEstimates(
-            dayKey: loadingDayKey,
-            readiness: ReadinessEngine.evaluate(days: repo.days, today: loadingDayKey),
-            energyReserve: estimateEnergyReserve(for: day)
-        )
         // Prior-day vitals carry, resolved ONCE here (never in body). Bound to today's own key so it can't
         // echo today's still-forming row; only on today (a past day's own row is the whole story).
         let tkey = cachedDisplayDay?.day ?? selectedDayKey
@@ -1702,6 +1697,14 @@ struct LiquidTodayView: View {
             isToday: selectedDayOffset == 0,
             todayScored: day?.recovery != nil,
             isCalibrating: calNights != nil
+        )
+        // Use the same explicitly labelled prior night as Charge after a logical-day rollover.
+        // Keep the cache keyed to the selected screen day; Energy Reserve still targets that day.
+        cachedEstimates = DayEstimates(
+            dayKey: loadingDayKey,
+            readiness: Self.resolveReadiness(days: repo.days, selectedDayKey: loadingDayKey,
+                                             carriedDayKey: priorScored?.day),
+            energyReserve: estimateEnergyReserve(for: day)
         )
         cachedChargeDisplay = ChargeDisplay.resolve(
             todayRecovery: day?.recovery,
@@ -1972,6 +1975,12 @@ struct LiquidTodayView: View {
     }
 
     private static let emptyReadiness = ReadinessEngine.evaluate(days: [])
+
+    /// The caller supplies only Charge's gated carry; historical screens never borrow another day.
+    static func resolveReadiness(days: [DailyMetric], selectedDayKey: String,
+                                 carriedDayKey: String?) -> ReadinessEngine.Readiness {
+        ReadinessEngine.evaluate(days: days, today: carriedDayKey ?? selectedDayKey)
+    }
 
     /// Hide estimates while the selected day's load is pending. The prior day's cached
     /// values can otherwise survive a swipe until asynchronous reads return.

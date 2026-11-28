@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopStore
 
 // MARK: - Auto-detected workout prompt (Today screen)
 //
@@ -29,7 +30,9 @@ struct AutoWorkoutCard: View {
     /// Guards the Save button while the write is in flight.
     @State private var saving = false
     @State private var motionSupported = false
-    @State private var showEdit = false
+    @State private var review: Review?
+    @State private var reloadGeneration = 0
+    @State private var loadRevision = 0
     @State private var saveError = false
 
     var body: some View {
@@ -39,27 +42,20 @@ struct AutoWorkoutCard: View {
             }
         }
         // Re-scan whenever the data refreshes (a sync bumps refreshSeq) or the toggle flips on.
-        .task(id: AutoWorkoutLoadKey(seq: repo.refreshSeq, enabled: autoDetectEnabled)) {
+        .task(id: AutoWorkoutLoadKey(seq: repo.refreshSeq, enabled: autoDetectEnabled, revision: loadRevision)) {
             await reload()
         }
-        .sheet(isPresented: $showEdit) {
-            if let candidate,
-               let draft = WorkoutSource.buildManualRowFromSpan(
-                   start: Date(timeIntervalSince1970: TimeInterval(candidate.startSec)),
-                   end: Date(timeIntervalSince1970: TimeInterval(candidate.endSec)),
-                   sport: sportPrediction?.predictedClass.editableSportName ?? "Other",
-                   avgHr: candidate.avgBpm, energyKcal: nil) {
-                ManualWorkoutSheet(editing: draft, reviewingSuggestion: true,
+        .sheet(item: $review, onDismiss: { loadRevision &+= 1 }) { openedReview in
+            ManualWorkoutSheet(editing: openedReview.draft, reviewingSuggestion: true,
                                    onReviewedSave: { row in
                     saving = true
-                    let saved = await repo.saveReviewedDetectedWorkout(row, suggestion: candidate)
-                    handledThisSession = saved
+                    let saved = await repo.saveReviewedDetectedWorkout(row, suggestion: openedReview.candidate)
+                    if candidate == openedReview.candidate { handledThisSession = saved }
                     saveError = !saved
                     if saved { await repo.refresh() }
                     saving = false
                     return saved
                 }) { _, _ in }
-            }
         }
     }
 
@@ -110,7 +106,7 @@ struct AutoWorkoutCard: View {
                 }
 
                 HStack(spacing: NoopMetrics.space3) {
-                    Button { showEdit = true } label: {
+                    Button { review = Review(candidate: w, prediction: sportPrediction) } label: {
                         Label("Review time & sport", systemImage: "slider.horizontal.3")
                     }
                     .buttonStyle(.borderedProminent)
@@ -145,16 +141,22 @@ struct AutoWorkoutCard: View {
     }
 
     private func reload() async {
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
         guard autoDetectEnabled else {
             candidate = nil; sportPrediction = nil; motionSupported = false
             return
         }
         let next = await repo.autoDetectCandidate()
+        guard !Task.isCancelled, generation == reloadGeneration, autoDetectEnabled else { return }
         if let next, next != candidate {
             async let motionRead = repo.autoDetectHasMotionEvidence(next)
             async let sportRead = repo.autoDetectSportSuggestion(next)
-            motionSupported = await motionRead
-            sportPrediction = await sportRead
+            let motion = await motionRead
+            let prediction = await sportRead
+            guard !Task.isCancelled, generation == reloadGeneration, autoDetectEnabled else { return }
+            motionSupported = motion
+            sportPrediction = prediction
         } else if next == nil {
             motionSupported = false
             sportPrediction = nil
@@ -171,6 +173,25 @@ struct AutoWorkoutCard: View {
         repo.dismissDetectedSuggestion(w)
         handledThisSession = true
         candidate = nil
+        loadRevision &+= 1
+    }
+
+    /// A presented review owns its original span and draft even when a sync replaces the card.
+    /// Saving must dismiss the reviewed suggestion, never whichever candidate was loaded afterwards.
+    struct Review: Identifiable {
+        let candidate: DetectedWorkout
+        let draft: WorkoutRow
+        var id: String { "\(candidate.startSec):\(candidate.endSec)" }
+
+        init?(candidate: DetectedWorkout, prediction: WorkoutClassPrediction?) {
+            guard let draft = WorkoutSource.buildManualRowFromSpan(
+                start: Date(timeIntervalSince1970: TimeInterval(candidate.startSec)),
+                end: Date(timeIntervalSince1970: TimeInterval(candidate.endSec)),
+                sport: prediction?.predictedClass.editableSportName ?? "Other",
+                avgHr: candidate.avgBpm, energyKcal: nil) else { return nil }
+            self.candidate = candidate
+            self.draft = draft
+        }
     }
 
     /// HH:mm in the user's locale/timezone.
@@ -192,4 +213,5 @@ struct AutoWorkoutCard: View {
 private struct AutoWorkoutLoadKey: Equatable {
     let seq: Int
     let enabled: Bool
+    let revision: Int
 }
