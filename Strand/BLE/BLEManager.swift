@@ -2382,7 +2382,8 @@ public final class BLEManager: NSObject, ObservableObject {
                                                     payload: payload,
                                                     ecgGateOptIn: PuffinExperiment.ecgRawDataEnabled,
                                                     isMG: isWhoop5MG,
-                                                    broadcastHrOptIn: PuffinExperiment.broadcastHrEnabled)
+                                                    broadcastHrOptIn: PuffinExperiment.broadcastHrEnabled
+                                                        || broadcastHrGateReport?.requested == "1")
                 // GET_DEVICE_CONFIG_VALUE(121) as a gate's mandatory READ-BACK — gated on a write being
                 // verified, exactly like the R22 read-back above. The write ack is never the proof. Both the
                 // ECG gate (#891) and the Broadcast-HR gate (#1061) read themselves back over this opcode.
@@ -3665,23 +3666,26 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// Make a bonded strap advertise as a standard BLE HR sensor. WHOOP 4 uses the reversible
     /// TOGGLE_GENERIC_HR_PROFILE command; WHOOP 5/MG keeps the existing device-config path.
-    public func setBroadcastHr(_ on: Bool) {
+    @discardableResult
+    public func setBroadcastHr(_ on: Bool) -> Bool {
         guard state.connected, state.bonded else {
-            log("Broadcast HR: connect and bond the strap first — ignored."); return
+            log("Broadcast HR: connect and bond the strap first — ignored."); return false
         }
         if selectedModel.deviceFamily == .whoop4 {
             send(.toggleGenericHRProfile, payload: [on ? 0x01 : 0x00])
+            UserDefaults.standard.set(on, forKey: PuffinExperiment.broadcastHrKey)
+            state.strapBroadcastStatus = .unverified
             log("Broadcast HR: WHOOP 4 \(on ? "enable" : "disable") command sent (14); effect not confirmed.")
-            return
+            return true
         }
         guard selectedModel.deviceFamily == .whoop5 else {
-            log("Broadcast HR: strap family is not known yet — ignored."); return
+            log("Broadcast HR: strap family is not known yet — ignored."); return false
         }
         // Mutually exclusive with the ECG gate: both verify over the SAME 121 read-back opcode, so if both
         // were in flight one strap reply would be consumed by both handlers and cross-contaminate the other's
         // verdict (its key isn't echoed → a spurious notClaimed). Only one device-config write verifies at once.
         guard broadcastHrGateReport == nil, ecgGateReport == nil else {
-            log("Broadcast HR: a device-config write is already being verified — ignored."); return
+            log("Broadcast HR: a device-config write is already being verified — ignored."); return false
         }
         let payload = [0x01] + Whoop5Config.deviceConfigBody(name: DeviceConfigWriteGate.broadcastHrKey,
                                                              value: DeviceConfigWriteGate.value(on: on))
@@ -3692,15 +3696,18 @@ public final class BLEManager: NSObject, ObservableObject {
                                                payload: payload,
                                                ecgGateOptIn: PuffinExperiment.ecgRawDataEnabled,
                                                isMG: isWhoop5MG,
-                                               broadcastHrOptIn: PuffinExperiment.broadcastHrEnabled) else {
+                                               broadcastHrOptIn: on || PuffinExperiment.broadcastHrEnabled) else {
             log("Broadcast HR: write whoop_live_hr_in_adv_ind_pkt=\(on ? "1" : "0") REFUSED by the 5/MG send gate — strap unchanged.")
-            return
+            return false
         }
         // #1061: write, then READ IT BACK — the ack is not the proof. A reporter on FW 50.36.2.0 saw the
         // flag written yet the strap never advertised 0x180D, with no way to tell "accepted but not
         // advertised" from "write ignored". The 121 read-back settles that, same discipline as the ECG gate.
         broadcastHrGateReport = BroadcastHrGateReport(on: on)
+        state.strapBroadcastStatus = .requesting
         log("Broadcast HR: writing \(DeviceConfigWriteGate.broadcastHrKey)='\(DeviceConfigWriteGate.valueString(on: on))' via SET_DEVICE_CONFIG_VALUE(119); the ack is NOT the result — a GET_DEVICE_CONFIG_VALUE(121) read-back follows.")
+        // The in-flight report grants this exact key through the send allowlist;
+        // the persisted preference changes only after a matching read-back.
         send(.setDeviceConfig, payload: payload, writeType: .withResponse)
 
         broadcastHrGateStep &+= 1
@@ -3715,6 +3722,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 self.finishBroadcastHrWrite()
             }
         }
+        return true
     }
 
     /// Non-nil only while a Broadcast-HR write is being verified (#1061) — same single-flight discipline as
@@ -3726,6 +3734,13 @@ public final class BLEManager: NSObject, ObservableObject {
     private func finishBroadcastHrWrite() {
         guard let report = broadcastHrGateReport else { return }
         broadcastHrGateReport = nil
+        if report.verdict == .confirmed {
+            let on = report.requested == "1"
+            UserDefaults.standard.set(on, forKey: PuffinExperiment.broadcastHrKey)
+            state.strapBroadcastStatus = on ? .storedOn : .storedOff
+        } else {
+            state.strapBroadcastStatus = .failed
+        }
         log("Broadcast HR (#1061):\n\(report.render())")
     }
 
@@ -6216,6 +6231,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             broadcastHrGateReport?.noteReadBackTimeout(seconds: Int(BLEManager.ecgGateReadBackTimeout))
             finishBroadcastHrWrite()
         }
+        state.strapBroadcastStatus = .off
         state.clearBiometrics()       // and a stale HR / R-R must not outlive the link either
         state.liveFeedActive = false  // a drop while Live is open must not leave a stale "Stop live feed"
         // #1635: an unanswered CLIENT_HELLO produces no write error at all - the link simply drops a few

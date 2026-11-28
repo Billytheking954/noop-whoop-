@@ -189,6 +189,7 @@ targets:
     dependencies:
       - target: Strand
       - package: GRDB
+      - package: StrandDesign
       - package: WhoopProtocol
       - package: WhoopStore
       - package: OuraProtocol

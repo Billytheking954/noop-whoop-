@@ -33,7 +33,13 @@ struct NightDetailCard: View {
         let debt  = model.sleepDebt
 
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            // These memoized series carry their latest value even while the carousel
+            // is showing an older night. Label the scope rather than attributing the
+            // latest measurements to the selected historical record.
             SectionHeader("Night detail", overline: "Metrics")
+            Text("Latest")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
 
             #if os(iOS)
             // On iOS, Sleep Debt is the actionable summary for the section, so it leads at the

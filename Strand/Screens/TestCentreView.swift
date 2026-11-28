@@ -48,7 +48,6 @@ struct TestCentreView: View {
     @AppStorage(PuffinExperiment.defaultsKey) private var puffinExperiments = false
     @AppStorage(PuffinFrameRecorder.enabledKey) private var puffinCapture = false
     @AppStorage(PuffinExperiment.deepDataKey) private var deepDataEnabled = false
-    @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastHrEnabled = false
     @AppStorage(PuffinExperiment.ecgRawDataKey) private var ecgRawDataEnabled = false
 
     /// The strap model the user last picked, the same key SettingsView's showFiveMGControls gate reads.
@@ -262,10 +261,7 @@ struct TestCentreView: View {
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
 
                 Divider().overlay(StrandPalette.hairline)
-                Toggle("Broadcast heart rate from the strap", isOn: $broadcastHrEnabled)
-                    .toggleStyle(.switch).tint(StrandPalette.accent)
-                    .onChangeCompat(of: broadcastHrEnabled) { model.ble.setBroadcastHr($0) }
-                Text("Writes the reversible 5/MG advertising flag for Garmin, Zwift, and compatible gym equipment.")
+                Text("Manage devices")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
 
                 Divider().overlay(StrandPalette.hairline)

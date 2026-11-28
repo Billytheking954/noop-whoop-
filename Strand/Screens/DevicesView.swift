@@ -440,24 +440,39 @@ private struct DevicesContent: View {
     /// Operates the existing WHOOP command directly from Devices. A requested setting is not
     /// evidence of radio advertising; the 5/MG read-back is recorded in the strap log.
     private var broadcastHrControl: some View {
+        let compatible = model.ble.isWhoop4 || model.ble.isWhoop5
+        let status: String
+        if !live.connected || !live.encryptedBond || !compatible {
+            status = "Unavailable: connect and pair a compatible WHOOP strap. The saved strap setting is unknown while disconnected."
+        } else if phoneBroadcastHrEnabled && !strapBroadcastHrEnabled {
+            status = "Stop phone broadcasting in Data Sources before requesting strap broadcasting."
+        } else {
+            switch live.strapBroadcastStatus {
+            case .requesting: status = "Checking the strap's saved setting…"
+            case .storedOn: status = "Strap setting enabled (read back). Check your receiver for actual advertising."
+            case .storedOff: status = "Strap setting disabled (read back)."
+            case .unverified: status = "Command sent; this strap cannot confirm the result. Check a receiver."
+            case .failed: status = "Command failed or could not be verified. Check the strap log and retry."
+            case .off: status = strapBroadcastHrEnabled
+                ? "Previously requested; current strap state is unverified."
+                : "Off. Compatible receivers can scan for the strap's Bluetooth heart-rate service."
+            }
+        }
         NoopCard(tint: StrandPalette.accent) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text("Broadcast heart rate")
                     .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                Text(!live.connected ? "Unavailable: connect a compatible WHOOP strap first."
-                     : !live.encryptedBond ? "Unavailable: wait for the strap to finish pairing."
-                     : strapBroadcastHrEnabled ? "Broadcast requested; advertising has not been confirmed."
-                     : "Off. Compatible receivers can scan for the strap's Bluetooth heart-rate service.")
+                Text(status)
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(strapBroadcastHrEnabled ? "Stop strap broadcast" : "Start strap broadcast") {
                     let enable = !strapBroadcastHrEnabled
-                    if enable { phoneBroadcastHrEnabled = false }
-                    strapBroadcastHrEnabled = enable
-                    model.ble.setBroadcastHr(enable)
+                    _ = model.ble.setBroadcastHr(enable)
                 }
                 .buttonStyle(.bordered)
-                .disabled(!strapBroadcastHrEnabled && (!live.connected || !live.encryptedBond || phoneBroadcastHrEnabled))
+                .disabled(!live.connected || !live.encryptedBond || !compatible
+                          || live.strapBroadcastStatus == .requesting
+                          || (phoneBroadcastHrEnabled && !strapBroadcastHrEnabled))
                 Text("WHOOP 5/MG checks the saved strap setting; WHOOP 4 cannot confirm it. A receiver must support standard Bluetooth HR. Check the strap log and receiver before relying on it.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

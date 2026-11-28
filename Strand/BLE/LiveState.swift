@@ -11,6 +11,11 @@ import OuraProtocol
 @MainActor
 public final class LiveState: ObservableObject {
     @Published public var connected: Bool = false
+    /// A config read-back proves the stored 5/MG setting, not that a receiver can see advertising.
+    public enum StrapBroadcastStatus: Equatable {
+        case off, requesting, storedOn, storedOff, unverified, failed
+    }
+    @Published public var strapBroadcastStatus: StrapBroadcastStatus = .off
     // NOTE: do NOT auto-clear `pairingHint` when `bonded` flips true. On a 5/MG, `bonded` is also set by
     // the live-HR shortcut (BLEManager — HR over the unbonded standard profile), so clearing the hint
     // there hides the still-accurate "free the strap" guidance from users who are streaming HR but never

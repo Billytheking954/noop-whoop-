@@ -1,5 +1,6 @@
 """Upgrade gates against the actual historical source, not a newly invented schema."""
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -19,8 +20,17 @@ class UpgradeSourceTests(unittest.TestCase):
         self.assertTrue(current.startswith(old_body), 'An existing v12 migration changed')
 
     def test_database_path_and_bluetooth_state_restore_identity_are_unchanged(self):
-        for path in ['Strand/Collect/StorePaths.swift', 'Strand/BLE/BLEManager.swift']:
-            self.assertEqual((ROOT / path).read_text(), self.original(path), path)
+        path = 'Strand/Collect/StorePaths.swift'
+        self.assertEqual((ROOT / path).read_text(), self.original(path), path)
+        path = 'Strand/BLE/BLEManager.swift'
+        current, original = (ROOT / path).read_text(), self.original(path)
+        # A broadcast command may change without changing CoreBluetooth's restore
+        # identity or the persisted peripheral selection used on reconnect.
+        for pattern in [r'^\s*static let restoreID = .*$',
+                        r'^.*CBCentralManagerOptionRestoreIdentifierKey: BLEManager.restoreID.*$',
+                        r'^.*retrievePeripherals\(withIdentifiers:.*$']:
+            self.assertEqual(re.findall(pattern, current, re.MULTILINE),
+                             re.findall(pattern, original, re.MULTILINE), pattern)
 
     def test_archive_validator_rejects_staging_id(self):
         import verify_noop_upgrade as verifier
@@ -33,7 +43,9 @@ class UpgradeSourceTests(unittest.TestCase):
 
     def test_quality_candidate_keeps_identity_but_drops_staging_product_name(self):
         project = (ROOT / 'project.yml').read_text()
-        self.assertIn('CURRENT_PROJECT_VERSION: "440"', project)
+        build = re.search(r'^\s*CURRENT_PROJECT_VERSION: "(\d+)"$', project, re.MULTILINE)
+        self.assertIsNotNone(build)
+        self.assertGreater(int(build.group(1)), 440)
         self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).noop\n        PRODUCT_NAME: "NOOP"', project)
         self.assertNotIn('PRODUCT_NAME: "NOOP Staging"', project)
         self.assertIn('TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP.app/NOOP"', project)

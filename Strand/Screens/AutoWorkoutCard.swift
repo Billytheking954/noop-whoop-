@@ -107,6 +107,13 @@ struct AutoWorkoutCard: View {
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: NoopMetrics.space1) {
+                    Text("Peak heart rate")
+                    Text(w.peakBpm.formatted())
+                    Text("bpm")
+                }
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
 
                 Text(motionSupported
                      ? String(localized: "Heart-rate pattern and movement recorded. Please confirm the activity.")

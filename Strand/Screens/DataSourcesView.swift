@@ -123,6 +123,7 @@ struct DataSourcesView: View {
             // The broadcast is a foreground convenience tied to this screen's owned object — release the
             // radio when the screen goes away; toggling it back on (or revisiting) re-starts it.
             hrBroadcaster.stop()
+            broadcastHrEnabled = false
         }
         .onChangeCompat(of: hrBroadcaster.idleTimedOut) { timedOut in
             if timedOut { broadcastHrEnabled = false }
@@ -949,27 +950,9 @@ struct DataSourcesView: View {
              tint: StrandPalette.accent,
              status: StatePill(label, tone: tone, pulsing: live.connected && !live.bonded),
              subtitle: String(localized: "Pairs directly with your strap over Bluetooth: no WHOOP app, no cloud.")) {
-            Toggle(isOn: $strapBroadcastHrEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Broadcast heart rate from the strap")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Broadcasts the strap's own live heart rate over Bluetooth.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-            .toggleStyle(.switch)
-            .tint(StrandPalette.accent)
-            .accessibilityLabel("Broadcast heart rate from the strap")
-            .disabled(!strapBroadcastHrEnabled && (broadcastHrEnabled || !live.connected || !live.encryptedBond || !LiveConsoleReadout.activeIsWhoop(devices: model.deviceRegistry?.devices ?? [], activeId: model.deviceRegistry?.activeDeviceId)))
-            .onChangeCompat(of: strapBroadcastHrEnabled) { on in
-                if on && broadcastHrEnabled {
-                    broadcastHrEnabled = false
-                    hrBroadcaster.stop()
-                }
-                model.ble.setBroadcastHr(on)
-            }
+            Text("Broadcasts the strap's own live heart rate over Bluetooth.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
         }
     }
 

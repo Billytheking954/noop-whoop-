@@ -1,5 +1,6 @@
 import XCTest
 import WhoopStore
+import StrandDesign
 @testable import Strand
 
 final class SleepImportedTimelineTests: XCTestCase {
@@ -16,5 +17,20 @@ final class SleepImportedTimelineTests: XCTestCase {
         night.realSegments = [measured]
         XCTAssertEqual(night.intervals.count, 1)
         XCTAssertEqual(night.intervals[0].start, measured.start)
+    }
+
+    func testBridgeWithoutStageSamplesStaysUnknown() throws {
+        let start = 1_700_000_000
+        let first = CachedSleepSession(startTs: start, endTs: start + 7_200,
+                                       efficiency: nil, restingHr: nil, avgHrv: nil,
+                                       stagesJSON: #"{"light":120}"#)
+        let second = CachedSleepSession(startTs: start + 7_500, endTs: start + 14_700,
+                                        efficiency: nil, restingHr: nil, avgHrv: nil,
+                                        stagesJSON: #"{"light":120}"#)
+        let night = try XCTUnwrap(SleepModel.mergeDay([first, second],
+                                                       habitualMidsleepSec: nil, motionByStart: [:]))
+        XCTAssertEqual(night.sourceBlocks.count, 2)
+        XCTAssertEqual(night.stages.awake, 0)
+        XCTAssertTrue(night.intervals.isEmpty, "A five-minute data gap is not measured awake time")
     }
 }

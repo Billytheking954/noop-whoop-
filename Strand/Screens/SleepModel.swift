@@ -296,19 +296,13 @@ extension SleepModel {
             }
             if let m = motionByStart[frag.startTs] { motion.append(contentsOf: m) }
         }
-        let orderedFrags = Array(group)
-        for (prev, next) in zip(orderedFrags, orderedFrags.dropFirst()) {
-            let gapStart = prev.endTs, gapEnd = next.effectiveStartTs
-            guard gapEnd > gapStart else { continue }
-            segs.append(SleepInterval(stage: .awake,
-                                      start: TimeInterval(gapStart - onset),
-                                      end: TimeInterval(gapEnd - onset)))
-        }
+        // A gap between fragments has no stage samples. Leave the interval blank:
+        // calling it awake would invent a measurement and distort efficiency.
         guard stages.asleep > 0 else { return nil }
         let eff = stages.total > 0 ? stages.asleep / stages.total : nil
         let synth = CachedSleepSession(startTs: onset, endTs: wake, efficiency: eff,
                                        restingHr: nil, avgHrv: nil, stagesJSON: nil)
-        let realSegs = segs.count >= 2 ? segs.sorted { $0.start < $1.start } : nil
+        let realSegs = segs.isEmpty ? nil : segs.sorted { $0.start < $1.start }
         return Night(session: synth, stages: stages, realSegments: realSegs, sourceBlocks: sessions,
                      motionEpochs: motion, habitualMidsleepSec: habitualMidsleepSec)
     }
