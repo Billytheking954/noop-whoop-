@@ -28,7 +28,7 @@ struct Night {
     let session: CachedSleepSession
     let stages: Stages
     /// The REAL per-segment timeline for on-device computed nights (nil for imported nights,
-    /// whose export carries totals only — those keep the synthetic reconstruction below). (#77)
+    /// whose export carries totals only). (#77)
     var realSegments: [SleepInterval]? = nil
     /// The actual stored block(s) this merged Night was built from. `session` above is a SYNTHETIC
     /// merge for display; an edit must target a real row, so it resolves it from here by identity
@@ -71,27 +71,10 @@ struct Night {
     /// The wall-clock start of the night (for the Hypnogram's clock labels).
     var onsetDate: Date { Date(timeIntervalSince1970: TimeInterval(session.effectiveStartTs)) }
 
-    /// Stage intervals laid end-to-end across the night, in seconds from start.
-    /// On-device computed nights use their REAL timeline; imported nights are reconstructed
-    /// from durations only (the export has no per-epoch timeline).
+    /// Only real per-segment timing may populate the timeline. Imported stage totals have no
+    /// per-epoch placement; the sleep view displays their proportional stage bar instead.
     var intervals: [SleepInterval] {
-        if let real = realSegments, real.count >= 2 { return real }
-        var t: TimeInterval = 0
-        var out: [SleepInterval] = []
-        func add(_ stage: SleepStage, _ minutes: Double) {
-            guard minutes > 0 else { return }
-            let secs = minutes * 60
-            out.append(SleepInterval(stage: stage, start: t, end: t + secs))
-            t += secs
-        }
-        // A plausible architecture: deep early, REM later, awake last.
-        add(.light, stages.light * 0.4)
-        add(.deep, stages.deep)
-        add(.light, stages.light * 0.3)
-        add(.rem, stages.rem)
-        add(.light, stages.light * 0.3)
-        add(.awake, stages.awake)
-        return out
+        realSegments ?? []
     }
 
     var onsetText: String { Night.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(session.effectiveStartTs))) }

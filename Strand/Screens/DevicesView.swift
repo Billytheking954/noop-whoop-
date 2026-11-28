@@ -74,6 +74,8 @@ private struct DevicesContent: View {
     @State private var ecgWristTarget: PairedDevice?
     /// The Experimental ECG opt-in. Read here so the menu entry appears only once the user has opted in.
     @AppStorage(PuffinExperiment.ecgKey) private var ecgEnabled = false
+    @AppStorage(PuffinExperiment.broadcastHrKey) private var strapBroadcastHrEnabled = false
+    @AppStorage(HrBroadcaster.defaultsKey) private var phoneBroadcastHrEnabled = false
     /// #103 device-config READ probe (Test Centre → Connection) — the device whose dialog is open.
     @State private var deviceConfigProbeTarget: PairedDevice?
     /// After removing the ACTIVE device with other devices still paired, prompt to pick a new active one.
@@ -275,6 +277,7 @@ private struct DevicesContent: View {
             // Only send WHOOP-specific commands when the registry identifies the active device as WHOOP.
             if activeDevices.contains(where: { $0.status == .active && SourceCoordinator.isWhoop($0) }) {
                 DeviceStrapControls()
+                broadcastHrControl
                 NavigationLink(destination: PowerSavingView()) {
                     Label("Power saving", systemImage: "battery.25")
                 }
@@ -431,6 +434,34 @@ private struct DevicesContent: View {
             Button("Leave none active", role: .cancel) { }
         } message: {
             Text("You removed your active strap. Choose which paired band provides your live data, or leave none active and pair one later.")
+        }
+    }
+
+    /// Operates the existing WHOOP command directly from Devices. A requested setting is not
+    /// evidence of radio advertising; the 5/MG read-back is recorded in the strap log.
+    private var broadcastHrControl: some View {
+        NoopCard(tint: StrandPalette.accent) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text("Broadcast heart rate")
+                    .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+                Text(!live.connected ? "Unavailable: connect a compatible WHOOP strap first."
+                     : !live.encryptedBond ? "Unavailable: wait for the strap to finish pairing."
+                     : strapBroadcastHrEnabled ? "Broadcast requested; advertising has not been confirmed."
+                     : "Off. Compatible receivers can scan for the strap's Bluetooth heart-rate service.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(strapBroadcastHrEnabled ? "Stop strap broadcast" : "Start strap broadcast") {
+                    let enable = !strapBroadcastHrEnabled
+                    if enable { phoneBroadcastHrEnabled = false }
+                    strapBroadcastHrEnabled = enable
+                    model.ble.setBroadcastHr(enable)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!strapBroadcastHrEnabled && (!live.connected || !live.encryptedBond || phoneBroadcastHrEnabled))
+                Text("WHOOP 5/MG checks the saved strap setting; WHOOP 4 cannot confirm it. A receiver must support standard Bluetooth HR. Check the strap log and receiver before relying on it.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

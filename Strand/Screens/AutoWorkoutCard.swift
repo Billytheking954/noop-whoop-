@@ -16,6 +16,9 @@ import WhoopStore
 
 struct AutoWorkoutCard: View {
 
+    /// Workouts keeps an entry point visible even when opt-in is off or no bout is pending.
+    var showStatus = false
+
     @EnvironmentObject var repo: Repository
 
     /// Whether the toggle is on. Read here too so the card disappears the instant it's switched off.
@@ -39,6 +42,22 @@ struct AutoWorkoutCard: View {
         Group {
             if autoDetectEnabled, !handledThisSession, let w = candidate {
                 card(for: w)
+            } else if showStatus {
+                NoopCard(tint: StrandPalette.accent) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        Text("Estimated workouts")
+                            .font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Toggle("Suggest workouts from recorded heart rate", isOn: $autoDetectEnabled)
+                            .tint(StrandPalette.accent)
+                        Text(autoDetectEnabled
+                             ? "No pending suggestion. NOOP checks recorded heart rate after sync; it may miss activities."
+                             : "Off. Enable to review possible workouts before anything is saved.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
         // Re-scan whenever the data refreshes (a sync bumps refreshSeq) or the toggle flips on.

@@ -208,6 +208,7 @@ struct WorkoutsView: View {
                 let zonesSummary = WorkoutZones.summary(from: windowRows)
 
                 workoutActionRow
+                AutoWorkoutCard(showStatus: true)
                 scopeBar
                 rangeBar(rows: windowRows, effectiveRange: resolved)
                 if let postLogNote { postLogBanner(postLogNote) }
